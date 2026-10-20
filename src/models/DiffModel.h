@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/DiffMarkup.h"
 #include "core/DiffParser.h"
 #include "core/PatchBuilder.h"
 
@@ -41,14 +42,17 @@ public:
         CollapsedRole, // file headers: the file's lines are hidden
         AddedRole,     // file headers: lines added in the file
         RemovedRole,   // file headers: lines removed
+        MarkupRole,    // a LineMarkup, for lines of code
     };
 
     using QAbstractListModel::QAbstractListModel;
 
-    void setFiles(const QList<FileDiff> &files);
+    // `markup`, if given, is parallel to `files` (see markupDiff()).
+    void setFiles(const QList<FileDiff> &files, const QList<FileMarkup> &markup = {});
     void setMessage(const QString &message);
     // A whole file rather than a diff: just its lines, numbered.
-    void setContent(const QString &path, const QStringList &lines, bool truncated);
+    void setContent(const QString &path, const QStringList &lines, bool truncated,
+                    const QList<LineMarkup> &markup = {});
     void clear();
 
     const QList<FileDiff> &files() const { return m_files; }
@@ -95,6 +99,7 @@ private:
         QString text;
         int oldLine = -1;
         int newLine = -1;
+        LineMarkup markup;
 
         bool selectable() const { return kind == Added || kind == Removed; }
     };

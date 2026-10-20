@@ -10,6 +10,9 @@ qt_add_qml_module(igitt_core
         core/GraphLayout.h core/GraphLayout.cpp
         core/StatusParser.h core/StatusParser.cpp
         core/DiffParser.h core/DiffParser.cpp
+        core/Highlighter.h core/Highlighter.cpp
+        core/WordDiff.h core/WordDiff.cpp
+        core/DiffMarkup.h core/DiffMarkup.cpp
         core/PatchBuilder.h core/PatchBuilder.cpp
         core/FoldEngine.h core/FoldEngine.cpp
         core/FoldSuggester.h core/FoldSuggester.cpp
@@ -35,6 +38,20 @@ target_include_directories(igitt_core
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/models ${CMAKE_CURRENT_SOURCE_DIR}/core
 )
 target_link_libraries(igitt_core PUBLIC Qt6::Core Qt6::Qml)
+
+# KDE's highlighter knows hundreds of languages; without it a built-in one
+# covers the few igitt's own sources are written in.
+option(IGITT_USE_KSYNTAXHIGHLIGHTING "Highlight syntax with KSyntaxHighlighting if it is found" ON)
+if(IGITT_USE_KSYNTAXHIGHLIGHTING)
+    find_package(KF6SyntaxHighlighting QUIET)
+endif()
+if(KF6SyntaxHighlighting_FOUND)
+    message(STATUS "Highlighting syntax with KSyntaxHighlighting ${KF6SyntaxHighlighting_VERSION}")
+    target_link_libraries(igitt_core PRIVATE KF6::SyntaxHighlighting)
+    target_compile_definitions(igitt_core PRIVATE IGITT_HAVE_KSYNTAXHIGHLIGHTING)
+else()
+    message(STATUS "KSyntaxHighlighting not found; using the built-in highlighter")
+endif()
 
 # UI: QML and the custom items, as a library so the UI smoke test can load it.
 set_source_files_properties(qml/AppSettings.qml qml/Icons.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
@@ -67,6 +84,7 @@ qt_add_qml_module(igitt_ui
         qml/SplitterHandle.qml
     SOURCES
         ui/CommitGraph.h ui/CommitGraph.cpp
+        ui/DiffLineText.h ui/DiffLineText.cpp
         ui/Clipboard.h
         ui/ActivityMinimap.h ui/ActivityMinimap.cpp
         ui/Fonts.h ui/Fonts.cpp
@@ -96,6 +114,7 @@ qt_add_qml_module(igitt_ui
         icons/git-merge.svg
         icons/git-pull-request.svg
         icons/grip-vertical.svg
+        icons/highlighter.svg
         icons/history.svg
         icons/list-checks.svg
         icons/pause.svg
@@ -107,10 +126,12 @@ qt_add_qml_module(igitt_ui
         icons/settings.svg
         icons/skip-back.svg
         icons/skip-forward.svg
+        icons/space.svg
         icons/step-back.svg
         icons/step-forward.svg
         icons/tag.svg
         icons/undo-2.svg
+        icons/whole-word.svg
         icons/x.svg
         fonts/Inter-Bold.ttf
         fonts/Inter-Italic.ttf

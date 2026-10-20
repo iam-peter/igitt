@@ -14,6 +14,9 @@ Pane {
     readonly property bool workingDiff: repo.diffSource === Repository.UnstagedDiff
                                         || repo.diffSource === Repository.StagedDiff
     readonly property bool stagedDiff: repo.diffSource === Repository.StagedDiff
+    // A diff that ignores white space would not apply back.
+    readonly property bool canStage: workingDiff && !repo.ignoreWhitespace
+    readonly property bool showsDiff: workingDiff || repo.diffSource === Repository.CommitDiff
 
     // Emitted in scene coordinates while the selected lines are dragged
     // towards the history, and once when they are dropped.
@@ -22,7 +25,7 @@ Pane {
     signal foldRequested(string sha)
     signal timelapseRequested(string path)
 
-    readonly property bool hasSelection: workingDiff && repo.diff.selectedCount > 0
+    readonly property bool hasSelection: canStage && repo.diff.selectedCount > 0
 
     padding: 0
 
@@ -116,7 +119,8 @@ Pane {
                 }
                 Label {
                     visible: view.workingDiff && view.repo.diff.selectedCount === 0
-                    text: qsTr("Click lines to select, Shift+click for a range")
+                    text: view.canStage ? qsTr("Click lines to select, Shift+click for a range")
+                                        : qsTr("White space is ignored, so lines cannot be staged")
                     opacity: 0.6
                 }
                 Rectangle {
@@ -196,6 +200,37 @@ Pane {
                     ToolTip.text: qsTr("See this file through its history")
                 }
                 IconButton {
+                    objectName: "ignoreWhitespaceButton"
+                    iconName: "space"
+                    visible: view.showsDiff
+                    checked: AppSettings.diff.ignoreWhitespace
+                    onClicked: AppSettings.diff.ignoreWhitespace = !AppSettings.diff.ignoreWhitespace
+                    ToolTip.visible: hovered
+                    ToolTip.text: AppSettings.diff.ignoreWhitespace
+                                  ? qsTr("Show changes of white space")
+                                  : qsTr("Ignore changes of white space (lines cannot be staged then)")
+                }
+                IconButton {
+                    objectName: "wordDiffButton"
+                    iconName: "whole-word"
+                    visible: view.showsDiff
+                    checked: AppSettings.diff.wordDiff
+                    onClicked: AppSettings.diff.wordDiff = !AppSettings.diff.wordDiff
+                    ToolTip.visible: hovered
+                    ToolTip.text: AppSettings.diff.wordDiff ? qsTr("Stop marking changed words")
+                                                            : qsTr("Mark the words that changed")
+                }
+                IconButton {
+                    objectName: "highlightButton"
+                    iconName: "highlighter"
+                    visible: view.repo.diffSource !== Repository.NoDiff
+                    checked: AppSettings.diff.highlightSyntax
+                    onClicked: AppSettings.diff.highlightSyntax = !AppSettings.diff.highlightSyntax
+                    ToolTip.visible: hovered
+                    ToolTip.text: AppSettings.diff.highlightSyntax ? qsTr("Stop highlighting syntax")
+                                                                   : qsTr("Highlight syntax")
+                }
+                IconButton {
                     objectName: "collapseAllButton"
                     iconName: "chevrons-down-up"
                     visible: view.repo.diff.fileCount > 1
@@ -234,7 +269,7 @@ Pane {
                 IconButton {
                     iconName: view.stagedDiff ? "undo-2" : "plus"
                     visible: view.workingDiff
-                    enabled: view.repo.diff.selectedCount > 0 && !view.repo.writing
+                    enabled: view.canStage && view.repo.diff.selectedCount > 0 && !view.repo.writing
                     text: view.stagedDiff ? qsTr("Unstage %n line(s)", "", view.repo.diff.selectedCount)
                                           : qsTr("Stage %n line(s)", "", view.repo.diff.selectedCount)
                     onClicked: view.repo.applySelection()
@@ -295,6 +330,7 @@ Pane {
                 required property bool collapsed
                 required property int added
                 required property int removed
+                required property var markup
 
                 readonly property bool header: kind === DiffModel.FileHeader
 
@@ -333,8 +369,21 @@ Pane {
                     name: row.collapsed ? "chevron-right" : "chevron-down"
                 }
 
-                Text {
+                // Plain text, never markup, with the colors of its markup.
+                DiffLineText {
                     id: lineText
+
+                    readonly property string marker: {
+                        switch (row.kind) {
+                        case DiffModel.Added: return "+"
+                        case DiffModel.Removed: return "-"
+                        case DiffModel.Context: return view.repo.diffSource === Repository.FileContent ? "" : " "
+                        case DiffModel.NoNewline: return "\\"
+                        default: return ""
+                        }
+                    }
+
+                    objectName: "lineText"
                     anchors.left: parent.left
                     anchors.leftMargin: row.header ? 28 : lines.gutterWidth
                     anchors.verticalCenter: parent.verticalCenter
@@ -342,18 +391,15 @@ Pane {
                     font.pointSize: view.monoFont.pointSize
                     font.bold: row.header
                     font.italic: row.kind === DiffModel.NoNewline || row.kind === DiffModel.Message
-                    textFormat: Text.PlainText
                     color: row.kind === DiffModel.HunkHeader ? view.palette.link : view.palette.text
-                    text: {
-                        switch (row.kind) {
-                        case DiffModel.Added: return "+" + row.text
-                        case DiffModel.Removed: return "-" + row.text
-                        case DiffModel.Context:
-                            return (view.repo.diffSource === Repository.FileContent ? "" : " ") + row.text
-                        case DiffModel.NoNewline: return "\\" + row.text
-                        default: return row.text
-                        }
-                    }
+                    text: marker + row.text
+                    markupOffset: marker.length
+                    markup: row.markup
+                    highlight: AppSettings.diff.highlightSyntax
+                    wordDiff: AppSettings.diff.wordDiff
+                    dark: view.palette.base.hslLightness < 0.5
+                    changeColor: row.kind === DiffModel.Added ? Qt.rgba(0.2, 0.7, 0.3, 0.4)
+                                                              : Qt.rgba(0.85, 0.25, 0.25, 0.4)
                 }
 
                 // Lines added and removed in the file.
@@ -400,7 +446,7 @@ Pane {
                     readonly property bool clickable: row.selectable || row.kind === DiffModel.HunkHeader
 
                     anchors.fill: parent
-                    enabled: view.workingDiff
+                    enabled: view.canStage
                              && row.kind >= DiffModel.HunkHeader && row.kind <= DiffModel.NoNewline
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     cursorShape: enabled && clickable ? Qt.PointingHandCursor : Qt.ArrowCursor

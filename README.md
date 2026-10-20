@@ -6,7 +6,9 @@ first of all folding working tree changes into any earlier commit.
 
 ## Building
 
-Requires Qt ≥ 6.9, CMake ≥ 3.21 and git ≥ 2.40 at runtime.
+Requires Qt ≥ 6.9, CMake ≥ 3.21 and git ≥ 2.40 at runtime. KDE's
+KSyntaxHighlighting (KF6) is used for highlighting if CMake finds it, built
+against the same Qt; `-DIGITT_USE_KSYNTAXHIGHLIGHTING=OFF` leaves it out.
 
 ```bash
 cmake -B build -G Ninja -DCMAKE_PREFIX_PATH=$HOME/Qt/6.12.0/gcc_64
@@ -103,6 +105,21 @@ width (72), whether the body is wrapped on commit (bullets keep a hanging
 indent; indented code and long URLs are left alone), and the trailer keys
 the form offers. Amend splits the existing message back into the form,
 trailers like Change-Id included.
+
+## Reading diffs
+
+Diffs and files from the Files tab are highlighted: with KSyntaxHighlighting
+when igitt is built with it, otherwise by a small built-in highlighter for
+C++, QML/JavaScript, CMake, Python and Markdown. Where a removed line is
+followed by its replacement, the words that changed are marked more
+strongly, as on GitHub. Both are worked out on the git thread, and only up
+to a limit (30,000 highlighted lines, 5,000 compared pairs, 2,000
+characters per line), so big diffs stay quick. Lines are drawn as plain
+text; nothing in a file is ever read as markup.
+
+The diff toolbar turns highlighting and word marks off and on, and can
+ignore changes of white space (`git diff -w`). Lines can't be staged or
+folded while white space is ignored: such a diff would not apply back.
 
 ## Staging
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DiffMarkup.h"
 #include "DiffParser.h"
 #include "FoldSuggester.h"
 #include "GitRunner.h"
@@ -35,16 +36,21 @@ struct DiffRequest
     QString path;   // Unstaged, Staged, Content
     QString commit; // Commit
     int generation = 0; // lets the UI drop results for a view it has left
+    // `git diff -w`. Such a diff cannot be applied back, so no line of it
+    // can be staged.
+    bool ignoreWhitespace = false;
 };
 
 struct DiffState
 {
     DiffRequest request;
     QList<FileDiff> files;
+    QList<FileMarkup> markup; // parallel to files
     QString message; // shown instead of a diff, e.g. for a conflicted file
     QString details; // commit header and message
     bool conflicted = false; // the file has unresolved merge conflicts
     QStringList content;     // Content: the file's lines
+    QList<LineMarkup> contentMarkup;
     bool truncated = false;  // Content: only the first lines
     FoldSuggester suggester;
     QString error;

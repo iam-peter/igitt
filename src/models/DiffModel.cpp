@@ -4,24 +4,6 @@
 
 namespace {
 
-constexpr int TabWidth = 4;
-
-QString displayText(const QByteArray &raw)
-{
-    const QString text = QString::fromUtf8(raw);
-    if (!text.contains(QLatin1Char('\t')))
-        return text;
-    QString out;
-    out.reserve(text.size() + 16);
-    for (const QChar ch : text) {
-        if (ch == QLatin1Char('\t'))
-            out.append(QString(TabWidth - out.size() % TabWidth, QLatin1Char(' ')));
-        else
-            out.append(ch);
-    }
-    return out;
-}
-
 QString fileTitle(const FileDiff &file)
 {
     if (file.isNew)
@@ -35,7 +17,7 @@ QString fileTitle(const FileDiff &file)
 
 } // namespace
 
-void DiffModel::setFiles(const QList<FileDiff> &files)
+void DiffModel::setFiles(const QList<FileDiff> &files, const QList<FileMarkup> &markup)
 {
     beginResetModel();
     m_content = false;
@@ -50,6 +32,7 @@ void DiffModel::setFiles(const QList<FileDiff> &files)
 
     for (int f = 0; f < files.size(); ++f) {
         const FileDiff &file = files[f];
+        const FileMarkup fileMarkup = markup.size() == files.size() ? markup[f] : FileMarkup();
         QList<Row> body;
 
         LineSelection selection;
@@ -71,7 +54,8 @@ void DiffModel::setFiles(const QList<FileDiff> &files)
                 case DiffLine::NoNewline: kind = NoNewline; break;
                 case DiffLine::Context: kind = Context; break;
                 }
-                Row row{kind, f, h, l, displayText(line.content), line.oldLine, line.newLine};
+                Row row{kind, f, h, l, expandTabs(QString::fromUtf8(line.content)), line.oldLine, line.newLine,
+                        fileMarkup.hunks.value(h).value(l)};
                 m_maxLineLength = std::max(m_maxLineLength, int(row.text.size()));
                 m_added[f] += kind == Added ? 1 : 0;
                 m_removed[f] += kind == Removed ? 1 : 0;
@@ -159,7 +143,8 @@ void DiffModel::setMessage(const QString &message)
     emit selectionChanged();
 }
 
-void DiffModel::setContent(const QString &path, const QStringList &lines, bool truncated)
+void DiffModel::setContent(const QString &path, const QStringList &lines, bool truncated,
+                           const QList<LineMarkup> &markup)
 {
     beginResetModel();
     m_content = true;
@@ -176,7 +161,7 @@ void DiffModel::setContent(const QString &path, const QStringList &lines, bool t
     QList<Row> body;
     body.reserve(lines.size() + 1);
     for (int i = 0; i < lines.size(); ++i) {
-        Row row{Context, 0, -1, -1, displayText(lines[i].toUtf8()), -1, i + 1};
+        Row row{Context, 0, -1, -1, expandTabs(lines[i]), -1, i + 1, markup.value(i)};
         m_maxLineLength = std::max(m_maxLineLength, int(row.text.size()));
         body.append(row);
     }
@@ -216,6 +201,7 @@ QVariant DiffModel::data(const QModelIndex &index, int role) const
     case CollapsedRole: return row.file >= 0 && m_collapsed[row.file];
     case AddedRole: return row.file >= 0 ? m_added[row.file] : 0;
     case RemovedRole: return row.file >= 0 ? m_removed[row.file] : 0;
+    case MarkupRole: return QVariant::fromValue(row.markup);
     }
     return {};
 }
@@ -233,6 +219,7 @@ QHash<int, QByteArray> DiffModel::roleNames() const
         {CollapsedRole, "collapsed"},
         {AddedRole, "added"},
         {RemovedRole, "removed"},
+        {MarkupRole, "markup"},
     };
 }
 

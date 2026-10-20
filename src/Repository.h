@@ -57,6 +57,10 @@ class Repository : public QObject
     Q_PROPERTY(QString diffPath READ diffPath NOTIFY diffChanged)
     Q_PROPERTY(QString diffCommit READ diffCommit NOTIFY diffChanged)
     Q_PROPERTY(QString commitDetails READ commitDetails NOTIFY diffChanged)
+    // Diffs leave out changes of white space (`git diff -w`). Lines of such
+    // a diff cannot be staged or folded: their patch would not apply.
+    Q_PROPERTY(bool ignoreWhitespace READ ignoreWhitespace WRITE setIgnoreWhitespace
+                   NOTIFY ignoreWhitespaceChanged)
     // The file on display has unresolved conflicts; show the merge tool.
     Q_PROPERTY(bool diffConflicted READ diffConflicted NOTIFY diffChanged)
     Q_PROPERTY(bool canUndoFold READ canUndoFold NOTIFY canUndoFoldChanged)
@@ -122,6 +126,8 @@ public:
     QString diffCommit() const { return m_diffCommit; }
     QString commitDetails() const { return m_commitDetails; }
     bool diffConflicted() const { return m_diffConflicted; }
+    bool ignoreWhitespace() const { return m_ignoreWhitespace; }
+    void setIgnoreWhitespace(bool ignore);
     bool canUndoFold() const { return !m_lastFold.newHead.isEmpty(); }
     QString suggestedFoldTarget() const { return m_suggestedFoldTarget; }
     QString foldSuggestionText() const { return m_foldSuggestionText; }
@@ -220,6 +226,7 @@ signals:
     void busyChanged();
     void headChanged();
     void diffChanged();
+    void ignoreWhitespaceChanged();
     void canUndoFoldChanged();
     void foldSuggestionChanged();
     void planningChanged();
@@ -283,6 +290,8 @@ private:
     static StateSource sourceFor(const GitRunner &git, const std::shared_ptr<PlanSession> &plan);
 
     void setDiffView(DiffSource source, const QString &path, const QString &commit);
+    // Loads the diff on display again, as it is now.
+    void reloadDiff();
     DiffRequest diffRequest() const;
     HistoryRequest historyRequest(bool force) const;
     void loadRequestedStats();
@@ -329,6 +338,7 @@ private:
     QString m_diffCommit;
     QString m_commitDetails;
     bool m_diffConflicted = false;
+    bool m_ignoreWhitespace = false;
     FoldSuggester m_suggester;
     QString m_suggestedFoldTarget;
     QString m_foldSuggestionText;

@@ -496,6 +496,48 @@ private slots:
         QCOMPARE(diff->data(diff->index(0), DiffModel::TextRole).toString(), u"Binary file"_s);
     }
 
+    void ignoresWhitespace()
+    {
+        // TWO is a change; the indented line changed only in white space.
+        writeFile(file(), "one\nTWO\n  three\nfour\nfive\n");
+        open(m_dir->path());
+        showFile(u"f.txt"_s, false);
+        QVERIFY(isChange(u"  three"_s));
+        selectLinesContaining({u"two"_s});
+        QCOMPARE(repo().diff()->selectedCount(), 1);
+
+        repo().setIgnoreWhitespace(true);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().diff()->selectedCount(), 0);
+        QVERIFY(isChange(u"TWO"_s));
+        QVERIFY(rowOf(u"  three"_s) >= 0);
+        QVERIFY(!isChange(u"  three"_s));
+        // Its lines would not apply; nothing is staged.
+        selectLinesContaining({u"TWO"_s});
+        repo().applySelection();
+        QVERIFY(settle(repo()));
+        QVERIFY(git({"diff", "--cached"}).isEmpty());
+
+        // Commits too.
+        git({"commit", "-q", "-a", "-m", "Indent"});
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        repo().showCommit(repo().commits()->shaAt(0));
+        QVERIFY(settle(repo()));
+        QVERIFY(isChange(u"TWO"_s));
+        QVERIFY(!isChange(u"  three"_s));
+
+        // Nothing but white space changed: say so rather than show nothing.
+        writeFile(file(), "one\nTWO\n\tthree\nfour\nfive\n");
+        showFile(u"f.txt"_s, false);
+        QCOMPARE(repo().diff()->rowCount(), 1);
+        QCOMPARE(repo().diff()->data(repo().diff()->index(0), DiffModel::KindRole).toInt(), int(DiffModel::Message));
+
+        repo().setIgnoreWhitespace(false);
+        QVERIFY(settle(repo()));
+        QVERIFY(isChange(u"    three"_s)); // the tab, expanded
+    }
+
     void undoIsForgottenWhenHeadMoves()
     {
         writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");

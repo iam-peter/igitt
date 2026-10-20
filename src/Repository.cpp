@@ -160,9 +160,9 @@ void Repository::applyState(const RepositoryState &state)
         if (!diff.message.isEmpty())
             m_diff.setMessage(diff.message);
         else if (diff.request.kind == DiffKind::Content)
-            m_diff.setContent(diff.request.path, diff.content, diff.truncated);
+            m_diff.setContent(diff.request.path, diff.content, diff.truncated, diff.contentMarkup);
         else
-            m_diff.setFiles(diff.files);
+            m_diff.setFiles(diff.files, diff.markup);
         if (!diff.error.isEmpty())
             emit errorOccurred(diff.error);
         emit diffChanged();
@@ -435,7 +435,7 @@ void Repository::unstageAll()
 
 void Repository::applySelection()
 {
-    if (m_diffSource != UnstagedDiff && m_diffSource != StagedDiff)
+    if ((m_diffSource != UnstagedDiff && m_diffSource != StagedDiff) || m_ignoreWhitespace)
         return;
     const bool unstage = m_diffSource == StagedDiff;
     const QByteArray patch = selectionPatch(unstage ? PatchDirection::Reverse : PatchDirection::Forward);
@@ -557,6 +557,8 @@ QString Repository::foldBlocker(const QString &sha) const
 {
     if (m_diffSource != UnstagedDiff && m_diffSource != StagedDiff)
         return tr("Show a working tree file and select the lines to fold.");
+    if (m_ignoreWhitespace)
+        return tr("Lines cannot be folded while white space is ignored.");
     if (m_diff.selectedCount() == 0)
         return tr("Select the lines to fold first.");
     if (!m_foldTargets.contains(sha))
@@ -771,7 +773,36 @@ void Repository::setDiffView(DiffSource source, const QString &path, const QStri
 
 DiffRequest Repository::diffRequest() const
 {
-    return {diffKind(m_diffSource), m_diffPath, m_diffCommit, *m_diffGeneration};
+    return {diffKind(m_diffSource), m_diffPath, m_diffCommit, *m_diffGeneration, m_ignoreWhitespace};
+}
+
+void Repository::reloadDiff()
+{
+    const QString path = m_diffPath;
+    const QString commit = m_diffCommit;
+    switch (m_diffSource) {
+    case UnstagedDiff:
+    case StagedDiff:
+        showFile(path, m_diffSource == StagedDiff);
+        break;
+    case CommitDiff:
+        showCommit(commit);
+        break;
+    case FileContent:
+    case NoDiff:
+        break;
+    }
+}
+
+void Repository::setIgnoreWhitespace(bool ignore)
+{
+    if (m_ignoreWhitespace == ignore)
+        return;
+    m_ignoreWhitespace = ignore;
+    // A selection made in one diff means nothing in the other.
+    m_diff.clearSelection();
+    emit ignoreWhitespaceChanged();
+    reloadDiff();
 }
 
 HistoryRequest Repository::historyRequest(bool force) const

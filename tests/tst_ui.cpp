@@ -148,6 +148,54 @@ private slots:
         QCOMPARE(repo->diff()->collapsedCount(), 1);
         repo->diff()->setAllCollapsed(false);
 
+        // Code is highlighted, and the toolbar turns that off and on.
+        write(u"main.cpp"_s, "#include <cstdio>\n\n// Says hello.\nint main()\n{\n"
+                             "    return std::puts(\"hello\") < 0 ? 1 : 0;\n}\n");
+        repo->refresh();
+        QVERIFY(settle(*repo));
+        repo->showFile(u"main.cpp"_s, false);
+        QVERIFY(settle(*repo));
+        QQuickItem *code = diffLine(window, u"+int main()"_s);
+        QVERIFY(code);
+        QTRY_VERIFY(code->property("coloredSpans").toInt() > 0);
+        screenshot(window, u"highlighted"_s);
+        click(window, u"highlightButton"_s);
+        QTRY_COMPARE(code->property("coloredSpans").toInt(), 0);
+        click(window, u"highlightButton"_s);
+        QTRY_VERIFY(code->property("coloredSpans").toInt() > 0);
+        QVERIFY(QFile::remove(m_dir.filePath(u"main.cpp"_s)));
+        repo->refresh();
+        QVERIFY(settle(*repo));
+
+        // So are the words that changed.
+        repo->showFile(u"app.txt"_s, false);
+        QVERIFY(settle(*repo));
+        QQuickItem *changed = diffLine(window, u"+line 4 changed"_s);
+        QVERIFY(changed);
+        QTRY_COMPARE(changed->property("markedChanges").toInt(), 1);
+        click(window, u"wordDiffButton"_s);
+        QTRY_COMPARE(changed->property("markedChanges").toInt(), 0);
+        click(window, u"wordDiffButton"_s);
+        QTRY_COMPARE(changed->property("markedChanges").toInt(), 1);
+
+        // Ignoring white space turns line staging off.
+        click(window, u"ignoreWhitespaceButton"_s);
+        QTRY_VERIFY(repo->ignoreWhitespace());
+        QVERIFY(settle(*repo));
+        changed = diffLine(window, u"+line 4 changed"_s);
+        QVERIFY(changed);
+        clickItem(window, changed);
+        QCOMPARE(repo->diff()->selectedCount(), 0);
+        screenshot(window, u"ignoring-whitespace"_s);
+        click(window, u"ignoreWhitespaceButton"_s);
+        QTRY_VERIFY(!repo->ignoreWhitespace());
+        QVERIFY(settle(*repo));
+        changed = diffLine(window, u"+line 4 changed"_s);
+        QVERIFY(changed);
+        clickItem(window, changed);
+        QCOMPARE(repo->diff()->selectedCount(), 1);
+        repo->diff()->clearSelection();
+
         // Every file of the project, for the time-lapse view.
         click(window, u"filesTab"_s);
         QVERIFY(settle(*repo));
@@ -522,6 +570,24 @@ private:
         QVERIFY(item && item->isVisible());
         QTest::mouseClick(window, Qt::LeftButton, {},
                           item->mapToScene({item->width() / 2, item->height() / 2}).toPoint());
+    }
+
+    // The text of the diff row showing `text`, marker included.
+    static QQuickItem *diffLine(QQuickWindow *window, const QString &text)
+    {
+        if (!QQuickTest::qWaitForPolish(window))
+            return nullptr;
+        auto *list = window->findChild<QQuickItem *>(u"diffList"_s);
+        if (!list)
+            return nullptr;
+        for (int row = 0; row < list->property("count").toInt(); ++row) {
+            QQuickItem *item = nullptr;
+            QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, item), Q_ARG(int, row));
+            QQuickItem *line = item ? findItem(item, u"lineText"_s) : nullptr;
+            if (line && line->property("text").toString() == text)
+                return line;
+        }
+        return nullptr;
     }
 
     void rightClickDiffRow(QQuickWindow *window, int row)
