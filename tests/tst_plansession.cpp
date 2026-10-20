@@ -259,6 +259,93 @@ private slots:
         QCOMPARE(git({"log", "-1", "--format=%s", plan.head()}), "B, amended\n"_ba);
     }
 
+    void editsHistoryByStableIds()
+    {
+        write("g.txt", "g\n");
+        git({"add", "g.txt"});
+        git({"commit", "-q", "-m", "C\n\nChange-Id: I0000000000000000000000000000000000000003"});
+        const QByteArray realState = repoState();
+
+        PlanSession plan;
+        QString error;
+        QVERIFY(plan.begin(m_git, error));
+        PlanEntry reword = entry(PlanEntry::EditHistory);
+        reword.edit = {HistoryEdit::Reword, rev("HEAD~1"), {}, u"B, reworded"_s};
+        QVERIFY2(plan.add(reword, error), qPrintable(error));
+        QCOMPARE(git({"log", "--format=%s", plan.head()}), "C\nB, reworded\nA\n"_ba);
+        QVERIFY(plan.entries().last().log.contains("B, reworded"_L1));
+
+        // Moves C below B, by the ids the plan shows.
+        PlanEntry move = entry(PlanEntry::EditHistory);
+        move.edit = {HistoryEdit::Move, plan.head(), rev(plan.head() + u"~1"_s), {}};
+        QVERIFY2(plan.add(move, error), qPrintable(error));
+        QCOMPARE(git({"log", "--format=%s", plan.head()}), "B, reworded\nC\nA\n"_ba);
+        QCOMPARE(git({"log", "-1", "--format=%b", plan.head() + u"~1"_s}),
+                 "Change-Id: I0000000000000000000000000000000000000003\n\n"_ba);
+        QCOMPARE(repoState(), realState);
+
+        // Without the reword, the move still finds the commits it moves.
+        plan.remove(plan.entries()[0].id);
+        QVERIFY2(plan.entries()[0].error.isEmpty(), qPrintable(plan.entries()[0].error));
+        QCOMPARE(git({"log", "--format=%s", plan.head()}), "B\nC\nA\n"_ba);
+
+        QVERIFY2(plan.execute(error), qPrintable(error));
+        QCOMPARE(git({"log", "--format=%s"}), "B\nC\nA\n"_ba);
+        QVERIFY(git({"status", "--porcelain"}).isEmpty());
+    }
+
+    void squashesPlannedCommits()
+    {
+        write("f.txt", lines({{2, "two"}, {9, "nine (B)"}}));
+        PlanSession plan;
+        QString error;
+        QVERIFY(plan.begin(m_git, error));
+        QVERIFY(plan.add(entry(PlanEntry::StagePaths, {u"f.txt"_s}), error));
+        PlanEntry commit = entry(PlanEntry::Commit);
+        commit.message = u"C"_s;
+        QVERIFY(plan.add(commit, error));
+
+        PlanEntry squash = entry(PlanEntry::EditHistory);
+        squash.edit = {HistoryEdit::Fixup, plan.head(), {}, {}};
+        QVERIFY2(plan.add(squash, error), qPrintable(error));
+        QCOMPARE(git({"log", "--format=%s", plan.head()}), "B\nA\n"_ba);
+        QCOMPARE(git({"show", plan.head() + u":f.txt"_s}), lines({{2, "two"}, {9, "nine (B)"}}));
+        QVERIFY(loadSimulatedStatus(plan.source()).entries.isEmpty());
+
+        // Without the planned commit there is nothing to squash.
+        plan.remove(plan.entries()[1].id);
+        QVERIFY(!plan.entries().last().error.isEmpty());
+        QVERIFY(!plan.executable());
+    }
+
+    void dropsAndCarriesTheIndexOver()
+    {
+        write("g.txt", "g\n");
+        git({"add", "g.txt"});
+        git({"commit", "-q", "-m", "C"});
+
+        PlanSession plan;
+        QString error;
+        QVERIFY(plan.begin(m_git, error));
+        PlanEntry drop = entry(PlanEntry::EditHistory);
+        drop.edit = {HistoryEdit::Drop, rev("HEAD"), {}, {}};
+        QVERIFY2(plan.add(drop, error), qPrintable(error));
+        QCOMPARE(plan.head(), rev("HEAD~1"));
+        QVERIFY(simulatedIndex(plan, u"g.txt"_s).isEmpty());
+
+        // A dropped commit cannot be folded into.
+        write("f.txt", lines({{2, "two"}, {9, "nine (B)"}}));
+        PlanEntry fold = patchEntry(plan, {u"2"_s, u"two"_s});
+        fold.kind = PlanEntry::Fold;
+        fold.target = rev("HEAD");
+        QVERIFY(!plan.add(fold, error));
+        QCOMPARE(plan.entries().size(), 1);
+
+        QVERIFY2(plan.execute(error), qPrintable(error));
+        QCOMPARE(git({"log", "--format=%s"}), "B\nA\n"_ba);
+        QCOMPARE(git({"status", "--porcelain"}), " M f.txt\n?? g.txt\n"_ba);
+    }
+
 private:
     static QByteArray lines(const QHash<int, QByteArray> &changes)
     {

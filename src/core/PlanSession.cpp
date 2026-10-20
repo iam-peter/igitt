@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSet>
 
 #include <cstdio>
 #include <unistd.h>
@@ -117,6 +118,11 @@ bool PlanSession::add(PlanEntry entry, QString &error)
     entry.id = m_nextId++;
     if (entry.kind == PlanEntry::Fold)
         entry.target = stableId(entry.target);
+    if (entry.kind == PlanEntry::EditHistory) {
+        entry.edit.commit = stableId(entry.edit.commit);
+        if (!entry.edit.to.isEmpty())
+            entry.edit.to = stableId(entry.edit.to);
+    }
     if (!simulate(entry, error))
         return false;
     m_entries.append(entry);
@@ -306,6 +312,9 @@ bool PlanSession::simulate(PlanEntry &entry, QString &error)
     case PlanEntry::Fold:
         ok = simulateFold(entry, error);
         break;
+    case PlanEntry::EditHistory:
+        ok = simulateEdit(entry, error);
+        break;
     }
 
     if (!ok) {
@@ -401,7 +410,7 @@ bool PlanSession::simulateCommit(PlanEntry &entry, QString &error)
 bool PlanSession::simulateFold(PlanEntry &entry, QString &error)
 {
     const QString target = resolve(entry.target);
-    if (target.startsWith(PlannedPrefix)) {
+    if (target.isEmpty() || target.startsWith(PlannedPrefix)) {
         error = tr("The commit to fold into is not part of the plan any more.");
         return false;
     }
@@ -420,6 +429,41 @@ bool PlanSession::simulateFold(PlanEntry &entry, QString &error)
         entry.log += QStringLiteral("  %1 -> %2\n").arg(oldId.left(12), newId.left(12));
         rewrite(oldId, newId);
     }
+    m_head = result.newHead;
+    return true;
+}
+
+bool PlanSession::simulateEdit(PlanEntry &entry, QString &error)
+{
+    HistoryEdit edit = entry.edit;
+    edit.commit = resolve(edit.commit);
+    if (!edit.to.isEmpty())
+        edit.to = resolve(edit.to);
+    const auto gone = [](const QString &id) { return id.isEmpty() || id.startsWith(PlannedPrefix); };
+    if (gone(edit.commit) || (!entry.edit.to.isEmpty() && gone(edit.to))) {
+        error = tr("The commit to edit is not part of the plan any more.");
+        return false;
+    }
+    entry.log += QStringLiteral("$ igitt %1 %2%3 (merge-tree and commit-tree per rewritten commit, "
+                                "then read-tree -m to carry the index over)\n")
+                     .arg(HistoryEditor::verb(edit.kind), edit.commit.left(12),
+                          edit.to.isEmpty() ? QString() : QStringLiteral(" to ") + edit.to.left(12));
+    if (edit.kind == HistoryEdit::Reword)
+        entry.log += edit.message + (edit.message.endsWith(QLatin1Char('\n')) ? QString() : QStringLiteral("\n"));
+
+    const RewriteResult result = HistoryEditor(m_git).edit(edit, m_head.isEmpty() ? QStringLiteral("HEAD") : m_head,
+                                                          false);
+    if (!result.ok || !result.error.isEmpty()) {
+        error = result.error;
+        if (!result.conflicts.isEmpty())
+            error += QLatin1Char(' ') + tr("Conflicting files: %1").arg(result.conflicts.join(QStringLiteral(", ")));
+        return false;
+    }
+    for (const auto &[oldId, newId] : result.rewrites) {
+        entry.log += newId.isEmpty() ? QStringLiteral("  %1 dropped\n").arg(oldId.left(12))
+                                     : QStringLiteral("  %1 -> %2\n").arg(oldId.left(12), newId.left(12));
+    }
+    rewrite(result.rewrites);
     m_head = result.newHead;
     return true;
 }
@@ -447,6 +491,22 @@ void PlanSession::rewrite(const QString &oldId, const QString &newId)
     }
     if (!tracked)
         m_resolved.insert(oldId, newId);
+}
+
+void PlanSession::rewrite(const QList<std::pair<QString, QString>> &rewrites)
+{
+    const QHash<QString, QString> moved(rewrites.cbegin(), rewrites.cend());
+    QSet<QString> tracked;
+    for (auto it = m_resolved.begin(); it != m_resolved.end(); ++it) {
+        if (const auto found = moved.constFind(it.value()); found != moved.cend()) {
+            tracked.insert(it.value());
+            it.value() = *found;
+        }
+    }
+    for (const auto &[oldId, newId] : rewrites) {
+        if (!tracked.contains(oldId))
+            m_resolved.insert(oldId, newId);
+    }
 }
 
 QString PlanSession::resolve(const QString &id) const

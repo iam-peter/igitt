@@ -11,7 +11,9 @@ qt_add_qml_module(igitt_core
         core/StatusParser.h core/StatusParser.cpp
         core/DiffParser.h core/DiffParser.cpp
         core/PatchBuilder.h core/PatchBuilder.cpp
+        core/CommitRewriter.h core/CommitRewriter.cpp
         core/FoldEngine.h core/FoldEngine.cpp
+        core/HistoryEditor.h core/HistoryEditor.cpp
         core/FoldSuggester.h core/FoldSuggester.cpp
         core/StateLoader.h core/StateLoader.cpp
         core/PlanSession.h core/PlanSession.cpp

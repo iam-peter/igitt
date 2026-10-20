@@ -2,6 +2,7 @@
 
 #include "FoldEngine.h"
 #include "GitRunner.h"
+#include "HistoryEditor.h"
 #include "StateLoader.h"
 
 #include <QCoreApplication>
@@ -21,6 +22,7 @@ struct PlanEntry
         ApplyPatch,   // stage or unstage lines
         Commit,
         Fold,
+        EditHistory, // reword, move, squash or drop commits
     };
 
     int id = 0;
@@ -35,6 +37,8 @@ struct PlanEntry
     bool amend = false;   // Commit
     QString target;       // Fold: a commit id from before the plan, or "plan:<id>"
     FoldBase base = FoldBase::Index;
+    // EditHistory; its commits as Fold's target is.
+    HistoryEdit edit;
 
     // From the latest simulation.
     QString log;   // the commands it ran, with their input
@@ -83,9 +87,12 @@ private:
     bool simulate(PlanEntry &entry, QString &error);
     bool simulateCommit(PlanEntry &entry, QString &error);
     bool simulateFold(PlanEntry &entry, QString &error);
+    bool simulateEdit(PlanEntry &entry, QString &error);
     GitResult run(PlanEntry &entry, const QStringList &args, const QByteArray &input = {},
                   const QProcessEnvironment &env = {});
     void rewrite(const QString &oldId, const QString &newId);
+    // All at once, so a new id that is also an old one is not followed.
+    void rewrite(const QList<std::pair<QString, QString>> &rewrites);
     QString resolve(const QString &id) const;
     QString stableId(const QString &sha) const;
     QString indexPath(const QString &name) const;
@@ -98,7 +105,8 @@ private:
     QString m_baselineTree;
     QString m_head;
     // Where commits from before the plan, and commits the plan created,
-    // are now; rewritten by folds and amends.
+    // are now; rewritten by folds, amends and history edits. Dropped
+    // commits map to an empty string.
     QHash<QString, QString> m_resolved;
     QList<PlanEntry> m_entries;
     int m_nextId = 1;
