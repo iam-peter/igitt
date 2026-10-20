@@ -25,6 +25,7 @@ ApplicationWindow {
         showRemotes: AppSettings.graph.showRemotes
         showTags: AppSettings.graph.showTags
         currentBranchOnly: AppSettings.graph.currentBranchOnly
+        ignoreWhitespace: AppSettings.diff.ignoreWhitespace
         pushMode: AppSettings.remote.pushMode
         gerritBranch: AppSettings.remote.gerritBranch
         githubHosts: AppSettings.remote.githubHosts

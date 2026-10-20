@@ -30,6 +30,14 @@ QtObject {
         property real codeSize: 10
     }
 
+    readonly property Settings diff: Settings {
+        category: "diff"
+
+        property bool ignoreWhitespace: false
+        property bool wordDiff: true
+        property bool highlightSyntax: true
+    }
+
     readonly property Settings remote: Settings {
         category: "remote"
 

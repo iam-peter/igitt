@@ -16,6 +16,12 @@ QString tr(const char *text)
     return QCoreApplication::translate("StateLoader", text);
 }
 
+// What an empty diff means when white space is ignored.
+QString onlyWhitespaceMessage()
+{
+    return tr("Only white space changed, and white space is ignored.");
+}
+
 QStringList lines(const QByteArray &out)
 {
     return QString::fromLatin1(out).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
@@ -221,13 +227,20 @@ DiffState loadDiff(const StateSource &source, const DiffRequest &request, const 
                            "Committer: %cn <%ce>  %cd%n%n%B"),
             request.commit, QStringLiteral("--"),
         }).out).trimmed();
-        const GitResult result = git.run(QStringList{QStringLiteral("show"), QStringLiteral("--format="),
-                                                     QStringLiteral("--diff-merges=first-parent")}
-                                         + diffFormatArgs() + QStringList{request.commit, QStringLiteral("--")});
-        if (result.ok())
+        QStringList args{QStringLiteral("show"), QStringLiteral("--format="),
+                         QStringLiteral("--diff-merges=first-parent")};
+        args += diffFormatArgs();
+        if (request.ignoreWhitespace)
+            args.append(QStringLiteral("--ignore-all-space"));
+        const GitResult result = git.run(args + QStringList{request.commit, QStringLiteral("--")});
+        if (result.ok()) {
             diff.files = parseDiff(result.out);
-        else
+            diff.markup = markupDiff(diff.files);
+            if (diff.files.isEmpty() && request.ignoreWhitespace)
+                diff.message = onlyWhitespaceMessage();
+        } else {
             diff.error = tr("Showing commit %1 failed: %2").arg(request.commit.left(10), result.errorText());
+        }
         return diff;
     }
     if (request.kind == DiffKind::Range) {
@@ -241,14 +254,19 @@ DiffState loadDiff(const StateSource &source, const DiffRequest &request, const 
         if (parents.ok() && (ids.size() != 2 || ids[0] != ids[1]))
             diff.details += QLatin1String("\n\n")
                 + tr("They are on different parents, so this includes what the rebase brought in.");
-        const GitResult result = git.run(QStringList{QStringLiteral("diff")} + diffFormatArgs()
-                                         + QStringList{request.base, request.commit, QStringLiteral("--")});
-        if (result.ok())
+        QStringList args{QStringLiteral("diff")};
+        args += diffFormatArgs();
+        if (request.ignoreWhitespace)
+            args.append(QStringLiteral("--ignore-all-space"));
+        const GitResult result = git.run(args + QStringList{request.base, request.commit, QStringLiteral("--")});
+        if (result.ok()) {
             diff.files = parseDiff(result.out);
-        else
+            diff.markup = markupDiff(diff.files);
+        } else {
             diff.error = tr("Comparing with %1 failed: %2").arg(request.baseName, result.errorText());
+        }
         if (result.ok() && diff.files.isEmpty())
-            diff.message = tr("No differences.");
+            diff.message = request.ignoreWhitespace ? onlyWhitespaceMessage() : tr("No differences.");
         return diff;
     }
     if (request.kind == DiffKind::Content) {
@@ -275,6 +293,7 @@ DiffState loadDiff(const StateSource &source, const DiffRequest &request, const 
         if (data.endsWith('\n'))
             data.chop(1);
         diff.content = QString::fromUtf8(data).split(QLatin1Char('\n'));
+        diff.contentMarkup = markupContent(request.path, diff.content);
         return diff;
     }
     if (request.kind != DiffKind::Unstaged && request.kind != DiffKind::Staged)
@@ -300,6 +319,8 @@ DiffState loadDiff(const StateSource &source, const DiffRequest &request, const 
     else if (staged)
         args.append(QStringLiteral("--cached"));
     args += diffFormatArgs();
+    if (request.ignoreWhitespace)
+        args.append(QStringLiteral("--ignore-all-space"));
     if (staged && !entry->untracked && !status.headSha.isEmpty())
         args.append(status.headSha);
     args.append(QStringLiteral("--"));
@@ -316,6 +337,12 @@ DiffState loadDiff(const StateSource &source, const DiffRequest &request, const 
         return diff;
     }
     diff.files = parseDiff(result.out);
+    diff.markup = markupDiff(diff.files);
+    if (request.ignoreWhitespace) {
+        if (diff.files.isEmpty())
+            diff.message = onlyWhitespaceMessage();
+        return diff; // nothing can be selected to fold
+    }
     diff.suggester = FoldSuggester(git);
     diff.suggester.analyze(diff.files, staged ? FoldBase::Head : FoldBase::Index,
                            status.headSha.isEmpty() ? source.head : status.headSha);
