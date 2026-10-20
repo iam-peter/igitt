@@ -52,6 +52,8 @@ class Repository : public QObject
     Q_PROPERTY(QString diffPath READ diffPath NOTIFY diffChanged)
     Q_PROPERTY(QString diffCommit READ diffCommit NOTIFY diffChanged)
     Q_PROPERTY(QString commitDetails READ commitDetails NOTIFY diffChanged)
+    // The file on display has unresolved conflicts; show the merge tool.
+    Q_PROPERTY(bool diffConflicted READ diffConflicted NOTIFY diffChanged)
     Q_PROPERTY(bool canUndoFold READ canUndoFold NOTIFY canUndoFoldChanged)
     // The commit the selected lines most likely belong in (see
     // FoldSuggester), and a sentence explaining it or why there is none.
@@ -97,6 +99,7 @@ public:
     QString diffPath() const { return m_diffPath; }
     QString diffCommit() const { return m_diffCommit; }
     QString commitDetails() const { return m_commitDetails; }
+    bool diffConflicted() const { return m_diffConflicted; }
     bool canUndoFold() const { return !m_lastFold.newHead.isEmpty(); }
     QString suggestedFoldTarget() const { return m_suggestedFoldTarget; }
     QString foldSuggestionText() const { return m_foldSuggestionText; }
@@ -141,6 +144,12 @@ public:
     // Like applySelection() for the line at `row`, or for the whole
     // selection if `row` is part of it.
     Q_INVOKABLE void applyLine(int row);
+
+    // Writes `content` to the conflicted file and stages it.
+    Q_INVOKABLE void resolveConflict(const QString &path, const QString &content);
+    // Keeps one side's version of a conflicted file as a whole, or deletes
+    // the file if that side deleted it.
+    Q_INVOKABLE void resolveWithSide(const QString &path, bool theirs);
 
     // Emits committed() on success.
     Q_INVOKABLE void commit(const QString &message, bool amend);
@@ -256,6 +265,7 @@ private:
     QString m_diffPath;
     QString m_diffCommit;
     QString m_commitDetails;
+    bool m_diffConflicted = false;
     FoldSuggester m_suggester;
     QString m_suggestedFoldTarget;
     QString m_foldSuggestionText;

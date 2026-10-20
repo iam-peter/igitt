@@ -17,8 +17,10 @@ qt_add_qml_module(igitt_core
         core/PlanSession.h core/PlanSession.cpp
         core/MessageFormat.h core/MessageFormat.cpp
         core/FileHistory.h core/FileHistory.cpp
+        core/MergeConflict.h core/MergeConflict.cpp
         models/PlanModel.h models/PlanModel.cpp
         models/Timelapse.h models/Timelapse.cpp
+        models/ConflictResolver.h models/ConflictResolver.cpp
         models/CommitModel.h models/CommitModel.cpp
         models/FileListModel.h models/FileListModel.cpp
         models/DiffModel.h models/DiffModel.cpp
@@ -52,6 +54,7 @@ qt_add_qml_module(igitt_ui
         qml/SettingsDialog.qml
         qml/AppSettings.qml
         qml/TimelapseWindow.qml
+        qml/ConflictView.qml
     SOURCES
         ui/CommitGraph.h ui/CommitGraph.cpp
         ui/Clipboard.h

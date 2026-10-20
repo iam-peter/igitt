@@ -1,5 +1,7 @@
 #include "FoldEngine.h"
 
+#include "MergeConflict.h"
+
 #include <QRegularExpression>
 #include <QTemporaryDir>
 
@@ -30,6 +32,8 @@ FoldEngine::FoldEngine(const GitRunner &git)
 
 QString FoldEngine::blocker(const QString &target, const QString &headRev) const
 {
+    if (const QString operation = operationInProgress(m_git); !operation.isEmpty())
+        return tr("git is in the middle of an operation (%1); finish or abort it first.").arg(operation);
     const QString head = revParse(headRev);
     if (head.isEmpty())
         return tr("The branch has no commits yet.");

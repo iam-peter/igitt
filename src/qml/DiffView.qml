@@ -76,9 +76,20 @@ Pane {
         }
     }
 
+    Loader {
+        anchors.fill: parent
+        active: view.repo.diffConflicted
+        sourceComponent: ConflictView {
+            repo: view.repo
+            path: view.repo.diffPath
+            monoFont: view.monoFont
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
+        visible: !view.repo.diffConflicted
 
         ToolBar {
             Layout.fillWidth: true

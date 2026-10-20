@@ -3,6 +3,8 @@
 #include "core/FoldEngine.h"
 #include "core/PatchBuilder.h"
 
+#include <QDir>
+#include <QFile>
 #include <QUrl>
 
 namespace {
@@ -139,6 +141,7 @@ void Repository::applyState(const RepositoryState &state)
         // updates the suggestion.
         m_suggester = diff.suggester;
         m_commitDetails = diff.details;
+        m_diffConflicted = diff.conflicted;
         if (!diff.message.isEmpty())
             m_diff.setMessage(diff.message);
         else
@@ -424,6 +427,52 @@ void Repository::applyLine(int row)
     applySelection();
 }
 
+void Repository::resolveConflict(const QString &path, const QString &content)
+{
+    enqueue(JobKind::Write, [path, data = content.toUtf8(), request = diffRequest(),
+                             history = historyRequest(false)](const GitRunner &git) {
+        Outcome outcome;
+        QFile file(QDir(git.workDir()).filePath(path));
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(data) != data.size()) {
+            outcome.error = tr("Could not write %1: %2").arg(path, file.errorString());
+        } else {
+            file.close();
+            const GitResult added = git.run({QStringLiteral("add"), QStringLiteral("--"), path});
+            if (!added.ok())
+                outcome.error = tr("Marking %1 as resolved failed: %2").arg(path, added.errorText());
+            else
+                outcome.notice = tr("Resolved %1.").arg(path);
+        }
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::resolveWithSide(const QString &path, bool theirs)
+{
+    enqueue(JobKind::Write, [path, theirs, request = diffRequest(),
+                             history = historyRequest(false)](const GitRunner &git) {
+        Outcome outcome;
+        // Stage 2 is our version, 3 theirs; a missing one means deleted.
+        const QByteArray stages = git.run({QStringLiteral("ls-files"), QStringLiteral("-u"),
+                                           QStringLiteral("--"), path}).out;
+        const bool exists = stages.contains(theirs ? " 3\t" : " 2\t");
+        const GitResult result = exists
+            ? git.run({QStringLiteral("checkout"), theirs ? QStringLiteral("--theirs") : QStringLiteral("--ours"),
+                       QStringLiteral("--"), path})
+            : git.run({QStringLiteral("rm"), QStringLiteral("-q"), QStringLiteral("--"), path});
+        GitResult added = result;
+        if (result.ok() && exists)
+            added = git.run({QStringLiteral("add"), QStringLiteral("--"), path});
+        if (!added.ok())
+            outcome.error = tr("Resolving %1 failed: %2").arg(path, added.errorText());
+        else
+            outcome.notice = tr("Resolved %1.").arg(path);
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
 void Repository::commit(const QString &message, bool amend)
 {
     if (m_plan) {
@@ -664,6 +713,7 @@ void Repository::setDiffView(DiffSource source, const QString &path, const QStri
     m_diffCommit = commit;
     if (source != CommitDiff)
         m_commitDetails.clear();
+    m_diffConflicted = false;
     ++*m_diffGeneration;
     emit diffChanged();
 }

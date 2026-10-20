@@ -2,6 +2,7 @@
 // Set IGITT_SCREENSHOT_DIR to also save screenshots of the window.
 
 #include "Repository.h"
+#include "models/ConflictResolver.h"
 #include "models/Timelapse.h"
 
 #include <QDir>
@@ -219,6 +220,38 @@ private slots:
                  "Task-number: QTBUG-123"_ba);
         QCOMPARE(window->findChild<QQuickItem *>(u"commitTitle"_s)->property("text").toString(), QString());
 
+        // A merge conflict, resolved in the merge tool.
+        git({"add", "-A"});
+        git({"commit", "-q", "-m", "Checkpoint"});
+        write(u"conflict.txt"_s, "one\ntwo\nthree\n");
+        git({"add", "conflict.txt"});
+        git({"commit", "-q", "-m", "Add conflict file"});
+        git({"checkout", "-q", "-b", "other"});
+        write(u"conflict.txt"_s, "one\nTWO other\nthree\n");
+        git({"commit", "-q", "-a", "-m", "Other change"});
+        git({"checkout", "-q", "main"});
+        write(u"conflict.txt"_s, "one\nTWO main\nthree\n");
+        git({"commit", "-q", "-a", "-m", "Main change"});
+        gitOut({"merge", "-q", "other"}); // stops with a conflict
+        repo->refresh();
+        QVERIFY(settle(*repo));
+        repo->showFile(u"conflict.txt"_s, false);
+        QVERIFY(settle(*repo));
+        QVERIFY(repo->diffConflicted());
+
+        ConflictResolver *resolver = nullptr;
+        QTRY_VERIFY((resolver = window->findChild<ConflictResolver *>()) && !resolver->busy());
+        QCOMPARE(resolver->conflictCount(), 1);
+        QTRY_VERIFY(findItem(window->contentItem(), u"takeTheirs"_s));
+        clickItem(window, findItem(window->contentItem(), u"takeTheirs"_s));
+        clickItem(window, findItem(window->contentItem(), u"takeOurs"_s));
+        QCOMPARE(resolver->output(), u"one\nTWO other\nTWO main\nthree\n"_s);
+        screenshot(window, u"conflict"_s);
+        click(window, u"saveResolution"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(gitOut({"show", ":conflict.txt"}), "one\nTWO other\nTWO main\nthree\n"_ba);
+        QVERIFY(gitOut({"ls-files", "-u"}).isEmpty());
+
         for (const QQmlError &w : std::as_const(warnings))
             qWarning().noquote() << w.toString();
         QVERIFY(warnings.isEmpty());
@@ -267,8 +300,11 @@ private:
     }
 
     // Items a Repeater creates have no QObject parent; walk the item tree.
+    // Only visible items count.
     static QQuickItem *findItem(QQuickItem *root, const QString &objectName)
     {
+        if (!root->isVisible())
+            return nullptr;
         if (root->objectName() == objectName)
             return root;
         for (QQuickItem *child : root->childItems()) {
@@ -307,6 +343,13 @@ private:
         QTest::qWait(30);
         screenshot(window, u"file-drag"_s);
         QTest::mouseRelease(window, Qt::LeftButton, {}, to);
+    }
+
+    static void clickItem(QQuickWindow *window, QQuickItem *item)
+    {
+        QVERIFY(item && item->isVisible());
+        QTest::mouseClick(window, Qt::LeftButton, {},
+                          item->mapToScene({item->width() / 2, item->height() / 2}).toPoint());
     }
 
     void rightClickDiffRow(QQuickWindow *window, int row)

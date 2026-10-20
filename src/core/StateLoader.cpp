@@ -237,7 +237,8 @@ DiffState loadDiff(const StateSource &source, const DiffRequest &request, const 
     if (!entry)
         return diff; // staged, committed or reverted meanwhile
     if (entry->conflicted) {
-        diff.message = tr("Unresolved merge conflict. Resolve it in your editor, then stage the file.");
+        diff.conflicted = true;
+        diff.message = tr("Unresolved merge conflict.");
         return diff;
     }
 

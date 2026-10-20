@@ -42,14 +42,18 @@ arrives; results for a diff the user has already left are dropped.
 
 ## History
 
-The commit graph follows GitKraken's: branch and tag labels in their own
+The commit graph follows GitKraken's and GitLens': branch and tag labels in their own
 column, colored like their lane and linked to the commit; commits drawn
 with the author's initials; uncommitted changes as a "// WIP" row on top,
 connected to HEAD; and a Changes column with the number of files and a
 bar of added and removed lines, loaded for the rows on screen. Columns
 can be resized by dragging their header edge and picked from the View
-menu or by right-clicking the header. The search field matches message,
-author or SHA; Enter and Shift+Enter jump between matches.
+menu or by right-clicking the header. Above it, an activity minimap shows
+commits over time, the rows on screen and the selection; click it to
+jump. The search takes `author:`, `message:` and `sha:`, quoted phrases,
+and optional case-sensitive or regular-expression matching; Enter and
+Shift+Enter jump between matches. The scope selector limits the graph to
+the current branch.
 
 ## Time-lapse view
 
@@ -60,6 +64,17 @@ with each line blamed to the revision that last changed it, shaded by
 age. The lines the revision changed are highlighted, the ones it deleted
 shown struck through; clicking a line's revision jumps there. The arrow
 keys step through the revisions, and Play animates them.
+
+## Resolving conflicts
+
+A conflicted file opens in the merge tool instead of a diff, after
+GitKraken's: our side and theirs next to each other, labelled with their
+commits, and a checkbox on each conflict to take its lines. Taking both
+keeps them in the order they were picked. The output below follows the
+choices and can be edited before **Save and Mark Resolved** writes and
+stages it. Files that cannot be merged line by line (binary, or deleted
+on one side) offer keeping one side instead. Folds and plans wait until
+the merge, rebase or cherry-pick is finished.
 
 ## Commit messages
 

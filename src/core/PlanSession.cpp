@@ -1,5 +1,7 @@
 #include "PlanSession.h"
 
+#include "MergeConflict.h"
+
 #include <QDir>
 #include <QFile>
 
@@ -35,6 +37,10 @@ bool PlanSession::begin(const GitRunner &git, QString &error)
     m_real = git;
     if (!m_dir.isValid()) {
         error = tr("Could not create a temporary directory.");
+        return false;
+    }
+    if (const QString operation = operationInProgress(git); !operation.isEmpty()) {
+        error = tr("git is in the middle of an operation (%1); finish or abort it first.").arg(operation);
         return false;
     }
     if (!git.run({QStringLiteral("ls-files"), QStringLiteral("-u")}).out.isEmpty()) {

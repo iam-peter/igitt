@@ -42,6 +42,7 @@ struct DiffState
     QList<FileDiff> files;
     QString message; // shown instead of a diff, e.g. for a conflicted file
     QString details; // commit header and message
+    bool conflicted = false; // the file has unresolved merge conflicts
     FoldSuggester suggester;
     QString error;
 };
