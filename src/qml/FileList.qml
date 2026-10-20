@@ -22,6 +22,7 @@ Item {
     // where it is let go.
     signal fileDragMoved(string path, point scenePos)
     signal fileDropped(string path, point scenePos)
+    signal timelapseRequested(string path)
 
     function toggleStage(path: string) {
         if (staged)
@@ -50,6 +51,11 @@ Item {
             text: fileList.staged ? qsTr("Unstage All") : qsTr("Stage All")
             enabled: !fileList.repo.writing
             onTriggered: fileList.staged ? fileList.repo.unstageAll() : fileList.repo.stageAll()
+        }
+        MenuSeparator {}
+        MenuItem {
+            text: qsTr("Time-lapse View")
+            onTriggered: fileList.timelapseRequested(fileMenu.path)
         }
     }
 

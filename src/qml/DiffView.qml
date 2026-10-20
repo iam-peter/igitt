@@ -20,6 +20,7 @@ Pane {
     signal foldDragMoved(point scenePos)
     signal foldDragFinished(point scenePos)
     signal foldRequested(string sha)
+    signal timelapseRequested(string path)
 
     readonly property bool hasSelection: workingDiff && repo.diff.selectedCount > 0
 
@@ -28,6 +29,17 @@ Pane {
     FontMetrics {
         id: metrics
         font: view.monoFont
+    }
+
+    Menu {
+        id: fileMenu
+
+        property string path
+
+        MenuItem {
+            text: qsTr("Time-lapse View")
+            onTriggered: view.timelapseRequested(fileMenu.path)
+        }
     }
 
     // The git gui actions: stage or unstage the hunk or line under the
@@ -223,6 +235,7 @@ Pane {
                 required property int newLine
                 required property bool selectable
                 required property bool selected
+                required property string path
 
                 readonly property bool header: kind === DiffModel.FileHeader
 
@@ -269,6 +282,15 @@ Pane {
                         case DiffModel.NoNewline: return "\\" + row.text
                         default: return row.text
                         }
+                    }
+                }
+
+                TapHandler {
+                    enabled: row.header && row.path !== ""
+                    acceptedButtons: Qt.RightButton
+                    onTapped: eventPoint => {
+                        fileMenu.path = row.path
+                        fileMenu.popup(row, eventPoint.position.x, eventPoint.position.y)
                     }
                 }
 

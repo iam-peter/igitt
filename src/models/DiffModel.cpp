@@ -114,6 +114,7 @@ QVariant DiffModel::data(const QModelIndex &index, int role) const
     case NewLineRole: return row.newLine;
     case SelectableRole: return row.selectable();
     case SelectedRole: return isSelected(row);
+    case PathRole: return row.file >= 0 ? m_files[row.file].path() : QString();
     }
     return {};
 }
@@ -127,6 +128,7 @@ QHash<int, QByteArray> DiffModel::roleNames() const
         {NewLineRole, "newLine"},
         {SelectableRole, "selectable"},
         {SelectedRole, "selected"},
+        {PathRole, "path"},
     };
 }
 

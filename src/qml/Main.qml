@@ -50,6 +50,17 @@ ApplicationWindow {
         }
     }
 
+    function openTimelapse(path: string) {
+        timelapseWindow.createObject(null, {workDir: repo.path, path: path, monoFont: root.monoFont})
+    }
+
+    Component {
+        id: timelapseWindow
+        TimelapseWindow {
+            onClosing: destroy()
+        }
+    }
+
     function setPlanning(on: bool) {
         if (on)
             repo.startPlanning()
@@ -232,6 +243,7 @@ ApplicationWindow {
                 ChangesPane {
                     repo: repo
                     monoFont: root.monoFont
+                    onTimelapseRequested: path => root.openTimelapse(path)
                     SplitView.preferredWidth: 360
                     SplitView.minimumWidth: 220
                 }
@@ -241,6 +253,7 @@ ApplicationWindow {
                     onFoldDragMoved: pos => history.updateDrop(pos)
                     onFoldDragFinished: pos => history.finishDrop(pos)
                     onFoldRequested: sha => root.requestFold(sha)
+                    onTimelapseRequested: path => root.openTimelapse(path)
                     SplitView.fillWidth: true
                 }
                 PlanPane {

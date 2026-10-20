@@ -2,11 +2,13 @@
 // Set IGITT_SCREENSHOT_DIR to also save screenshots of the window.
 
 #include "Repository.h"
+#include "models/Timelapse.h"
 
 #include <QDir>
 #include <QFile>
 #include <QFontDatabase>
 #include <QQmlApplicationEngine>
+#include <QGuiApplication>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
@@ -128,6 +130,22 @@ private slots:
         QTest::qWait(50);
         screenshot(window, u"commit"_s);
 
+        // Time-lapse of app.txt, opened as from a file's context menu.
+        QVERIFY(QMetaObject::invokeMethod(window, "openTimelapse", Q_ARG(QString, u"app.txt"_s)));
+        QQuickWindow *lapseWindow = nullptr;
+        QTRY_VERIFY((lapseWindow = timelapseWindow()));
+        QVERIFY(QTest::qWaitForWindowExposed(lapseWindow));
+        auto *lapse = lapseWindow->findChild<Timelapse *>();
+        QVERIFY(lapse);
+        QTRY_COMPARE(lapse->revisionCount(), 7); // every commit that touched app.txt
+        QTRY_VERIFY(!lapse->busy() && lapse->rowCount() >= 30);
+        screenshot(lapseWindow, u"timelapse"_s);
+        lapse->setRevision(lapse->revisionCount() - 2);
+        QTRY_VERIFY(!lapse->busy());
+        screenshot(lapseWindow, u"timelapse-previous"_s);
+        lapseWindow->close();
+        QTRY_VERIFY(!timelapseWindow());
+
         // Searching dims what doesn't match; the minimap is above the graph.
         auto *search = window->findChild<QQuickItem *>(u"historySearch"_s);
         QVERIFY(search);
@@ -237,6 +255,15 @@ private:
         QTRY_VERIFY(item->isVisible() && item->isEnabled());
         QTest::mouseClick(window, Qt::LeftButton, {},
                           item->mapToScene({item->width() / 2, item->height() / 2}).toPoint());
+    }
+
+    static QQuickWindow *timelapseWindow()
+    {
+        for (QWindow *w : QGuiApplication::topLevelWindows()) {
+            if (w->isVisible() && w->title().startsWith("Time-lapse"_L1))
+                return qobject_cast<QQuickWindow *>(w);
+        }
+        return nullptr;
     }
 
     // Items a Repeater creates have no QObject parent; walk the item tree.

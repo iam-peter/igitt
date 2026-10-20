@@ -12,6 +12,7 @@ igitt_add_test(tst_foldengine)
 igitt_add_test(tst_foldsuggester)
 igitt_add_test(tst_plansession)
 igitt_add_test(tst_messageformat)
+igitt_add_test(tst_timelapse)
 
 qt_add_executable(tst_ui tst_ui.cpp)
 target_link_libraries(tst_ui PRIVATE igitt_ui igitt_uiplugin Qt6::Test)

@@ -11,6 +11,8 @@ Pane {
     required property Repository repo
     required property font monoFont
 
+    signal timelapseRequested(string path)
+
     padding: 0
 
     SplitView {
@@ -25,6 +27,7 @@ Pane {
             repo: pane.repo
             staged: false
             title: qsTr("Unstaged Changes")
+            onTimelapseRequested: path => pane.timelapseRequested(path)
             onFileDragMoved: (path, pos) => stagedFiles.dropTarget = stagedFiles.containsScenePoint(pos)
             onFileDropped: (path, pos) => {
                 stagedFiles.dropTarget = false
@@ -40,6 +43,7 @@ Pane {
             repo: pane.repo
             staged: true
             title: qsTr("Staged Changes")
+            onTimelapseRequested: path => pane.timelapseRequested(path)
             onFileDragMoved: (path, pos) => unstagedFiles.dropTarget = unstagedFiles.containsScenePoint(pos)
             onFileDropped: (path, pos) => {
                 unstagedFiles.dropTarget = false

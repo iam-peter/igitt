@@ -51,6 +51,16 @@ can be resized by dragging their header edge and picked from the View
 menu or by right-clicking the header. The search field matches message,
 author or SHA; Enter and Shift+Enter jump between matches.
 
+## Time-lapse view
+
+Right-click a file in the file lists, or a file header in any diff, for
+its Time-lapse View, after Perforce's: a slider through every revision
+of the file (following renames), and the file as it was at that revision
+with each line blamed to the revision that last changed it, shaded by
+age. The lines the revision changed are highlighted, the ones it deleted
+shown struck through; clicking a line's revision jumps there. The arrow
+keys step through the revisions, and Play animates them.
+
 ## Commit messages
 
 The commit form has a title with a character counter, a body with a guide

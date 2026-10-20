@@ -35,6 +35,7 @@ public:
         NewLineRole,
         SelectableRole,
         SelectedRole,
+        PathRole, // of the file the row belongs to
     };
 
     using QAbstractListModel::QAbstractListModel;
