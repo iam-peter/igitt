@@ -263,7 +263,11 @@ Pane {
             property int anchorRow: -1
 
             objectName: "diffList"
-            readonly property real gutterWidth: metrics.averageCharacterWidth * 12 + 8
+            // A file has one line number per line, a diff two (old and new).
+            readonly property bool singleNumbers: view.repo.diffSource === Repository.FileContent
+            readonly property int numberWidth: singleNumbers ? Math.max(3, String(count).length) : 5
+            readonly property real gutterWidth: metrics.averageCharacterWidth
+                                                * (singleNumbers ? numberWidth + 2 : 2 * numberWidth + 2) + 8
 
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -315,8 +319,11 @@ Pane {
                     anchors.verticalCenter: parent.verticalCenter
                     font: view.monoFont
                     color: view.palette.placeholderText
-                    text: (row.oldLine > 0 ? String(row.oldLine).padStart(5) : "     ") + " "
-                          + (row.newLine > 0 ? String(row.newLine).padStart(5) : "     ")
+                    text: {
+                        const number = n => (n > 0 ? String(n) : "").padStart(lines.numberWidth)
+                        return lines.singleNumbers ? number(row.newLine)
+                                                   : number(row.oldLine) + " " + number(row.newLine)
+                    }
                 }
 
                 Icon {
