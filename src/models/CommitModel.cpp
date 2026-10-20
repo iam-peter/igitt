@@ -114,6 +114,13 @@ QVariantList CommitModel::refLabels(const QList<RefInfo> &refs, const QString &c
     return current + locals + others;
 }
 
+void CommitModel::setReviews(const QHash<QString, QVariantMap> &reviews)
+{
+    m_reviews = reviews;
+    if (count() > 0)
+        emit dataChanged(index(0), index(count() - 1), {ReviewRole});
+}
+
 void CommitModel::setStats(const QHash<QString, CommitStats> &stats)
 {
     for (auto it = stats.cbegin(); it != stats.cend(); ++it) {
@@ -149,6 +156,10 @@ QVariant CommitModel::data(const QModelIndex &index, int role) const
     case IsMergeRole: return c.parents.size() > 1;
     case PlannedRole: return m_planned.contains(c.sha);
     case MatchedRole: return matches(index.row()) || !searching();
+    case ReviewRole: {
+        const auto it = m_reviews.constFind(c.sha);
+        return it == m_reviews.cend() ? QVariant() : QVariant(*it);
+    }
     case StatsRole: {
         const auto it = m_stats.constFind(c.sha);
         if (it == m_stats.cend())
@@ -181,6 +192,7 @@ QHash<int, QByteArray> CommitModel::roleNames() const
         {PlannedRole, "planned"},
         {StatsRole, "stats"},
         {MatchedRole, "matched"},
+        {ReviewRole, "review"},
     };
 }
 

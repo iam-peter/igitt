@@ -28,6 +28,10 @@ Repository::Repository(QObject *parent)
     : QObject(parent)
 {
     m_pool.setMaxThreadCount(1);
+    m_reviewPool.setMaxThreadCount(1);
+    m_reviewTimer.setSingleShot(true);
+    m_reviewTimer.setInterval(400);
+    connect(&m_reviewTimer, &QTimer::timeout, this, &Repository::queryReviewsNow);
     connect(&m_diff, &DiffModel::selectionChanged, this, &Repository::updateFoldSuggestion);
     // Rows request their stats as they scroll into view; collect a batch.
     m_statsTimer.setSingleShot(true);
@@ -40,6 +44,8 @@ Repository::~Repository()
     // Jobs only hold copies; wait so none posts back into a dead object.
     m_pool.clear();
     m_pool.waitForDone();
+    m_reviewPool.clear();
+    m_reviewPool.waitForDone();
 }
 
 void Repository::enqueue(JobKind kind, Job job)
@@ -131,6 +137,7 @@ void Repository::applyState(const RepositoryState &state)
         m_historyHead = history.head;
         m_historyWip = history.wip;
         m_pushTarget = history.pushTarget;
+        scheduleReviewQuery();
         m_wipGraph = history.wipGraph;
         m_headMessage = history.headMessage;
         m_foldTargets = QSet<QString>(history.foldTargets.cbegin(), history.foldTargets.cend());
@@ -770,6 +777,82 @@ DiffRequest Repository::diffRequest() const
 HistoryRequest Repository::historyRequest(bool force) const
 {
     return {force, m_historyHead, m_historyWip, m_filter, m_pushSettings};
+}
+
+void Repository::scheduleReviewQuery()
+{
+    if (!m_pushTarget.gerrit || !m_pushTarget.error.isEmpty() || m_plan || m_status.headSha.isEmpty()) {
+        ++m_reviewGeneration;
+        setReviews({});
+        return;
+    }
+    m_reviewTimer.start();
+}
+
+void Repository::queryReviewsNow()
+{
+    const int generation = ++m_reviewGeneration;
+    const QString upstream = !m_status.upstream.isEmpty()
+        ? m_status.upstream
+        : QStringLiteral("refs/remotes/%1/%2").arg(m_pushTarget.remote, m_pushTarget.remoteBranch);
+    m_reviewPool.start([this, generation, git = m_git, remote = m_pushTarget.remote, upstream,
+                        branch = m_pushTarget.remoteBranch] {
+        ReviewQuery reviews = queryReviews(git, remote, upstream, branch);
+        QMetaObject::invokeMethod(this, [this, generation, reviews = std::move(reviews)] {
+            if (generation == m_reviewGeneration)
+                setReviews(reviews);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void Repository::setReviews(const ReviewQuery &reviews)
+{
+    m_reviews = reviews;
+    QHash<QString, QVariantMap> bySha;
+    for (auto it = reviews.bySha.cbegin(); it != reviews.bySha.cend(); ++it) {
+        static const char *const states[] = {"new", "upToDate", "outdated", "closed"};
+        bySha.insert(it.key(), {
+            {QStringLiteral("state"), QString::fromLatin1(states[it->state])},
+            {QStringLiteral("number"), it->number},
+            {QStringLiteral("patchSet"), it->patchSet},
+            {QStringLiteral("url"), it->url},
+        });
+    }
+    m_commits.setReviews(bySha);
+    emit reviewsChanged();
+}
+
+bool Repository::pushNeeded() const
+{
+    // Without an answer from Gerrit, leave it to the user.
+    if (!m_pushTarget.gerrit || !m_reviews.ok)
+        return true;
+    return std::any_of(m_reviews.bySha.cbegin(), m_reviews.bySha.cend(), [](const ReviewInfo &info) {
+        return info.state == ReviewInfo::New || info.state == ReviewInfo::Outdated;
+    });
+}
+
+QString Repository::reviewSummary() const
+{
+    if (!m_pushTarget.gerrit)
+        return {};
+    if (!m_reviews.ok)
+        return m_reviews.error;
+    int counts[4] = {};
+    for (const ReviewInfo &info : m_reviews.bySha)
+        ++counts[info.state];
+    if (m_reviews.bySha.isEmpty())
+        return tr("Nothing to push for review.");
+    QStringList parts;
+    if (counts[ReviewInfo::UpToDate])
+        parts << tr("%n up to date on Gerrit", "", counts[ReviewInfo::UpToDate]);
+    if (counts[ReviewInfo::Outdated])
+        parts << tr("%n changed since the last upload", "", counts[ReviewInfo::Outdated]);
+    if (counts[ReviewInfo::New])
+        parts << tr("%n new", "", counts[ReviewInfo::New]);
+    if (counts[ReviewInfo::Closed])
+        parts << tr("%n merged or abandoned", "", counts[ReviewInfo::Closed]);
+    return tr("%n commit(s) to review: %1.", "", int(m_reviews.bySha.size())).arg(parts.join(QStringLiteral(", ")));
 }
 
 QString Repository::pushMode() const

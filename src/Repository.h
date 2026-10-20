@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/FoldSuggester.h"
+#include "core/GerritReview.h"
 #include "core/GitRunner.h"
 #include "core/PlanSession.h"
 #include "core/StateLoader.h"
@@ -74,6 +75,11 @@ class Repository : public QObject
     Q_PROPERTY(QString pushDescription READ pushDescription NOTIFY headChanged)
     Q_PROPERTY(bool canPush READ canPush NOTIFY headChanged)
     Q_PROPERTY(bool pushForReview READ pushForReview NOTIFY headChanged)
+    // False when Gerrit already has every commit a push for review would
+    // send, so it would only answer "no new changes".
+    Q_PROPERTY(bool pushNeeded READ pushNeeded NOTIFY reviewsChanged)
+    // What Gerrit has for those commits, or why it could not be asked.
+    Q_PROPERTY(QString reviewSummary READ reviewSummary NOTIFY reviewsChanged)
     // "auto", "plain" or "gerrit"; and the branch Gerrit reviews go to.
     Q_PROPERTY(QString pushMode READ pushMode WRITE setPushMode NOTIFY pushSettingsChanged)
     Q_PROPERTY(QString gerritBranch READ gerritBranch WRITE setGerritBranch NOTIFY pushSettingsChanged)
@@ -129,6 +135,8 @@ public:
     QString pushDescription() const { return m_pushTarget.description(); }
     bool canPush() const { return m_pushTarget.error.isEmpty() && !m_pushTarget.args.isEmpty(); }
     bool pushForReview() const { return m_pushTarget.gerrit; }
+    bool pushNeeded() const;
+    QString reviewSummary() const;
     QString pushMode() const;
     void setPushMode(const QString &mode);
     QString gerritBranch() const { return m_pushSettings.gerritBranch; }
@@ -218,6 +226,7 @@ signals:
     void filterChanged();
     void pushSettingsChanged();
     void pushRejected(const QString &reason, const QString &target);
+    void reviewsChanged();
     void committed();
     void errorOccurred(const QString &message);
     void notice(const QString &message);
@@ -266,6 +275,9 @@ private:
     void enqueueCommand(const QString &what, const QStringList &args, const QByteArray &input = {});
     void enqueuePlanEntry(const PlanEntry &entry);
     void endPlan();
+    void scheduleReviewQuery();
+    void queryReviewsNow();
+    void setReviews(const ReviewQuery &reviews);
     static PlanSnapshot snapshot(const PlanSession &plan);
     // Where jobs read from: the plan's simulation while planning.
     static StateSource sourceFor(const GitRunner &git, const std::shared_ptr<PlanSession> &plan);
@@ -281,6 +293,12 @@ private:
 
     GitRunner m_git;
     QThreadPool m_pool;
+    // Asking Gerrit takes a network round trip; it gets a thread of its own
+    // so it never holds up the git queue.
+    QThreadPool m_reviewPool;
+    QTimer m_reviewTimer;
+    int m_reviewGeneration = 0;
+    ReviewQuery m_reviews;
     int m_pendingJobs = 0;
     int m_pendingWrites = 0;
     // Bumped whenever the diff view changes, so stale results are dropped,

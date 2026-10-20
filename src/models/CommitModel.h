@@ -36,6 +36,7 @@ public:
         PlannedRole,
         StatsRole,
         MatchedRole, // true unless a search is active and the row doesn't match
+        ReviewRole,  // {state, number, patchSet, url} for commits pushed for review
     };
 
     using QAbstractListModel::QAbstractListModel;
@@ -47,6 +48,8 @@ public:
                     const QSet<QString> &planned = {});
     // Stats never change for a commit, so they are kept across reloads.
     void setStats(const QHash<QString, CommitStats> &stats);
+    // What Gerrit has for commits a push for review would send; by SHA.
+    void setReviews(const QHash<QString, QVariantMap> &reviews);
     bool hasStats(const QString &sha) const { return m_stats.contains(sha); }
 
     int count() const { return int(m_commits.size()); }
@@ -97,6 +100,7 @@ private:
     QHash<QString, QVariantList> m_refs;
     QHash<QString, int> m_rowBySha;
     QHash<QString, CommitStats> m_stats;
+    QHash<QString, QVariantMap> m_reviews;
     QString m_headSha;
     QString m_currentBranch;
     QSet<QString> m_planned;

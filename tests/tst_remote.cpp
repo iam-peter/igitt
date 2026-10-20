@@ -1,4 +1,5 @@
 #include "Repository.h"
+#include "core/GerritReview.h"
 #include "core/RemoteOps.h"
 
 #include <QDir>
@@ -183,6 +184,95 @@ private slots:
         QVERIFY(m_repo->pushDescription().contains("No remote"_L1));
     }
 
+    void parsesGerritRemotesAndQueries()
+    {
+        const GerritRemote remote = parseGerritRemote(u"ssh://henning@codereview.qt-project.org:29418/qt/qtbase"_s);
+        QCOMPARE(remote.user, u"henning"_s);
+        QCOMPARE(remote.host, u"codereview.qt-project.org"_s);
+        QCOMPARE(remote.port, 29418);
+        QCOMPARE(remote.project, u"qt/qtbase"_s);
+        QCOMPARE(parseGerritRemote(u"ssh://review.example/a/b.git"_s).project, u"a/b"_s);
+        QVERIFY(!parseGerritRemote(u"https://example.org/x.git"_s).isValid());
+
+        const QHash<QString, GerritChange> changes = parseGerritQuery(
+            R"({"project":"p","branch":"main","id":"I1","number":101,"url":"https://r/c/p/+/101","status":"NEW","currentPatchSet":{"number":3,"revision":"aaa"}})"
+            "\n"
+            R"({"type":"stats","rowCount":1})"_ba);
+        QCOMPARE(changes.size(), 1);
+        QCOMPARE(changes[u"I1"_s].number, 101);
+        QCOMPARE(changes[u"I1"_s].patchSet, 3);
+        QCOMPARE(changes[u"I1"_s].revision, u"aaa"_s);
+    }
+
+    void asksGerritWhetherThereIsAnythingToPush()
+    {
+        // A stand-in for ssh that answers like Gerrit.
+        QTemporaryDir bin;
+        QFile ssh(bin.filePath(u"ssh"_s));
+        QVERIFY(ssh.open(QIODevice::WriteOnly));
+        ssh.write("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$FAKE_SSH_ARGS\"\n"
+                  "[ -n \"$FAKE_SSH_FAIL\" ] && { echo 'Connection refused' >&2; exit 255; }\n"
+                  "cat \"$FAKE_GERRIT_JSON\"\n");
+        ssh.close();
+        QVERIFY(ssh.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+        const QByteArray path = qgetenv("PATH");
+        qputenv("PATH", bin.path().toUtf8() + ':' + path);
+        const QString args = bin.filePath(u"args"_s);
+        const QString json = bin.filePath(u"answer.json"_s);
+        qputenv("FAKE_SSH_ARGS", args.toUtf8());
+        qputenv("FAKE_GERRIT_JSON", json.toUtf8());
+
+        work({"remote", "set-url", "origin", "ssh://tester@review.example:29418/proj/sub"});
+        commitWithChangeId("first", "I1111111111111111111111111111111111111111");
+        commitWithChangeId("second", "I2222222222222222222222222222222222222222");
+        const auto answer = [&](const QString &secondRevision) {
+            QFile file(json);
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            const auto line = [](const char *id, int number, const QString &revision) {
+                return QStringLiteral(R"({"id":"%1","number":%2,"url":"https://review.example/c/proj/+/%2",)"
+                                      R"("status":"NEW","currentPatchSet":{"number":2,"revision":"%3"}})")
+                    .arg(QLatin1StringView(id)).arg(number).arg(revision).toUtf8() + '\n';
+            };
+            file.write(line("I1111111111111111111111111111111111111111", 101, rev(m_work, u"HEAD~1"_s)));
+            file.write(line("I2222222222222222222222222222222222222222", 102, secondRevision));
+            file.write(R"({"type":"stats","rowCount":2})" "\n");
+        };
+
+        // Both commits are the current patch sets: nothing to push.
+        answer(rev(m_work, u"HEAD"_s));
+        open();
+        QVERIFY(m_repo->pushForReview());
+        QTRY_VERIFY(!m_repo->pushNeeded());
+        QVERIFY(m_repo->reviewSummary().contains("2 up to date"_L1));
+        const QVariantMap review = m_repo->commits()->data(m_repo->commits()->index(0), CommitModel::ReviewRole).toMap();
+        QCOMPARE(review.value(u"state"_s).toString(), u"upToDate"_s);
+        QCOMPARE(review.value(u"number"_s).toInt(), 102);
+        QFile asked(args);
+        QVERIFY(asked.open(QIODevice::ReadOnly));
+        const QByteArray query = asked.readAll();
+        QVERIFY(query.contains("tester@review.example"));
+        QVERIFY(query.contains("project:proj/sub\nbranch:main"));
+        QVERIFY(query.contains("change:I2222222222222222222222222222222222222222"));
+
+        // The newest commit changed since its upload: pushing makes sense again.
+        answer(u"0123456789abcdef0123456789abcdef01234567"_s);
+        m_repo->refresh();
+        QTRY_VERIFY(m_repo->pushNeeded());
+        QCOMPARE(m_repo->commits()->data(m_repo->commits()->index(0), CommitModel::ReviewRole).toMap()
+                     .value(u"state"_s).toString(), u"outdated"_s);
+
+        // Gerrit out of reach: leave pushing to the user.
+        qputenv("FAKE_SSH_FAIL", "1");
+        answer(rev(m_work, u"HEAD"_s));
+        m_repo->refresh();
+        QTRY_VERIFY(m_repo->reviewSummary().contains("Connection refused"_L1));
+        QVERIFY(m_repo->pushNeeded());
+
+        qunsetenv("FAKE_SSH_FAIL");
+        qputenv("PATH", path);
+        QVERIFY(settle());
+    }
+
     void explainsWhatItCannotDo()
     {
         QVERIFY(explainNetworkFailure(u"fatal: could not read Username for 'https://x': terminal prompts disabled"_s)
@@ -215,6 +305,11 @@ private:
     QString remoteRev(const QString &ref)
     {
         return QString::fromLatin1(GitRunner(m_root->path()).run({"--git-dir=" + m_remote, "rev-parse", ref}).out.trimmed());
+    }
+
+    void commitWithChangeId(const QString &subject, const QString &changeId)
+    {
+        commitIn(m_work, subject + u"\n\nChange-Id: "_s + changeId);
     }
 
     void commitIn(const GitRunner &git, const QString &message)

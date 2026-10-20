@@ -300,12 +300,13 @@ ApplicationWindow {
                 iconName: repo.pushForReview ? "git-pull-request" : "cloud-upload"
                 text: (repo.pushForReview ? qsTr("Push for Review") : qsTr("Push"))
                       + (repo.ahead > 0 ? `  ↑${repo.ahead}` : "")
-                enabled: repo.valid && repo.canPush && !repo.writing && !repo.planning && repo.operation === ""
+                enabled: repo.valid && repo.canPush && repo.pushNeeded && !repo.writing && !repo.planning
+                         && repo.operation === ""
                 onClicked: repo.push()
                 ToolTip.visible: hovered
                 ToolTip.text: repo.planning ? qsTr("Off while planning")
                             : repo.operation !== "" ? qsTr("Finish the %1 first").arg(repo.operation.toLowerCase())
-                            : repo.pushDescription
+                            : [repo.pushDescription, repo.reviewSummary].filter(s => s !== "").join("\n")
             }
             ToolSeparator {}
             BusyIndicator {
