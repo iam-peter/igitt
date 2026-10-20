@@ -27,6 +27,8 @@ ApplicationWindow {
         currentBranchOnly: AppSettings.graph.currentBranchOnly
         pushMode: AppSettings.remote.pushMode
         gerritBranch: AppSettings.remote.gerritBranch
+        githubHosts: AppSettings.remote.githubHosts
+        gitlabHosts: AppSettings.remote.gitlabHosts
         onPushRejected: (reason, target) => {
             forcePushDialog.reason = reason
             forcePushDialog.target = target
@@ -313,11 +315,14 @@ ApplicationWindow {
                 id: reviewOptionsButton
                 objectName: "reviewOptionsButton"
                 iconName: "chevron-down"
-                visible: repo.pushForReview
+                visible: repo.reviewHost !== ""
                 enabled: pushButton.enabled
                 onClicked: reviewOptions.opened ? reviewOptions.close() : reviewOptions.open()
                 ToolTip.visible: hovered && !reviewOptions.opened
-                ToolTip.text: qsTr("Push for review with a topic, reviewers, hashtags or as work in progress")
+                ToolTip.text: repo.reviewHost === "gerrit"
+                              ? qsTr("Push for review with a topic, reviewers, hashtags or as work in progress")
+                              : repo.reviewHost === "github" ? qsTr("Push and open a pull request")
+                              : qsTr("Push with merge request options")
 
                 ReviewOptionsPopup {
                     id: reviewOptions

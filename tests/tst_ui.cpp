@@ -412,6 +412,64 @@ private slots:
                  gitOut({"rev-parse", "HEAD"}));
         QCOMPARE(repo->reviewTopic(), u"speedup"_s);
 
+        // GitLab: merge request push options from the same popup. The
+        // server is a local path, so there is nothing to ask glab.
+        GitRunner(server.path()).run({"config", "receive.advertisePushOptions", "true"});
+        git({"config", "--unset-all", "remote.origin.push"});
+        repo->setPushMode(u"gitlab"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->reviewHost(), u"gitlab"_s);
+        QVERIFY(!repo->pushForReview());
+        click(window, u"reviewOptionsButton"_s);
+        auto *title = window->findChild<QQuickItem *>(u"reviewTitleField"_s);
+        QTRY_VERIFY(title && title->isVisible());
+        QVERIFY(!window->findChild<QQuickItem *>(u"reviewTopicField"_s)->isVisible());
+        QVERIFY(window->findChild<QQuickItem *>(u"reviewCreateBox"_s)->property("checked").toBool());
+        title->setProperty("text", u"Speed up"_s);
+        screenshot(window, u"merge-request-options"_s);
+        click(window, u"reviewPushButton"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(GitRunner(server.path()).run({"rev-parse", "main"}).out, gitOut({"rev-parse", "HEAD"}));
+        repo->setPushMode(u"auto"_s);
+        QVERIFY(settle(*repo));
+
+        // GitHub: the branch's pull request on its tip, from a stand-in
+        // for gh. git pushes to the local server instead.
+        {
+            QTemporaryDir bin;
+            QFile gh(bin.filePath(u"gh"_s));
+            QVERIFY(gh.open(QIODevice::WriteOnly));
+            gh.write("#!/bin/sh\necho '{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":12,"
+                     "\"title\":\"Speed up\",\"url\":\"https://github.com/acme/widget/pull/12\",\"state\":\"OPEN\","
+                     "\"reviewDecision\":\"APPROVED\",\"headRepositoryOwner\":{\"login\":\"acme\"},"
+                     "\"reviewThreads\":{\"nodes\":[{\"isResolved\":false}]}}]}}}}'\n");
+            gh.close();
+            QVERIFY(gh.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+            const QByteArray path = qgetenv("PATH");
+            qputenv("PATH", bin.path().toUtf8() + ':' + path);
+            const QString url = u"https://github.com/acme/widget.git"_s;
+            git({"config", "url." + server.path() + ".insteadOf", url});
+            git({"remote", "set-url", "origin", url});
+            repo->refresh();
+            QVERIFY(settle(*repo));
+            QCOMPARE(repo->reviewHost(), u"github"_s);
+            QTRY_VERIFY(!repo->branchReview().isEmpty());
+            QQuickItem *tag = nullptr;
+            QTRY_VERIFY((tag = [window] {
+                const QList<QQuickItem *> tags = findItems(window->contentItem(), u"reviewTag"_s);
+                const auto it = std::find_if(tags.cbegin(), tags.cend(), [](QQuickItem *t) { return t->isVisible(); });
+                return it == tags.cend() ? nullptr : *it;
+            }()));
+            QCOMPARE(tag->property("text").toString(), u"PR #12 · approved · 1 unresolved"_s);
+            screenshot(window, u"pull-request"_s);
+
+            git({"remote", "set-url", "origin", server.path()});
+            repo->refresh();
+            QVERIFY(settle(*repo));
+            QCOMPARE(repo->reviewHost(), QString());
+            qputenv("PATH", path);
+        }
+
         for (const QQmlError &w : std::as_const(warnings))
             qWarning().noquote() << w.toString();
         QVERIFY(warnings.isEmpty());

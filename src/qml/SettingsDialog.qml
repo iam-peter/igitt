@@ -199,10 +199,12 @@ ModalDialog {
                     text: qsTr("Push to")
                 }
                 ComboBox {
-                    readonly property var modes: ["auto", "plain", "gerrit"]
+                    readonly property var modes: ["auto", "plain", "gerrit", "github", "gitlab"]
                     Layout.fillWidth: true
-                    model: [qsTr("Gerrit review if detected, otherwise the upstream"),
-                            qsTr("The upstream branch"), qsTr("Gerrit review (refs/for/…)")]
+                    model: [qsTr("Detect Gerrit, GitHub or GitLab, otherwise the upstream"),
+                            qsTr("The upstream branch, without reviews"), qsTr("Gerrit review (refs/for/…)"),
+                            qsTr("The upstream branch, with GitHub pull requests"),
+                            qsTr("The upstream branch, with GitLab merge requests")]
                     currentIndex: Math.max(0, modes.indexOf(AppSettings.remote.pushMode))
                     onActivated: index => AppSettings.remote.pushMode = modes[index]
                 }
@@ -215,6 +217,34 @@ ModalDialog {
                     text: AppSettings.remote.gerritBranch
                     selectByMouse: true
                     onEditingFinished: AppSettings.remote.gerritBranch = text.trim()
+                }
+                Label {
+                    text: qsTr("GitHub hosts")
+                }
+                TextField {
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("github.com and github.*; more, comma-separated")
+                    text: AppSettings.remote.githubHosts
+                    selectByMouse: true
+                    onEditingFinished: AppSettings.remote.githubHosts = text.trim()
+                }
+                Label {
+                    text: qsTr("GitLab hosts")
+                }
+                TextField {
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("gitlab.com and gitlab.*; more, comma-separated")
+                    text: AppSettings.remote.gitlabHosts
+                    selectByMouse: true
+                    onEditingFinished: AppSettings.remote.gitlabHosts = text.trim()
+                }
+                Label {
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    opacity: 0.7
+                    text: qsTr("Pull and merge requests are asked for with the gh and glab command line tools, "
+                               + "signed in with \u201cgh auth login\u201d and \u201cglab auth login\u201d.")
                 }
             }
 

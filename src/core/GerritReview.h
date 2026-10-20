@@ -1,14 +1,11 @@
 #pragma once
 
-#include "GitRunner.h"
+#include "ReviewProvider.h"
 
 #include <QHash>
 #include <QList>
 #include <QString>
 #include <QStringList>
-
-#include <optional>
-#include <utility>
 
 // A Gerrit server reached over SSH, from a remote URL such as
 // ssh://user@review.example.org:29418/some/project.
@@ -23,14 +20,6 @@ struct GerritRemote
 };
 
 GerritRemote parseGerritRemote(const QString &url);
-
-// A vote on a change's current patch set.
-struct GerritVote
-{
-    QString label; // Code-Review, Verified, ...
-    int value = 0;
-    QString by;
-};
 
 // A change as `gerrit query --format=JSON --current-patch-set --comments`
 // reports it.
@@ -51,48 +40,18 @@ struct GerritChange
 
 QHash<QString, GerritChange> parseGerritQuery(const QByteArray &output);
 
-// What Gerrit has for one of the commits a push for review would send.
-struct ReviewInfo
-{
-    enum State {
-        New,      // no change with its Change-Id yet
-        UpToDate, // the current patch set is this very commit
-        Outdated, // pushing uploads a new patch set
-        Closed,   // merged or abandoned
-    };
+// Gerrit: a refs/for/ push refspec, a commit-msg hook adding Change-Id, or
+// Gerrit's SSH port in the URL.
+bool looksLikeGerrit(const GitRunner &git, const QString &remote);
 
-    State state = New;
-    int number = 0;
-    int patchSet = 0;
-    QString url;
-    bool wip = false;
-    QString topic;
-    QStringList hashtags;
-    QList<GerritVote> votes;
-    int comments = 0;
-    // Gerrit's has:unresolved; unknown if that second query failed.
-    std::optional<bool> unresolved;
-
-    // The lowest and highest vote on `label`, 0 for none.
-    std::pair<int, int> voteRange(const QString &label) const;
-    // The vote Gerrit would show for `label`: a veto beats approvals.
-    int shownVote(const QString &label) const;
-    // Short for the commit row, e.g. "WIP · CR+2 · V-1"; empty if there
-    // is nothing to tell.
-    QString badges() const;
-    // Everything above, a line each, for a tooltip.
-    QString details() const;
-};
-
-struct ReviewQuery
-{
-    bool ok = false; // Gerrit answered
-    QString error;
-    QHash<QString, ReviewInfo> bySha; // the commits ahead of the upstream
-};
+// "%topic=x,wip,r=a@b,t=tag", or empty without options. A value a refspec
+// cannot carry, such as one with a space or comma, sets `error` instead.
+QString reviewRefspecOptions(const ReviewOptions &options, QString *error);
 
 // Asks the Gerrit behind `remote` about the commits between `upstream` and
 // HEAD, matched by Change-Id within the project and `branch`. Uses ssh in
 // batch mode, honoring GIT_SSH_COMMAND and core.sshCommand.
-ReviewQuery queryReviews(const GitRunner &git, const QString &remote, const QString &upstream,
-                         const QString &branch);
+ReviewQuery queryGerritReviews(const GitRunner &git, const QString &remote, const QString &upstream,
+                               const QString &branch);
+
+const ReviewProvider &gerritProvider();

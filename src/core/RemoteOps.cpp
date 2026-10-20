@@ -1,7 +1,7 @@
 #include "RemoteOps.h"
 
-#include <QDir>
-#include <QFile>
+#include "ReviewProvider.h"
+
 #include <QRegularExpression>
 
 namespace {
@@ -42,11 +42,6 @@ QProcessEnvironment networkEnvironment(const GitRunner &git)
     return env;
 }
 
-QString topicKey(const QString &branch)
-{
-    return QStringLiteral("branch.%1.igittTopic").arg(branch);
-}
-
 } // namespace
 
 QStringList splitReviewList(const QString &text)
@@ -55,58 +50,15 @@ QStringList splitReviewList(const QString &text)
     return text.split(separators, Qt::SkipEmptyParts);
 }
 
-QString reviewRefspecOptions(const ReviewOptions &options, QString *error)
-{
-    // Commas separate options and '%' starts them; the rest would make an
-    // invalid ref name (see git check-ref-format).
-    static const QRegularExpression invalid(QStringLiteral("[\\s,%~^:?*\\[\\\\\\x00-\\x1f\\x7f]|\\.\\.|@\\{"));
-    QStringList parts;
-    const auto add = [&](const QString &key, const QString &value) {
-        if (value.contains(invalid) && error->isEmpty())
-            *error = tr("\u201c%1\u201d cannot be sent with a push for review: leave out spaces, commas and "
-                        "any of %~^:?*[\\.").arg(value);
-        parts.append(key + QLatin1Char('=') + value);
-    };
-    error->clear();
-    if (!options.topic.trimmed().isEmpty())
-        add(QStringLiteral("topic"), options.topic.trimmed());
-    if (options.state == ReviewOptions::State::Wip)
-        parts.append(QStringLiteral("wip"));
-    else if (options.state == ReviewOptions::State::Ready)
-        parts.append(QStringLiteral("ready"));
-    for (const QString &reviewer : options.reviewers)
-        add(QStringLiteral("r"), reviewer.trimmed());
-    for (const QString &tag : options.hashtags)
-        add(QStringLiteral("t"), tag.trimmed());
-    if (!error->isEmpty() || parts.isEmpty())
-        return {};
-    return QLatin1Char('%') + parts.join(QLatin1Char(','));
-}
-
 QString PushTarget::description() const
 {
     if (!error.isEmpty())
         return error;
-    if (gerrit)
+    if (forReview)
         return tr("Push HEAD for review to refs/for/%1 on %2").arg(remoteBranch, remote);
     if (setsUpstream)
         return tr("Push to %1/%2 and track it").arg(remote, remoteBranch);
     return tr("Push to %1/%2").arg(remote, remoteBranch);
-}
-
-bool looksLikeGerrit(const GitRunner &git, const QString &remote)
-{
-    const QString pushSpecs = QString::fromUtf8(git.run({QStringLiteral("config"), QStringLiteral("--get-all"),
-                                                         QStringLiteral("remote.%1.push").arg(remote)}).out);
-    if (pushSpecs.contains(QLatin1StringView("refs/for/")))
-        return true;
-    if (config(git, QStringLiteral("remote.%1.url").arg(remote)).contains(QLatin1StringView(":29418")))
-        return true;
-    // --git-path honors core.hooksPath.
-    const QString hook = firstLine(git.run({QStringLiteral("rev-parse"), QStringLiteral("--git-path"),
-                                            QStringLiteral("hooks/commit-msg")}).out);
-    QFile file(QDir(git.workDir()).filePath(hook));
-    return file.open(QIODevice::ReadOnly) && file.readAll().contains("Change-Id");
 }
 
 QString upstreamRemote(const GitRunner &git)
@@ -141,38 +93,31 @@ PushTarget resolvePushTarget(const GitRunner &git, const PushSettings &settings,
     if (target.remote.isEmpty())
         target.remote = remotes.contains(QLatin1StringView("origin")) ? QStringLiteral("origin") : remotes.first();
 
-    target.gerrit = settings.mode == PushMode::Gerrit
-                 || (settings.mode == PushMode::Auto && looksLikeGerrit(git, target.remote));
-    if (target.gerrit) {
+    target.host = detectReviewHost(git, target.remote, settings);
+    const ReviewProvider *provider = reviewProvider(target.host);
+    target.forReview = provider && provider->pushesForReview();
+    if (target.forReview) {
         target.remoteBranch = !settings.gerritBranch.isEmpty() ? settings.gerritBranch : upstreamBranch;
         if (target.remoteBranch.isEmpty()) {
             target.error = tr("No branch to push for review to: set an upstream, or the Gerrit branch in Settings.");
             return target;
         }
-        if (!branch.isEmpty())
-            target.savedTopic = config(git, topicKey(branch));
-        QString options;
-        if (review) {
-            options = reviewRefspecOptions(*review, &target.error);
-            if (!target.error.isEmpty())
-                return target;
-            target.review = review;
-        }
-        target.args = {target.remote, QStringLiteral("HEAD:refs/for/") + target.remoteBranch + options};
-        return target;
-    }
-
-    if (branch.isEmpty()) {
+        target.args = {target.remote, QStringLiteral("HEAD:refs/for/") + target.remoteBranch};
+    } else if (branch.isEmpty()) {
         target.error = tr("HEAD is detached; check out a branch to push it.");
         return target;
-    }
-    if (!upstreamBranch.isEmpty()) {
+    } else if (!upstreamBranch.isEmpty()) {
         target.remoteBranch = upstreamBranch;
         target.args = {target.remote, QStringLiteral("HEAD:refs/heads/") + upstreamBranch};
     } else {
         target.remoteBranch = branch;
         target.setsUpstream = true;
         target.args = {QStringLiteral("--set-upstream"), target.remote, branch};
+    }
+    if (provider) {
+        provider->completeTarget(git, target);
+        if (review)
+            provider->applyOptions(target, *review);
     }
     return target;
 }
@@ -185,7 +130,7 @@ NetworkResult pushTo(const GitRunner &git, const PushTarget &target, bool force)
         return result;
     }
     QStringList args{QStringLiteral("push"), QStringLiteral("--porcelain")};
-    if (force && !target.gerrit) {
+    if (force && !target.forReview) {
         const QString tracking = QStringLiteral("refs/remotes/%1/%2").arg(target.remote, target.remoteBranch);
         const GitResult lease = git.run({QStringLiteral("rev-parse"), QStringLiteral("-q"),
                                          QStringLiteral("--verify"), tracking});
@@ -209,12 +154,9 @@ NetworkResult pushTo(const GitRunner &git, const PushTarget &target, bool force)
     if (!result.ok && !result.rejected)
         result.message = explainNetworkFailure(err.isEmpty() ? r.errorText() : err);
 
-    if (result.ok && target.gerrit && target.review && !target.branch.isEmpty()) {
-        const QString topic = target.review->topic.trimmed();
-        if (topic.isEmpty())
-            git.run({QStringLiteral("config"), QStringLiteral("--unset"), topicKey(target.branch)});
-        else
-            git.run({QStringLiteral("config"), topicKey(target.branch), topic});
+    if (result.ok) {
+        if (const ReviewProvider *provider = reviewProvider(target.host))
+            provider->afterPush(git, target, result);
     }
     return result;
 }

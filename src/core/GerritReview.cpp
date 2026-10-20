@@ -1,6 +1,8 @@
 #include "GerritReview.h"
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -41,20 +43,13 @@ bool runGerrit(const GitRunner &git, const GerritRemote &gerrit, const QStringLi
                 QStringLiteral("ConnectTimeout=15"), QStringLiteral("-p"), QString::number(gerrit.port),
                 gerrit.user.isEmpty() ? gerrit.host : gerrit.user + QLatin1Char('@') + gerrit.host,
                 QStringLiteral("gerrit")};
+    return runReviewTool(git, program, command + words, {}, QStringLiteral("Gerrit"),
+                         tr("Asking Gerrit needs ssh, which is not installed."), out, error);
+}
 
-    QProcess ssh;
-    ssh.setWorkingDirectory(git.workDir());
-    ssh.start(program, command + words);
-    if (!ssh.waitForStarted() || !ssh.waitForFinished(60000) || ssh.exitStatus() != QProcess::NormalExit
-        || ssh.exitCode() != 0) {
-        ssh.kill();
-        *error = tr("Asking Gerrit failed: %1")
-                     .arg(QString::fromUtf8(ssh.readAllStandardError()).trimmed()
-                          + (ssh.error() == QProcess::UnknownError ? QString() : ssh.errorString()));
-        return false;
-    }
-    *out = ssh.readAllStandardOutput();
-    return true;
+QString topicKey(const QString &branch)
+{
+    return QStringLiteral("branch.%1.igittTopic").arg(branch);
 }
 
 // `query` scoped to the project and branch and limited to `changeIds`.
@@ -207,10 +202,12 @@ QHash<QString, GerritChange> parseGerritQuery(const QByteArray &output)
     return changes;
 }
 
-ReviewQuery queryReviews(const GitRunner &git, const QString &remote, const QString &upstream,
-                         const QString &branch)
+ReviewQuery queryGerritReviews(const GitRunner &git, const QString &remote, const QString &upstream,
+                               const QString &branch)
 {
     ReviewQuery query;
+    query.host = ReviewHost::Gerrit;
+    query.branch = branch;
     const GerritRemote gerrit = parseGerritRemote(config(git, QStringLiteral("remote.%1.url").arg(remote)));
     if (!gerrit.isValid()) {
         query.error = tr("Only Gerrit remotes reached over SSH can be asked about reviews.");
@@ -291,4 +288,107 @@ ReviewQuery queryReviews(const GitRunner &git, const QString &remote, const QStr
     for (const QString &changeId : std::as_const(open))
         query.bySha[shaByChangeId.value(changeId)].unresolved = unresolved.contains(changeId);
     return query;
+}
+
+bool looksLikeGerrit(const GitRunner &git, const QString &remote)
+{
+    const QString pushSpecs = QString::fromUtf8(git.run({QStringLiteral("config"), QStringLiteral("--get-all"),
+                                                         QStringLiteral("remote.%1.push").arg(remote)}).out);
+    if (pushSpecs.contains(QLatin1StringView("refs/for/")))
+        return true;
+    if (config(git, QStringLiteral("remote.%1.url").arg(remote)).contains(QLatin1StringView(":29418")))
+        return true;
+    // --git-path honors core.hooksPath.
+    const GitResult hook = git.run({QStringLiteral("rev-parse"), QStringLiteral("--git-path"),
+                                    QStringLiteral("hooks/commit-msg")});
+    QFile file(QDir(git.workDir()).filePath(QString::fromUtf8(hook.out.left(hook.out.indexOf('\n'))).trimmed()));
+    return file.open(QIODevice::ReadOnly) && file.readAll().contains("Change-Id");
+}
+
+QString reviewRefspecOptions(const ReviewOptions &options, QString *error)
+{
+    // Commas separate options and '%' starts them; the rest would make an
+    // invalid ref name (see git check-ref-format).
+    static const QRegularExpression invalid(QStringLiteral("[\\s,%~^:?*\\[\\\\\\x00-\\x1f\\x7f]|\\.\\.|@\\{"));
+    QStringList parts;
+    const auto add = [&](const QString &key, const QString &value) {
+        if (value.contains(invalid) && error->isEmpty())
+            *error = tr("\u201c%1\u201d cannot be sent with a push for review: leave out spaces, commas and "
+                        "any of %~^:?*[\\.").arg(value);
+        parts.append(key + QLatin1Char('=') + value);
+    };
+    error->clear();
+    if (!options.topic.trimmed().isEmpty())
+        add(QStringLiteral("topic"), options.topic.trimmed());
+    if (options.state == ReviewOptions::State::Wip)
+        parts.append(QStringLiteral("wip"));
+    else if (options.state == ReviewOptions::State::Ready)
+        parts.append(QStringLiteral("ready"));
+    for (const QString &reviewer : options.reviewers)
+        add(QStringLiteral("r"), reviewer.trimmed());
+    for (const QString &tag : options.hashtags)
+        add(QStringLiteral("t"), tag.trimmed());
+    if (!error->isEmpty() || parts.isEmpty())
+        return {};
+    return QLatin1Char('%') + parts.join(QLatin1Char(','));
+}
+
+namespace {
+
+class GerritProvider : public ReviewProvider
+{
+public:
+    ReviewHost host() const override { return ReviewHost::Gerrit; }
+    QString name() const override { return QStringLiteral("Gerrit"); }
+    bool pushesForReview() const override { return true; }
+
+    void completeTarget(const GitRunner &git, PushTarget &target) const override
+    {
+        if (!target.branch.isEmpty())
+            target.savedTopic = config(git, topicKey(target.branch));
+    }
+
+    void applyOptions(PushTarget &target, const ReviewOptions &options) const override
+    {
+        QString error;
+        const QString suffix = reviewRefspecOptions(options, &error);
+        if (!error.isEmpty()) {
+            target.error = error;
+            return;
+        }
+        if (target.args.isEmpty())
+            return;
+        target.args.last() += suffix;
+        target.review = options;
+    }
+
+    QString preview(const PushTarget &target) const override
+    {
+        return target.args.value(target.args.size() - 1);
+    }
+
+    // A push with options remembers its topic in branch.<name>.igittTopic.
+    void afterPush(const GitRunner &git, const PushTarget &target, NetworkResult &) const override
+    {
+        if (!target.review || target.branch.isEmpty())
+            return;
+        const QString topic = target.review->topic.trimmed();
+        if (topic.isEmpty())
+            git.run({QStringLiteral("config"), QStringLiteral("--unset"), topicKey(target.branch)});
+        else
+            git.run({QStringLiteral("config"), topicKey(target.branch), topic});
+    }
+
+    ReviewQuery query(const GitRunner &git, const ReviewContext &context) const override
+    {
+        return queryGerritReviews(git, context.remote, context.upstream, context.branch);
+    }
+};
+
+} // namespace
+
+const ReviewProvider &gerritProvider()
+{
+    static const GerritProvider provider;
+    return provider;
 }
