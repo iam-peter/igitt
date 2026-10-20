@@ -147,6 +147,51 @@ private slots:
         QCOMPARE(repo.staged()->count(), 0);
     }
 
+    void foldsSelectionAndUndoes()
+    {
+        writeFile(file(), "one\nTWO\nthree\nFOUR\nfive\n");
+        const QByteArray oldHead = git({"rev-parse", "HEAD"});
+        Repository repo;
+        QVERIFY(repo.open(m_dir->path()));
+        const QString first = repo.commits()->shaAt(1);
+
+        QVERIFY(!repo.foldBlocker(first).isEmpty()); // nothing selected yet
+        repo.showFile(u"f.txt"_s, false);
+        selectLinesContaining(repo, {u"two"_s, u"TWO"_s});
+        QVERIFY(repo.foldBlocker(first).isEmpty());
+        QVERIFY(repo.publishedIn(first).isEmpty());
+
+        QSignalSpy notices(&repo, &Repository::notice);
+        QVERIFY(repo.foldSelection(first));
+        QCOMPARE(notices.size(), 1);
+        QVERIFY(repo.canUndoFold());
+        QCOMPARE(repo.commits()->rowCount(), 2);
+        QVERIFY(git({"show", "HEAD~1:f.txt"}).contains("TWO"));
+        QVERIFY(git({"diff"}).contains("+FOUR"));
+        QVERIFY(!git({"diff"}).contains("+TWO"));
+        QVERIFY(git({"diff", "--cached"}).isEmpty());
+
+        QVERIFY(repo.undoFold());
+        QVERIFY(!repo.canUndoFold());
+        QCOMPARE(git({"rev-parse", "HEAD"}), oldHead);
+        QVERIFY(git({"diff"}).contains("+TWO"));
+        QVERIFY(git({"diff", "--cached"}).isEmpty());
+    }
+
+    void undoIsForgottenWhenHeadMoves()
+    {
+        writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");
+        Repository repo;
+        QVERIFY(repo.open(m_dir->path()));
+        repo.showFile(u"f.txt"_s, false);
+        selectLinesContaining(repo, {u"two"_s, u"TWO"_s});
+        QVERIFY(repo.foldSelection(repo.commits()->shaAt(1)));
+
+        git({"commit", "-q", "--allow-empty", "-m", "Elsewhere"});
+        repo.refreshStatus();
+        QVERIFY(!repo.canUndoFold());
+    }
+
 private:
     QString file() const { return m_dir->filePath("f.txt"); }
 

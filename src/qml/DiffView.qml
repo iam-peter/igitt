@@ -15,6 +15,11 @@ Pane {
                                         || repo.diffSource === Repository.StagedDiff
     readonly property bool stagedDiff: repo.diffSource === Repository.StagedDiff
 
+    // Emitted in scene coordinates while the selected lines are dragged
+    // towards the history, and once when they are dropped.
+    signal foldDragMoved(point scenePos)
+    signal foldDragFinished(point scenePos)
+
     padding: 0
 
     FontMetrics {
@@ -47,9 +52,68 @@ Pane {
                     }
                 }
                 Label {
-                    visible: view.workingDiff
+                    visible: view.workingDiff && view.repo.diff.selectedCount === 0
                     text: qsTr("Click lines to select, Shift+click for a range")
                     opacity: 0.6
+                }
+                Rectangle {
+                    id: foldHandle
+
+                    property point lastScenePos
+
+                    objectName: "foldHandle"
+                    visible: view.workingDiff && view.repo.diff.selectedCount > 0
+                    implicitWidth: handleLabel.implicitWidth + 16
+                    implicitHeight: handleLabel.implicitHeight + 8
+                    radius: 4
+                    color: foldDrag.active ? view.palette.midlight : view.palette.button
+                    border.color: view.palette.mid
+
+                    Label {
+                        id: handleLabel
+                        anchors.centerIn: parent
+                        text: qsTr("⠿ Drag onto a commit to fold")
+                    }
+
+                    HoverHandler {
+                        id: handleHover
+                        cursorShape: Qt.OpenHandCursor
+                    }
+                    ToolTip.visible: handleHover.hovered && !foldDrag.active
+                    ToolTip.delay: 500
+                    ToolTip.text: qsTr("Drop on a commit in the history to fold the selected lines into it. "
+                                       + "Right-clicking a commit works too.")
+
+                    DragHandler {
+                        id: foldDrag
+                        target: null
+                        cursorShape: Qt.ClosedHandCursor
+                        onCentroidChanged: {
+                            if (!active)
+                                return
+                            foldHandle.lastScenePos = centroid.scenePosition
+                            view.foldDragMoved(foldHandle.lastScenePos)
+                        }
+                        onActiveChanged: {
+                            if (!active)
+                                view.foldDragFinished(foldHandle.lastScenePos)
+                        }
+                    }
+
+                    // Follows the pointer while dragging.
+                    Label {
+                        parent: Overlay.overlay
+                        visible: foldDrag.active
+                        x: foldHandle.lastScenePos.x + 14
+                        y: foldHandle.lastScenePos.y + 10
+                        padding: 4
+                        text: qsTr("Fold %n line(s)", "", view.repo.diff.selectedCount)
+                        background: Rectangle {
+                            color: view.palette.toolTipBase
+                            border.color: view.palette.mid
+                            radius: 3
+                        }
+                    }
                 }
                 ToolButton {
                     visible: view.workingDiff

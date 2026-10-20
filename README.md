@@ -30,20 +30,34 @@ ctest --test-dir build --output-on-failure
 All writes go through the git CLI so hooks, config and git's own checks
 behave exactly as in a terminal.
 
-## Roadmap: fold changes into an earlier commit
+## Folding changes into an earlier commit
 
-The interactive equivalent of `git commit --fixup=<sha>` followed by
-`git rebase -i --autosquash <sha>~`, without touching the working tree:
+Select lines in the unstaged or staged diff, then drag the "Drag onto a
+commit to fold" handle onto a commit in the history, or right-click the
+commit. This is the interactive form of `git commit --fixup=<sha>` followed
+by `git rebase -i --autosquash <sha>~`, done by `FoldEngine` without
+touching the working tree:
 
-1. Build the patch from the selected lines (`PatchBuilder`, as for staging).
-2. In a temporary index (`GIT_INDEX_FILE`), `read-tree` the target commit,
-   `apply --cached` the patch, `write-tree`, and `commit-tree` with the
-   target's message and author.
-3. Replay the target's descendants onto the new commit with
-   `git merge-tree --write-tree --merge-base=<old parent>` and
-   `commit-tree`; abort without changes on the first conflict.
-4. Move the branch with `git update-ref <ref> <new> <old>`, then remove the
-   folded lines from the working tree and index.
+1. Apply the selected lines to their base tree (HEAD for staged lines, the
+   index for unstaged ones) in a temporary index.
+2. Merge that change into the target with `git merge-tree --write-tree
+   --merge-base=<base>` and recreate the target with its author, date and
+   message.
+3. Replay every later commit the same way.
+4. Move HEAD with `git update-ref HEAD <new> <old>`, which fails if the
+   branch moved meanwhile. Unstaged lines that were folded are staged, so
+   they don't show up as changes any more.
 
-In the UI: drag a selection from the diff onto a commit in the history, with
-a blame-based suggestion of the target commit as `git absorb` does.
+A conflict in steps 1–3 aborts with nothing changed. Commits already on a
+remote branch ask for confirmation first. Undo restores the branch and the
+index as long as HEAD hasn't moved since; the reflog has every fold too
+("igitt: fold into …").
+
+Not supported yet: merge commits between the target and HEAD, and moving
+other branches that point into the rewritten range (like `rebase
+--update-refs`).
+
+## Ideas
+
+- Suggest the target commit per hunk from blame, as `git absorb` does.
+- Run git off the UI thread for large repositories.

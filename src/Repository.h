@@ -29,6 +29,7 @@ class Repository : public QObject
     Q_PROPERTY(QString diffPath READ diffPath NOTIFY diffChanged)
     Q_PROPERTY(QString diffCommit READ diffCommit NOTIFY diffChanged)
     Q_PROPERTY(QString commitDetails READ commitDetails NOTIFY diffChanged)
+    Q_PROPERTY(bool canUndoFold READ canUndoFold NOTIFY canUndoFoldChanged)
 
 public:
     enum DiffSource { NoDiff, UnstagedDiff, StagedDiff, CommitDiff };
@@ -51,6 +52,7 @@ public:
     QString diffPath() const { return m_diffPath; }
     QString diffCommit() const { return m_diffCommit; }
     QString commitDetails() const { return m_commitDetails; }
+    bool canUndoFold() const { return !m_lastFold.newHead.isEmpty(); }
 
     // Accepts a local path or a file:// URL anywhere inside a work tree.
     Q_INVOKABLE bool open(const QString &pathOrUrl);
@@ -74,11 +76,26 @@ public:
     Q_INVOKABLE bool commit(const QString &message, bool amend);
     Q_INVOKABLE QString headMessage() const;
 
+    // Why the selected lines cannot be folded into `sha`, or an empty
+    // string if they can.
+    Q_INVOKABLE QString foldBlocker(const QString &sha) const;
+    // A remote branch already containing `sha`, if any; folding into it
+    // means force pushing.
+    Q_INVOKABLE QString publishedIn(const QString &sha) const;
+    // Folds the selected lines of the working diff into `sha` and rewrites
+    // the commits after it.
+    Q_INVOKABLE bool foldSelection(const QString &sha);
+    // Restores the branch and index as they were before the last fold, as
+    // long as HEAD has not moved since.
+    Q_INVOKABLE bool undoFold();
+
 signals:
     void pathChanged();
     void headChanged();
     void diffChanged();
+    void canUndoFoldChanged();
     void errorOccurred(const QString &message);
+    void notice(const QString &message);
 
 private:
     bool check(const GitResult &result, const QString &what);
@@ -86,6 +103,8 @@ private:
     void loadStatus();
     void reloadDiff();
     QStringList diffArgs() const;
+    QByteArray selectionPatch(PatchDirection direction) const;
+    void forgetFold();
 
     GitRunner m_git;
     StatusInfo m_status;
@@ -98,4 +117,12 @@ private:
     QString m_diffPath;
     QString m_diffCommit;
     QString m_commitDetails;
+
+    struct LastFold
+    {
+        QString oldHead;
+        QString newHead;
+        QByteArray stagedPatch; // applied to the index by the fold
+    };
+    LastFold m_lastFold;
 };

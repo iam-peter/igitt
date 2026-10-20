@@ -19,7 +19,40 @@ ApplicationWindow {
 
     Repository {
         id: repo
-        onErrorOccurred: message => errorBar.show(message)
+        onErrorOccurred: message => messageBar.show(message, true)
+        onNotice: message => messageBar.show(message, false)
+    }
+
+    function requestFold(sha: string) {
+        const remote = repo.publishedIn(sha)
+        if (remote === "") {
+            repo.foldSelection(sha)
+            return
+        }
+        publishedDialog.sha = sha
+        publishedDialog.remote = remote
+        publishedDialog.open()
+    }
+
+    Dialog {
+        id: publishedDialog
+
+        property string sha
+        property string remote
+
+        anchors.centerIn: parent
+        width: Math.min(480, root.width - 40)
+        modal: true
+        title: qsTr("Rewrite a published commit?")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: repo.foldSelection(sha)
+
+        Label {
+            width: parent.width
+            wrapMode: Text.Wrap
+            text: qsTr("This commit is already on %1. Folding into it rewrites it and every commit "
+                       + "after it, so you will have to force push.").arg(publishedDialog.remote)
+        }
     }
 
     Component.onCompleted: repo.open(root.initialPath)
@@ -90,7 +123,9 @@ ApplicationWindow {
         orientation: Qt.Vertical
 
         HistoryView {
+            id: history
             repo: repo
+            onFoldRequested: sha => root.requestFold(sha)
             SplitView.preferredHeight: root.height * 0.4
             SplitView.minimumHeight: 100
         }
@@ -107,36 +142,47 @@ ApplicationWindow {
             DiffView {
                 repo: repo
                 monoFont: root.monoFont
+                onFoldDragMoved: pos => history.updateDrop(pos)
+                onFoldDragFinished: pos => history.finishDrop(pos)
                 SplitView.fillWidth: true
             }
         }
     }
 
     footer: Pane {
-        id: errorBar
+        id: messageBar
 
-        function show(message: string) {
-            errorText.text = message
+        property bool isError
+
+        function show(message: string, isError: bool) {
+            messageText.text = message
+            messageBar.isError = isError
             visible = true
         }
 
+        objectName: "messageBar"
         visible: false
         padding: 6
         background: Rectangle {
-            color: Qt.rgba(0.85, 0.2, 0.2, 0.18)
+            color: messageBar.isError ? Qt.rgba(0.85, 0.2, 0.2, 0.18) : Qt.rgba(0.2, 0.6, 0.3, 0.16)
         }
 
         RowLayout {
             anchors.fill: parent
             Label {
-                id: errorText
+                id: messageText
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
                 textFormat: Text.PlainText
             }
+            Button {
+                text: qsTr("Undo")
+                visible: !messageBar.isError && repo.canUndoFold
+                onClicked: repo.undoFold()
+            }
             ToolButton {
                 text: "✕"
-                onClicked: errorBar.visible = false
+                onClicked: messageBar.visible = false
             }
         }
     }

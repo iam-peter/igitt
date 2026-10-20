@@ -1,6 +1,7 @@
 #include "Repository.h"
 
 #include "core/DiffParser.h"
+#include "core/FoldEngine.h"
 #include "core/LogParser.h"
 #include "core/PatchBuilder.h"
 
@@ -31,6 +32,8 @@ bool Repository::open(const QString &pathOrUrl)
 
     m_git.setWorkDir(QString::fromUtf8(result.out).trimmed());
     m_historyHead.clear();
+    m_lastFold = {};
+    emit canUndoFoldChanged();
     m_diffSource = NoDiff;
     m_diffPath.clear();
     m_diffCommit.clear();
@@ -155,10 +158,7 @@ bool Repository::applySelection()
         return false;
 
     const bool unstage = m_diffSource == StagedDiff;
-    const PatchDirection direction = unstage ? PatchDirection::Reverse : PatchDirection::Forward;
-    QByteArray patch;
-    for (int f = 0; f < m_diff.files().size(); ++f)
-        patch += buildPatch(m_diff.files()[f], m_diff.selection(f), direction);
+    const QByteArray patch = selectionPatch(unstage ? PatchDirection::Reverse : PatchDirection::Forward);
     if (patch.isEmpty())
         return false;
 
@@ -189,6 +189,98 @@ QString Repository::headMessage() const
     return QString::fromUtf8(result.out).trimmed();
 }
 
+QString Repository::foldBlocker(const QString &sha) const
+{
+    if (m_diffSource != UnstagedDiff && m_diffSource != StagedDiff)
+        return tr("Show a working tree file and select the lines to fold.");
+    if (m_diff.selectedCount() == 0)
+        return tr("Select the lines to fold first.");
+    return FoldEngine(m_git).blocker(sha);
+}
+
+QString Repository::publishedIn(const QString &sha) const
+{
+    const GitResult result = m_git.run({QStringLiteral("for-each-ref"), QStringLiteral("--count=1"),
+                                        QStringLiteral("--format=%(refname:short)"),
+                                        QStringLiteral("--contains"), sha, QStringLiteral("refs/remotes")});
+    return QString::fromUtf8(result.out).trimmed();
+}
+
+bool Repository::foldSelection(const QString &sha)
+{
+    if (const QString reason = foldBlocker(sha); !reason.isEmpty()) {
+        emit errorOccurred(reason);
+        return false;
+    }
+
+    const int lines = m_diff.selectedCount();
+    const int row = m_commits.rowOf(sha);
+    const QString subject = m_commits.data(m_commits.index(row), CommitModel::SubjectRole).toString();
+    const QByteArray patch = selectionPatch(PatchDirection::Forward);
+    const FoldBase base = m_diffSource == StagedDiff ? FoldBase::Head : FoldBase::Index;
+
+    const FoldResult result = FoldEngine(m_git).fold(sha, patch, base);
+    if (!result.ok) {
+        QString message = tr("Folding failed: %1").arg(result.error);
+        if (!result.conflicts.isEmpty())
+            message += QLatin1Char(' ') + tr("Conflicting files: %1").arg(result.conflicts.join(QStringLiteral(", ")));
+        emit errorOccurred(message);
+        return false;
+    }
+
+    m_lastFold = {result.oldHead, result.newHead, result.indexUpdated ? patch : QByteArray()};
+    refresh();
+    emit canUndoFoldChanged();
+    if (!result.error.isEmpty())
+        emit errorOccurred(result.error);
+    else
+        emit notice(tr("Folded %n line(s) into \"%1\" and rewrote %2 commit(s).", "", lines)
+                        .arg(subject).arg(result.rewritten));
+    return true;
+}
+
+bool Repository::undoFold()
+{
+    if (!canUndoFold())
+        return false;
+    const LastFold fold = m_lastFold;
+    forgetFold();
+
+    const GitResult moved = m_git.run({QStringLiteral("update-ref"), QStringLiteral("-m"),
+                                       QStringLiteral("igitt: undo fold"), QStringLiteral("HEAD"),
+                                       fold.oldHead, fold.newHead});
+    if (!check(moved, tr("Undoing the fold"))) {
+        refresh();
+        return false;
+    }
+    bool ok = true;
+    if (!fold.stagedPatch.isEmpty()) {
+        ok = check(m_git.run({QStringLiteral("apply"), QStringLiteral("--cached"), QStringLiteral("--reverse"),
+                              QStringLiteral("--whitespace=nowarn")}, fold.stagedPatch),
+                   tr("Unstaging the folded lines"));
+    }
+    refresh();
+    if (ok)
+        emit notice(tr("Fold undone."));
+    return ok;
+}
+
+void Repository::forgetFold()
+{
+    if (!canUndoFold())
+        return;
+    m_lastFold = {};
+    emit canUndoFoldChanged();
+}
+
+QByteArray Repository::selectionPatch(PatchDirection direction) const
+{
+    QByteArray patch;
+    for (int f = 0; f < m_diff.files().size(); ++f)
+        patch += buildPatch(m_diff.files()[f], m_diff.selection(f), direction);
+    return patch;
+}
+
 bool Repository::check(const GitResult &result, const QString &what)
 {
     if (result.ok())
@@ -205,6 +297,9 @@ void Repository::loadStatus()
     if (!check(result, tr("Reading status")))
         return;
     m_status = parseStatus(result.out);
+    // Undo is only safe while HEAD is still where the fold left it.
+    if (canUndoFold() && m_status.headSha != m_lastFold.newHead)
+        forgetFold();
     m_unstaged.setEntries(m_status.entries);
     m_staged.setEntries(m_status.entries);
     emit headChanged();

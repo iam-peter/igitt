@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QFontDatabase>
 #include <QQmlApplicationEngine>
+#include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTemporaryDir>
@@ -55,7 +56,7 @@ private slots:
 
         auto *repo = window->findChild<Repository *>();
         QVERIFY(repo);
-        QCOMPARE(repo->commits()->rowCount(), 7);
+        QCOMPARE(repo->commits()->rowCount(), 9);
         QCOMPARE(repo->unstaged()->count(), 2);
         QCOMPARE(repo->staged()->count(), 1);
 
@@ -68,6 +69,19 @@ private slots:
         QTRY_COMPARE(diff->selectedCount(), 2);
         screenshot(window, u"working-tree"_s);
 
+        dragSelectionOntoCommit(window, 2);
+        QTRY_VERIFY(repo->canUndoFold());
+        QCOMPARE(repo->commits()->rowCount(), 9);
+        QVERIFY(gitOut({"show", "HEAD~2", "--format="}).contains("+line 4 changed"));
+        QVERIFY(!gitOut({"diff"}).contains("+line 4 changed"));
+        QVERIFY(gitOut({"diff"}).contains("+line 21 changed"));
+        auto *messageBar = window->findChild<QQuickItem *>(u"messageBar"_s);
+        QVERIFY(messageBar && messageBar->isVisible());
+        screenshot(window, u"folded"_s);
+
+        QVERIFY(repo->undoFold());
+        QVERIFY(gitOut({"diff"}).contains("+line 4 changed"));
+
         repo->showCommit(repo->commits()->shaAt(3));
         QTest::qWait(50);
         screenshot(window, u"commit"_s);
@@ -78,6 +92,34 @@ private slots:
     }
 
 private:
+    // Drags the fold handle of the diff view onto a row of the history.
+    void dragSelectionOntoCommit(QQuickWindow *window, int row)
+    {
+        auto *handle = window->findChild<QQuickItem *>(u"foldHandle"_s);
+        auto *list = window->findChild<QQuickItem *>(u"historyList"_s);
+        QVERIFY(handle && list);
+        QTRY_VERIFY(handle->isVisible());
+        QQuickItem *rowItem = nullptr;
+        QVERIFY(QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, rowItem),
+                                          Q_ARG(int, row)));
+        QVERIFY(rowItem);
+
+        const QPoint from = handle->mapToScene({handle->width() / 2, handle->height() / 2}).toPoint();
+        const QPoint to = rowItem->mapToScene({rowItem->width() / 3, rowItem->height() / 2}).toPoint();
+        QTest::mousePress(window, Qt::LeftButton, {}, from);
+        constexpr int steps = 12;
+        for (int i = 1; i <= steps; ++i)
+            QTest::mouseMove(window, from + (to - from) * i / steps);
+        QTest::qWait(50);
+        screenshot(window, u"dragging"_s);
+        QTest::mouseRelease(window, Qt::LeftButton, {}, to);
+    }
+
+    QByteArray gitOut(const QStringList &args)
+    {
+        return GitRunner(m_dir.path()).run(args).out;
+    }
+
     void git(const QStringList &args)
     {
         const GitResult result = GitRunner(m_dir.path()).run(args);
@@ -131,6 +173,13 @@ private:
         changes[25] = " tuned";
         write(u"app.txt"_s, appText(changes));
         git({"commit", "-q", "-a", "-m", "Tune line 25"});
+
+        changes[15] = " documented";
+        write(u"app.txt"_s, appText(changes));
+        git({"commit", "-q", "-a", "-m", "Document line 15"});
+        changes[28] = " polished";
+        write(u"app.txt"_s, appText(changes));
+        git({"commit", "-q", "-a", "-m", "Polish line 28"});
 
         changes[4] = " changed";
         changes[21] = " changed";

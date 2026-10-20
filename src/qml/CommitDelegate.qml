@@ -9,6 +9,7 @@ Control {
     id: delegate
 
     required property int index
+    required property string sha
     required property string shortSha
     required property string subject
     required property string author
@@ -17,10 +18,16 @@ Control {
     required property var graph
     required property bool isHead
 
+    // Set while lines are dragged over this row: the empty string when
+    // they can be folded into it, otherwise why not.
+    property bool dropTarget: false
+    property string dropBlocker
+
     readonly property bool current: ListView.isCurrentItem
     readonly property color textColor: current ? palette.highlightedText : palette.text
 
     signal clicked()
+    signal contextMenuRequested()
 
     implicitHeight: 24
     leftPadding: 4
@@ -29,7 +36,18 @@ Control {
     background: Rectangle {
         color: delegate.current ? delegate.palette.highlight
                                 : delegate.index % 2 ? delegate.palette.alternateBase : delegate.palette.base
+
+        Rectangle {
+            anchors.fill: parent
+            visible: delegate.dropTarget
+            color: delegate.dropBlocker === "" ? Qt.rgba(0.2, 0.7, 0.3, 0.25) : Qt.rgba(0.85, 0.2, 0.2, 0.2)
+            border.width: 2
+            border.color: delegate.dropBlocker === "" ? "#59a14f" : "#e15759"
+        }
     }
+
+    ToolTip.visible: dropTarget
+    ToolTip.text: dropBlocker === "" ? qsTr("Fold into \"%1\"").arg(subject) : dropBlocker
 
     contentItem: RowLayout {
         spacing: 6
@@ -82,5 +100,9 @@ Control {
 
     TapHandler {
         onTapped: delegate.clicked()
+    }
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        onTapped: delegate.contextMenuRequested()
     }
 }
