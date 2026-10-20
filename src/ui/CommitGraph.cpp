@@ -6,6 +6,9 @@
 
 namespace {
 
+// Room on the left for the ring around HEAD, which is wider than a lane.
+constexpr qreal LeftMargin = 4;
+
 QColor laneColor(int index)
 {
     return QColor::fromString(laneColorName(index));
@@ -50,7 +53,7 @@ void CommitGraph::setOutlineColor(const QColor &color) { set(m_outlineColor, col
 
 void CommitGraph::updateImplicitWidth()
 {
-    setImplicitWidth(std::max(1, m_row.laneCount) * m_laneWidth);
+    setImplicitWidth(LeftMargin + std::max(1, m_row.laneCount) * m_laneWidth);
 }
 
 void CommitGraph::paint(QPainter *painter)
@@ -59,7 +62,7 @@ void CommitGraph::paint(QPainter *painter)
     painter->setRenderHint(QPainter::TextAntialiasing);
     const qreal h = height();
     const qreal mid = h / 2;
-    const auto x = [this](int lane) { return (lane + 0.5) * m_laneWidth; };
+    const auto x = [this](int lane) { return LeftMargin + (lane + 0.5) * m_laneWidth; };
     const QColor color = laneColor(m_row.color);
     const QPointF center(x(m_row.column), mid);
 
