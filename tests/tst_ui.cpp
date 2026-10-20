@@ -189,6 +189,14 @@ private slots:
         lapse->setRevision(lapse->revisionCount() - 2);
         QTRY_VERIFY(!lapse->busy());
         screenshot(lapseWindow, u"timelapse-previous"_s);
+        // Clicking the start of the timeline goes to the first revision.
+        {
+            auto *timeline = findItem(lapseWindow->contentItem(), u"revisionTimeline"_s);
+            QVERIFY(timeline);
+            QTest::mouseClick(lapseWindow, Qt::LeftButton, {},
+                              timeline->mapToScene({2, timeline->height() / 2}).toPoint());
+            QTRY_COMPARE(lapse->revision(), 0);
+        }
         // Like dragging the slider and toggling, then closing mid-load.
         for (int r = 0; r < lapse->revisionCount(); ++r) {
             lapse->setRevision(r);

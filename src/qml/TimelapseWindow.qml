@@ -5,8 +5,8 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Igitt.Core
 
-// A file through its history, like Perforce's Time-lapse View: drag the
-// slider through the revisions; each line shows the revision that last
+// A file through its history, like Perforce's Time-lapse View: pick a
+// revision on the timeline; each line shows the revision that last
 // changed it, shaded by age, with this revision's changes highlighted.
 ApplicationWindow {
     id: window
@@ -127,6 +127,13 @@ ApplicationWindow {
                 Layout.fillWidth: true
             }
             CheckBox {
+                id: evenSpacing
+                text: qsTr("Even spacing")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: qsTr("Space the revisions evenly instead of by date")
+            }
+            CheckBox {
                 text: qsTr("Show deleted lines")
                 checked: lapse.showDeleted
                 onToggled: lapse.showDeleted = checked
@@ -156,7 +163,7 @@ ApplicationWindow {
         anchors.fill: parent
         spacing: 0
 
-        // The revisions as ticks along a slider, oldest on the left.
+        // The revisions along a timeline, oldest on the left.
         Pane {
             Layout.fillWidth: true
             padding: 8
@@ -165,35 +172,29 @@ ApplicationWindow {
                 anchors.fill: parent
                 spacing: 2
 
-                Item {
-                    Layout.fillWidth: true
-                    implicitHeight: 34
+                RevisionTimeline {
+                    id: timeline
 
-                    Repeater {
-                        model: lapse.revisionCount
-                        delegate: Rectangle {
-                            required property int index
-                            x: slider.leftPadding + slider.availableWidth * (lapse.revisionCount > 1
-                                   ? index / (lapse.revisionCount - 1) : 1) - width / 2
-                            y: 0
-                            width: index === lapse.revision ? 3 : 1
-                            height: 10
-                            color: index === lapse.revision ? window.palette.highlight : window.palette.mid
-                        }
-                    }
-                    Slider {
-                        id: slider
-                        objectName: "revisionSlider"
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        from: 0
-                        to: Math.max(1, lapse.revisionCount - 1)
-                        stepSize: 1
-                        snapMode: Slider.SnapAlways
-                        enabled: lapse.revisionCount > 1
-                        value: lapse.revision
-                        onMoved: lapse.revision = Math.round(value)
+                    objectName: "revisionTimeline"
+                    Layout.fillWidth: true
+                    implicitHeight: 54
+                    times: lapse.revisions.map(r => r.time)
+                    authors: lapse.revisions.map(r => r.author)
+                    current: lapse.revision
+                    evenSpacing: evenSpacing.checked
+                    lineColor: window.palette.mid
+                    highlightColor: window.palette.highlight
+                    textColor: window.palette.placeholderText
+                    onRevisionRequested: revision => lapse.revision = revision
+
+                    ToolTip {
+                        readonly property var revision: timeline.hoveredRevision >= 0
+                                                        ? lapse.revisions[timeline.hoveredRevision] : null
+                        visible: revision !== null
+                        x: timeline.xOf(timeline.hoveredRevision) - width / 2
+                        y: -height - 4
+                        text: revision ? `${revision.shortSha} · ${revision.author} · ${revision.date}\n${revision.subject}`
+                                       : ""
                     }
                 }
                 RowLayout {

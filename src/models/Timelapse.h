@@ -16,7 +16,8 @@ class Timelapse : public QAbstractListModel
     QML_ELEMENT
     Q_PROPERTY(QString workDir READ workDir WRITE setWorkDir NOTIFY sourceChanged)
     Q_PROPERTY(QString path READ path WRITE setPath NOTIFY sourceChanged)
-    // [{sha, shortSha, author, date, subject, path}], oldest first.
+    // [{sha, shortSha, author, date, time, subject, path}], oldest first;
+    // time in seconds since the epoch.
     Q_PROPERTY(QVariantList revisions READ revisions NOTIFY revisionsChanged)
     Q_PROPERTY(int revisionCount READ revisionCount NOTIFY revisionsChanged)
     Q_PROPERTY(int revision READ revision WRITE setRevision NOTIFY revisionChanged)

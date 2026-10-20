@@ -131,6 +131,7 @@ QVariantList Timelapse::revisions() const
             {QStringLiteral("shortSha"), r.sha.left(10)},
             {QStringLiteral("author"), r.author},
             {QStringLiteral("date"), r.date.toString(QStringLiteral("yyyy-MM-dd HH:mm"))},
+            {QStringLiteral("time"), r.date.toSecsSinceEpoch()},
             {QStringLiteral("subject"), r.subject},
             {QStringLiteral("path"), r.path},
         });

@@ -69,6 +69,7 @@ qt_add_qml_module(igitt_ui
         ui/Clipboard.h
         ui/ActivityMinimap.h ui/ActivityMinimap.cpp
         ui/Fonts.h ui/Fonts.cpp
+        ui/RevisionTimeline.h ui/RevisionTimeline.cpp
     RESOURCES
         icons/case-sensitive.svg
         icons/check.svg
