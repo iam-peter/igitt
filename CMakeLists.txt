@@ -15,6 +15,6 @@ add_subdirectory(src)
 
 include(CTest)
 if(BUILD_TESTING)
-    find_package(Qt6 REQUIRED COMPONENTS Test)
+    find_package(Qt6 REQUIRED COMPONENTS Test QuickTest)
     add_subdirectory(tests)
 endif()

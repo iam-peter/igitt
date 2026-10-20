@@ -12,6 +12,7 @@
 #include <QQmlApplicationEngine>
 #include <QGuiApplication>
 #include <QQuickItem>
+#include <QtQuickTest/quicktest.h>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QSettings>
@@ -305,6 +306,26 @@ private slots:
         QCOMPARE(gitOut({"show", ":conflict.txt"}), "one\nTWO other\nTWO main\nthree\n"_ba);
         QVERIFY(gitOut({"ls-files", "-u"}).isEmpty());
 
+        // The divider between the unstaged and the staged files moves, both ways.
+        {
+            auto *stagedList = window->findChild<QQuickItem *>(u"stagedList"_s);
+            QQuickItem *stagedPane = stagedList->parentItem()->parentItem(); // FileList
+            const auto drag = [&](int dy) {
+                // The middle of the 7 px handle above the staged files.
+                const QPoint from = stagedPane->mapToScene({stagedPane->width() / 2, -4}).toPoint();
+                QTest::mousePress(window, Qt::LeftButton, {}, from);
+                for (int i = 1; i <= 6; ++i)
+                    QTest::mouseMove(window, from + QPoint(0, dy * i / 6));
+                QTest::mouseRelease(window, Qt::LeftButton, {}, from + QPoint(0, dy));
+            };
+            const qreal before = stagedPane->height();
+            drag(40);
+            QTRY_VERIFY(stagedPane->height() < before - 30);
+            const qreal shrunk = stagedPane->height();
+            drag(-30);
+            QTRY_VERIFY(stagedPane->height() > shrunk + 20);
+        }
+
         // Push stays off until the merge is done.
         auto *pushButton = window->findChild<QQuickItem *>(u"pushButton"_s);
         QVERIFY(pushButton && !pushButton->isEnabled());
@@ -369,6 +390,7 @@ private:
 
     void click(QQuickWindow *window, const QString &objectName)
     {
+        QVERIFY(QQuickTest::qWaitForPolish(window));
         auto *item = window->findChild<QQuickItem *>(objectName);
         QVERIFY2(item, qPrintable(objectName));
         QTRY_VERIFY(item->isVisible() && item->isEnabled());
@@ -402,6 +424,9 @@ private:
 
     QQuickItem *fileRow(QQuickWindow *window, const QString &list, const QString &path)
     {
+        // Positions are only right once a layout change has been polished.
+        if (!QQuickTest::qWaitForPolish(window))
+            return nullptr;
         auto *view = window->findChild<QQuickItem *>(list);
         if (!view)
             return nullptr;
@@ -433,6 +458,7 @@ private:
 
     static void clickItem(QQuickWindow *window, QQuickItem *item)
     {
+        QVERIFY(QQuickTest::qWaitForPolish(window));
         QVERIFY(item && item->isVisible());
         QTest::mouseClick(window, Qt::LeftButton, {},
                           item->mapToScene({item->width() / 2, item->height() / 2}).toPoint());

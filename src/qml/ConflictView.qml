@@ -251,12 +251,16 @@ Pane {
         }
 
         SplitView {
+
+            handle: SplitterHandle {}
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: resolver.error === ""
             orientation: Qt.Vertical
 
             SplitView {
+
+                handle: SplitterHandle {}
                 SplitView.fillHeight: true
                 orientation: Qt.Horizontal
 

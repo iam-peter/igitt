@@ -16,6 +16,8 @@ Pane {
     padding: 0
 
     SplitView {
+
+        handle: SplitterHandle {}
         anchors.fill: parent
         orientation: Qt.Vertical
 
@@ -23,7 +25,7 @@ Pane {
         FileList {
             id: unstagedFiles
             SplitView.fillHeight: true
-            SplitView.minimumHeight: 80
+            SplitView.minimumHeight: 56
             repo: pane.repo
             staged: false
             title: qsTr("Unstaged Changes")
@@ -38,8 +40,8 @@ Pane {
 
         FileList {
             id: stagedFiles
-            SplitView.preferredHeight: 160
-            SplitView.minimumHeight: 80
+            SplitView.preferredHeight: 130
+            SplitView.minimumHeight: 56
             repo: pane.repo
             staged: true
             title: qsTr("Staged Changes")
@@ -54,8 +56,8 @@ Pane {
 
         CommitBox {
             objectName: "commitBox"
-            SplitView.preferredHeight: 230
-            SplitView.minimumHeight: 150
+            SplitView.preferredHeight: 210
+            SplitView.minimumHeight: 120
             repo: pane.repo
             monoFont: pane.monoFont
         }

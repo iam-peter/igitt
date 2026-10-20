@@ -363,6 +363,8 @@ ApplicationWindow {
         }
 
         SplitView {
+
+            handle: SplitterHandle {}
             Layout.fillWidth: true
             Layout.fillHeight: true
             orientation: Qt.Vertical
@@ -376,6 +378,8 @@ ApplicationWindow {
             }
 
             SplitView {
+
+                handle: SplitterHandle {}
                 SplitView.fillHeight: true
                 orientation: Qt.Horizontal
 

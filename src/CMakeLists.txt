@@ -63,6 +63,7 @@ qt_add_qml_module(igitt_ui
         qml/ModalDialog.qml
         qml/FilesPane.qml
         qml/BoundedScrollView.qml
+        qml/SplitterHandle.qml
     SOURCES
         ui/CommitGraph.h ui/CommitGraph.cpp
         ui/Clipboard.h
