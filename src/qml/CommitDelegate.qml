@@ -17,6 +17,7 @@ Control {
     required property var refs
     required property var graph
     required property bool isHead
+    required property bool planned
 
     // Set while lines are dragged over this row: the empty string when
     // they can be folded into it, otherwise why not.
@@ -73,6 +74,22 @@ Control {
         }
 
         Rectangle {
+            visible: delegate.planned
+            implicitWidth: plannedLabel.implicitWidth + 10
+            implicitHeight: plannedLabel.implicitHeight + 2
+            radius: 3
+            color: "#8c5ad8"
+
+            Label {
+                id: plannedLabel
+                anchors.centerIn: parent
+                text: qsTr("planned")
+                color: "white"
+                font.pixelSize: 11
+            }
+        }
+
+        Rectangle {
             visible: delegate.suggested
             implicitWidth: suggestedLabel.implicitWidth + 10
             implicitHeight: suggestedLabel.implicitHeight + 2
@@ -98,6 +115,7 @@ Control {
             elide: Text.ElideRight
             color: delegate.textColor
             font.bold: delegate.isHead
+            font.italic: delegate.planned
         }
         Label {
             Layout.preferredWidth: 160

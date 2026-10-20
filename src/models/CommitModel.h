@@ -5,6 +5,7 @@
 
 #include <QAbstractListModel>
 #include <QHash>
+#include <QSet>
 #include <QtQml/qqmlregistration.h>
 
 class CommitModel : public QAbstractListModel
@@ -24,13 +25,16 @@ public:
         RefsRole,
         GraphRole,
         IsHeadRole,
+        PlannedRole,
     };
 
     using QAbstractListModel::QAbstractListModel;
 
     // `graph` is layoutGraph(commits), computed off the UI thread.
+    // `planned` are commits that only exist in a plan's simulation.
     void setCommits(const QList<CommitInfo> &commits, const QList<GraphRow> &graph,
-                    const QList<RefInfo> &refs, const QString &headSha, const QString &currentBranch);
+                    const QList<RefInfo> &refs, const QString &headSha, const QString &currentBranch,
+                    const QSet<QString> &planned = {});
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -45,4 +49,5 @@ private:
     QHash<QString, QVariantList> m_refs;
     QHash<QString, int> m_rowBySha;
     QString m_headSha;
+    QSet<QString> m_planned;
 };

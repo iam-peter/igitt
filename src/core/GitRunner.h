@@ -26,9 +26,15 @@ public:
     QString workDir() const { return m_workDir; }
     void setWorkDir(const QString &dir) { m_workDir = dir; }
 
+    // Added to every command's environment, e.g. GIT_INDEX_FILE to work on
+    // a scratch index.
+    QProcessEnvironment environment() const { return m_env; }
+    void setEnvironment(const QProcessEnvironment &env) { m_env = env; }
+
     GitResult run(const QStringList &args, const QByteArray &input = {},
                   const QProcessEnvironment &extraEnv = {}) const;
 
 private:
     QString m_workDir;
+    QProcessEnvironment m_env;
 };

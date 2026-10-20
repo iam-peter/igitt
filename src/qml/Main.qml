@@ -47,6 +47,36 @@ ApplicationWindow {
         }
     }
 
+    function setPlanning(on: bool) {
+        if (on)
+            repo.startPlanning()
+        else if (repo.plan.count === 0)
+            repo.discardPlan()
+        else
+            discardDialog.open()
+    }
+
+    Dialog {
+        id: discardDialog
+
+        anchors.centerIn: parent
+        width: Math.min(420, root.width - 40)
+        modal: true
+        title: qsTr("Discard the plan?")
+        standardButtons: Dialog.Discard | Dialog.Cancel
+        onDiscarded: {
+            repo.discardPlan()
+            close()
+        }
+
+        Label {
+            width: parent.width
+            wrapMode: Text.Wrap
+            text: qsTr("%n planned action(s) will be dropped. The repository is not affected.", "",
+                       repo.plan.count)
+        }
+    }
+
     Dialog {
         id: publishedDialog
 
@@ -108,6 +138,17 @@ ApplicationWindow {
                 text: qsTr("Refresh")
                 onClicked: repo.refresh()
             }
+            ToolButton {
+                objectName: "planButton"
+                text: qsTr("Plan")
+                checkable: true
+                checked: repo.planning
+                enabled: repo.valid && !repo.writing
+                onClicked: root.setPlanning(checked)
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: qsTr("Collect actions in a plan, review the commands, and execute them together")
+            }
             ToolSeparator {}
             BusyIndicator {
                 implicitWidth: 24
@@ -137,34 +178,66 @@ ApplicationWindow {
         }
     }
 
-    SplitView {
+    ColumnLayout {
         anchors.fill: parent
-        orientation: Qt.Vertical
+        spacing: 0
 
-        HistoryView {
-            id: history
-            repo: repo
-            onFoldRequested: sha => root.requestFold(sha)
-            SplitView.preferredHeight: root.height * 0.4
-            SplitView.minimumHeight: 100
+        Rectangle {
+            Layout.fillWidth: true
+            visible: repo.planning
+            implicitHeight: planBanner.implicitHeight + 8
+            color: Qt.rgba(0.55, 0.35, 0.85, 0.2)
+
+            Label {
+                id: planBanner
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: 8
+                elide: Text.ElideRight
+                text: qsTr("Planning: actions are simulated. History, files and diffs show the result; "
+                           + "nothing changes in the repository until you execute the plan.")
+            }
         }
 
         SplitView {
-            SplitView.fillHeight: true
-            orientation: Qt.Horizontal
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            orientation: Qt.Vertical
 
-            ChangesPane {
+            HistoryView {
+                id: history
                 repo: repo
-                SplitView.preferredWidth: 360
-                SplitView.minimumWidth: 220
-            }
-            DiffView {
-                repo: repo
-                monoFont: root.monoFont
-                onFoldDragMoved: pos => history.updateDrop(pos)
-                onFoldDragFinished: pos => history.finishDrop(pos)
                 onFoldRequested: sha => root.requestFold(sha)
-                SplitView.fillWidth: true
+                SplitView.preferredHeight: root.height * 0.4
+                SplitView.minimumHeight: 100
+            }
+
+            SplitView {
+                SplitView.fillHeight: true
+                orientation: Qt.Horizontal
+
+                ChangesPane {
+                    repo: repo
+                    SplitView.preferredWidth: 360
+                    SplitView.minimumWidth: 220
+                }
+                DiffView {
+                    repo: repo
+                    monoFont: root.monoFont
+                    onFoldDragMoved: pos => history.updateDrop(pos)
+                    onFoldDragFinished: pos => history.finishDrop(pos)
+                    onFoldRequested: sha => root.requestFold(sha)
+                    SplitView.fillWidth: true
+                }
+                PlanPane {
+                    visible: repo.planning
+                    repo: repo
+                    monoFont: root.monoFont
+                    SplitView.preferredWidth: 380
+                    SplitView.minimumWidth: 240
+                    onDiscardRequested: root.setPlanning(false)
+                }
             }
         }
     }

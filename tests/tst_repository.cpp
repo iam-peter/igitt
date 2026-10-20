@@ -309,6 +309,70 @@ private slots:
         QVERIFY(repo().foldSuggestionText().isEmpty());
     }
 
+    void plansAndExecutes()
+    {
+        writeFile(file(), "one\nTWO\nthree\nFOUR\nfive\n");
+        const QByteArray realHead = git({"rev-parse", "HEAD"});
+        open(m_dir->path());
+        repo().startPlanning();
+        QVERIFY(settle(repo()));
+        QVERIFY(repo().planning());
+
+        showFile(u"f.txt"_s, false);
+        selectLinesContaining({u"two"_s, u"TWO"_s});
+        repo().applySelection();
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().plan()->count(), 1);
+        QCOMPARE(repo().staged()->count(), 1); // simulated
+        QVERIFY(git({"diff", "--cached"}).isEmpty()); // real
+
+        QSignalSpy committed(&repo(), &Repository::committed);
+        repo().commit(u"Third"_s, false);
+        QVERIFY(settle(repo()));
+        QCOMPARE(committed.size(), 1);
+        QCOMPARE(repo().plan()->count(), 2);
+        QVERIFY(repo().plan()->executable());
+        QCOMPARE(repo().commits()->rowCount(), 3);
+        QVERIFY(repo().commits()->data(repo().commits()->index(0), CommitModel::PlannedRole).toBool());
+        QVERIFY(!repo().commits()->data(repo().commits()->index(1), CommitModel::PlannedRole).toBool());
+        QCOMPARE(repo().headMessage(), u"Third"_s);
+        QCOMPARE(git({"rev-parse", "HEAD"}), realHead);
+        // The review shows what ran.
+        const auto log = [this](int row) {
+            return repo().plan()->data(repo().plan()->index(row), PlanModel::LogRole).toString();
+        };
+        QVERIFY(log(0).startsWith("$ git apply --cached --3way"_L1));
+        QVERIFY(log(0).contains("+TWO"_L1));
+        QVERIFY(log(1).contains("$ git hook run --ignore-missing commit-msg"_L1));
+        QVERIFY(log(1).contains("$ git commit-tree "_L1));
+        QVERIFY(repo().plan()->summary().contains("git update-ref"_L1));
+
+        repo().executePlan();
+        QVERIFY(settle(repo()));
+        QVERIFY(!repo().planning());
+        QCOMPARE(repo().plan()->count(), 0);
+        QCOMPARE(git({"log", "-1", "--format=%s"}), "Third\n"_ba);
+        QVERIFY(git({"diff", "--cached"}).isEmpty());
+        QVERIFY(git({"diff"}).contains("+FOUR"));
+        QVERIFY(!repo().commits()->data(repo().commits()->index(0), CommitModel::PlannedRole).toBool());
+    }
+
+    void discardsPlan()
+    {
+        writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");
+        open(m_dir->path());
+        repo().startPlanning();
+        repo().stageFile(u"f.txt"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().staged()->count(), 1);
+
+        repo().discardPlan();
+        QVERIFY(settle(repo()));
+        QVERIFY(!repo().planning());
+        QCOMPARE(repo().staged()->count(), 0);
+        QVERIFY(git({"diff", "--cached"}).isEmpty());
+    }
+
     void undoIsForgottenWhenHeadMoves()
     {
         writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");

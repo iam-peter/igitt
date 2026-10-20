@@ -2,10 +2,12 @@
 
 #include "core/FoldSuggester.h"
 #include "core/GitRunner.h"
+#include "core/PlanSession.h"
 #include "core/StateLoader.h"
 #include "models/CommitModel.h"
 #include "models/DiffModel.h"
 #include "models/FileListModel.h"
+#include "models/PlanModel.h"
 
 #include <QObject>
 #include <QSet>
@@ -54,6 +56,10 @@ class Repository : public QObject
     // FoldSuggester), and a sentence explaining it or why there is none.
     Q_PROPERTY(QString suggestedFoldTarget READ suggestedFoldTarget NOTIFY foldSuggestionChanged)
     Q_PROPERTY(QString foldSuggestionText READ foldSuggestionText NOTIFY foldSuggestionChanged)
+    // In plan mode write actions are simulated and collected in `plan`;
+    // the repository changes only when the plan is executed.
+    Q_PROPERTY(bool planning READ planning NOTIFY planningChanged)
+    Q_PROPERTY(PlanModel *plan READ plan CONSTANT)
 
 public:
     enum DiffSource { NoDiff, UnstagedDiff, StagedDiff, CommitDiff };
@@ -83,6 +89,8 @@ public:
     bool canUndoFold() const { return !m_lastFold.newHead.isEmpty(); }
     QString suggestedFoldTarget() const { return m_suggestedFoldTarget; }
     QString foldSuggestionText() const { return m_foldSuggestionText; }
+    bool planning() const { return m_plan != nullptr; }
+    PlanModel *plan() { return &m_planModel; }
 
     // Accepts a local path or a file:// URL anywhere inside a work tree.
     Q_INVOKABLE void open(const QString &pathOrUrl);
@@ -124,6 +132,11 @@ public:
     // long as HEAD has not moved since.
     Q_INVOKABLE void undoFold();
 
+    Q_INVOKABLE void startPlanning();
+    Q_INVOKABLE void discardPlan();
+    Q_INVOKABLE void executePlan();
+    Q_INVOKABLE void removePlanEntry(int entryId);
+
 signals:
     void pathChanged();
     void busyChanged();
@@ -131,6 +144,7 @@ signals:
     void diffChanged();
     void canUndoFoldChanged();
     void foldSuggestionChanged();
+    void planningChanged();
     void committed();
     void errorOccurred(const QString &message);
     void notice(const QString &message);
@@ -143,10 +157,20 @@ private:
         QByteArray stagedPatch; // applied to the index by the fold
     };
 
+    struct PlanSnapshot
+    {
+        QList<PlanEntry> entries;
+        bool executable = false;
+        QString summary;
+    };
+
     // What a job hands back to the UI thread.
     struct Outcome
     {
         QString workDir; // the repository the job ran in
+        int planGeneration = 0;
+        std::optional<PlanSnapshot> plan;
+        bool planEnded = false;
         QString openedPath;
         RepositoryState state;
         std::optional<LastFold> fold;
@@ -162,6 +186,11 @@ private:
     void applyState(const RepositoryState &state);
     // Runs `args`, then reloads the state.
     void enqueueCommand(const QString &what, const QStringList &args, const QByteArray &input = {});
+    void enqueuePlanEntry(const PlanEntry &entry);
+    void endPlan();
+    static PlanSnapshot snapshot(const PlanSession &plan);
+    // Where jobs read from: the plan's simulation while planning.
+    static StateSource sourceFor(const GitRunner &git, const std::shared_ptr<PlanSession> &plan);
 
     void setDiffView(DiffSource source, const QString &path, const QString &commit);
     DiffRequest diffRequest() const;
@@ -195,4 +224,10 @@ private:
     QString m_suggestedFoldTarget;
     QString m_foldSuggestionText;
     LastFold m_lastFold;
+
+    std::shared_ptr<PlanSession> m_plan; // used on the git thread only
+    // Bumped whenever planning starts or ends, so results computed for the
+    // other mode are dropped.
+    int m_planGeneration = 0;
+    PlanModel m_planModel;
 };

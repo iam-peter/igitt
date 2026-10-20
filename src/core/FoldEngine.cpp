@@ -28,9 +28,9 @@ FoldEngine::FoldEngine(const GitRunner &git)
 {
 }
 
-QString FoldEngine::blocker(const QString &target) const
+QString FoldEngine::blocker(const QString &target, const QString &headRev) const
 {
-    const QString head = revParse(QStringLiteral("HEAD"));
+    const QString head = revParse(headRev);
     if (head.isEmpty())
         return tr("The branch has no commits yet.");
     const QString sha = revParse(target + QStringLiteral("^{commit}"));
@@ -50,7 +50,8 @@ QString FoldEngine::blocker(const QString &target) const
     return {};
 }
 
-FoldResult FoldEngine::fold(const QString &target, const QByteArray &patch, FoldBase base) const
+FoldResult FoldEngine::fold(const QString &target, const QByteArray &patch, FoldBase base,
+                            const QString &head, bool moveHead) const
 {
     FoldResult result;
     const auto fail = [&result](const QString &error) {
@@ -60,10 +61,10 @@ FoldResult FoldEngine::fold(const QString &target, const QByteArray &patch, Fold
 
     if (patch.isEmpty())
         return fail(tr("Nothing is selected."));
-    if (const QString reason = blocker(target); !reason.isEmpty())
+    if (const QString reason = blocker(target, head); !reason.isEmpty())
         return fail(reason);
 
-    result.oldHead = revParse(QStringLiteral("HEAD"));
+    result.oldHead = revParse(head);
     Commit targetCommit;
     if (!readCommit(revParse(target + QStringLiteral("^{commit}")), targetCommit))
         return fail(tr("Could not read commit %1.").arg(target));
@@ -71,7 +72,7 @@ FoldResult FoldEngine::fold(const QString &target, const QByteArray &patch, Fold
     // 1. The change as a pair of trees: its base and the base with the patch.
     QString baseTree;
     if (base == FoldBase::Head) {
-        baseTree = revParse(QStringLiteral("HEAD^{tree}"));
+        baseTree = revParse(result.oldHead + QStringLiteral("^{tree}"));
     } else {
         const GitResult written = m_git.run({QStringLiteral("write-tree")});
         if (!written.ok())
@@ -87,7 +88,9 @@ FoldResult FoldEngine::fold(const QString &target, const QByteArray &patch, Fold
 
     if (const GitResult r = m_git.run({QStringLiteral("read-tree"), baseTree}, {}, tmpIndex); !r.ok())
         return fail(r.errorText());
-    if (const GitResult r = m_git.run({QStringLiteral("apply"), QStringLiteral("--cached"),
+    // --3way: in a plan, the patch may stem from a state that earlier
+    // entries no longer produce; merging with its preimage still works.
+    if (const GitResult r = m_git.run({QStringLiteral("apply"), QStringLiteral("--cached"), QStringLiteral("--3way"),
                                        QStringLiteral("--whitespace=nowarn")}, patch, tmpIndex);
         !r.ok())
         return fail(tr("The selected lines do not apply: %1").arg(r.errorText()));
@@ -120,6 +123,7 @@ FoldResult FoldEngine::fold(const QString &target, const QByteArray &patch, Fold
     if (!error.isEmpty())
         return fail(error);
     result.rewritten = 1;
+    result.rewrites.append({targetCommit.sha, result.newTarget});
 
     // 3. Replay everything after the target onto the new commit.
     const GitResult descendants = m_git.run({QStringLiteral("rev-list"), QStringLiteral("--reverse"),
@@ -145,17 +149,20 @@ FoldResult FoldEngine::fold(const QString &target, const QByteArray &patch, Fold
         newParent = commitTree(merged.tree, {newParent}, commit, error);
         if (!error.isEmpty())
             return fail(error);
+        result.rewrites.append({sha, newParent});
         oldParent = sha;
         ++result.rewritten;
     }
     result.newHead = newParent;
 
     // 4. Publish: only succeeds if HEAD is still where we started.
-    const GitResult moved = m_git.run({QStringLiteral("update-ref"), QStringLiteral("-m"),
-                                       QStringLiteral("igitt: fold into %1").arg(shortTarget),
-                                       QStringLiteral("HEAD"), result.newHead, result.oldHead});
-    if (!moved.ok())
-        return fail(tr("HEAD moved while folding; nothing was changed. %1").arg(moved.errorText()));
+    if (moveHead) {
+        const GitResult moved = m_git.run({QStringLiteral("update-ref"), QStringLiteral("-m"),
+                                           QStringLiteral("igitt: fold into %1").arg(shortTarget),
+                                           QStringLiteral("HEAD"), result.newHead, result.oldHead});
+        if (!moved.ok())
+            return fail(tr("HEAD moved while folding; nothing was changed. %1").arg(moved.errorText()));
+    }
     result.ok = true;
 
     if (base == FoldBase::Index) {

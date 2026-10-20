@@ -41,7 +41,8 @@ public:
 
     // Blames what every change in `files` touches, so suggest() is cheap.
     // Call again whenever the diff or HEAD changes.
-    void analyze(const QList<FileDiff> &files, FoldBase base);
+    // `head` is the commit to treat as HEAD, for simulations.
+    void analyze(const QList<FileDiff> &files, FoldBase base, const QString &head = QStringLiteral("HEAD"));
     void clear();
 
     // `selection` is indexed by file, like the `files` passed to analyze().
@@ -63,11 +64,12 @@ private:
     };
     using FileOrigins = QList<QList<LineOrigin>>; // [hunk][line]
 
-    void loadCandidates();
+    void loadCandidates(const QString &head);
     void analyzeFile(const FileDiff &file, FoldBase base, FileOrigins &origins) const;
 
     GitRunner m_git;
     QStringList m_candidates;
     QString m_boundary; // blame stops here; empty if the candidates reach the root
+    QString m_head;
     QList<FileOrigins> m_origins;
 };

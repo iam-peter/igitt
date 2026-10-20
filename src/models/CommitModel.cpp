@@ -19,13 +19,14 @@ QString kindName(RefInfo::Kind kind)
 
 void CommitModel::setCommits(const QList<CommitInfo> &commits, const QList<GraphRow> &graph,
                              const QList<RefInfo> &refs, const QString &headSha,
-                             const QString &currentBranch)
+                             const QString &currentBranch, const QSet<QString> &planned)
 {
     Q_ASSERT(graph.size() == commits.size());
     beginResetModel();
     m_commits = commits;
     m_graph = graph;
     m_headSha = headSha;
+    m_planned = planned;
 
     m_rowBySha.clear();
     m_rowBySha.reserve(commits.size());
@@ -70,6 +71,7 @@ QVariant CommitModel::data(const QModelIndex &index, int role) const
     case RefsRole: return m_refs.value(c.sha);
     case GraphRole: return QVariant::fromValue(m_graph[index.row()]);
     case IsHeadRole: return c.sha == m_headSha;
+    case PlannedRole: return m_planned.contains(c.sha);
     }
     return {};
 }
@@ -86,6 +88,7 @@ QHash<int, QByteArray> CommitModel::roleNames() const
         {RefsRole, "refs"},
         {GraphRole, "graph"},
         {IsHeadRole, "isHead"},
+        {PlannedRole, "planned"},
     };
 }
 

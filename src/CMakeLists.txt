@@ -14,6 +14,8 @@ qt_add_qml_module(igitt_core
         core/FoldEngine.h core/FoldEngine.cpp
         core/FoldSuggester.h core/FoldSuggester.cpp
         core/StateLoader.h core/StateLoader.cpp
+        core/PlanSession.h core/PlanSession.cpp
+        models/PlanModel.h models/PlanModel.cpp
         models/CommitModel.h models/CommitModel.cpp
         models/FileListModel.h models/FileListModel.cpp
         models/DiffModel.h models/DiffModel.cpp
@@ -39,6 +41,7 @@ qt_add_qml_module(igitt_ui
         qml/ChangesPane.qml
         qml/FileList.qml
         qml/DiffView.qml
+        qml/PlanPane.qml
     SOURCES
         ui/CommitGraph.h ui/CommitGraph.cpp
 )

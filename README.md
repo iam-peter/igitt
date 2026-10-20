@@ -24,7 +24,9 @@ ctest --test-dir build --output-on-failure
   `PatchBuilder`, which turns a line selection into a patch for `git apply`.
 - `src/models` — list models over that data for QML.
 - `src/core/StateLoader.*` — reads status, history and diffs into plain
-  values on the git thread.
+  values on the git thread, from the repository or a plan's simulation.
+- `src/core/PlanSession.*` — plan mode: simulates actions, replays them,
+  publishes the result.
 - `src/Repository.*` — the facade QML talks to (QML module `Igitt.Core`).
 - `src/qml`, `src/ui` — the UI (QML module `Igitt`), including the
   `CommitGraph` item that paints the history lanes.
@@ -44,6 +46,26 @@ As in git gui: click lines to select them (Shift+click for a range, a hunk
 header for the whole hunk) and stage or unstage the selection, or
 right-click a line for Stage Hunk and Stage Line. Double-click a file, or
 click its status badge, to stage or unstage all of it.
+
+## Plan mode
+
+With **Plan** switched on, write actions (staging, unstaging, commit,
+amend, fold) are not carried out but collected in a plan. Each one is
+simulated on a scratch copy of the index and a simulated HEAD, so the
+history, file lists and diffs show the result, with planned commits
+tagged. Every entry lists the git commands it ran, with patches and
+messages; removing one replays the rest, and flags entries that no longer
+apply.
+
+None of these actions touch the working tree, which makes the simulation
+exact. **Execute** therefore runs nothing again: it publishes the reviewed
+result, moving HEAD with `git update-ref` and replacing the index under
+git's own `index.lock`. It refuses, changing nothing, if HEAD or the index
+were changed by anything else since planning began.
+
+Commit hooks (pre-commit, prepare-commit-msg, commit-msg) run when a
+commit is planned, so the plan shows the message they produce, Change-Id
+included. Staging a file records the file as it was at that moment.
 
 ## Folding changes into an earlier commit
 

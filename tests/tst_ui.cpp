@@ -121,6 +121,31 @@ private slots:
         QTest::qWait(50);
         screenshot(window, u"commit"_s);
 
+        // Plan mode: stage and commit, review, execute.
+        const QByteArray realHead = gitOut({"rev-parse", "HEAD"});
+        click(window, u"planButton"_s);
+        QVERIFY(settle(*repo));
+        QVERIFY(repo->planning());
+        repo->showFile(u"app.txt"_s, false);
+        QVERIFY(settle(*repo));
+        for (int row = 0; row < diff->rowCount(); ++row) {
+            if (diff->data(diff->index(row), DiffModel::TextRole).toString().startsWith("line 21"_L1))
+                diff->toggleLine(row);
+        }
+        repo->applySelection();
+        QVERIFY(settle(*repo));
+        repo->commit(u"Change line 21"_s, false);
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->plan()->count(), 2);
+        QCOMPARE(gitOut({"rev-parse", "HEAD"}), realHead);
+        screenshot(window, u"plan"_s);
+
+        click(window, u"executePlanButton"_s);
+        QVERIFY(settle(*repo));
+        QVERIFY(!repo->planning());
+        QCOMPARE(gitOut({"log", "-1", "--format=%s"}), "Change line 21\n"_ba);
+        screenshot(window, u"executed"_s);
+
         for (const QQmlError &w : std::as_const(warnings))
             qWarning().noquote() << w.toString();
         QVERIFY(warnings.isEmpty());
@@ -148,6 +173,15 @@ private:
         QTest::qWait(50);
         screenshot(window, u"dragging"_s);
         QTest::mouseRelease(window, Qt::LeftButton, {}, to);
+    }
+
+    void click(QQuickWindow *window, const QString &objectName)
+    {
+        auto *item = window->findChild<QQuickItem *>(objectName);
+        QVERIFY2(item, qPrintable(objectName));
+        QTRY_VERIFY(item->isVisible() && item->isEnabled());
+        QTest::mouseClick(window, Qt::LeftButton, {},
+                          item->mapToScene({item->width() / 2, item->height() / 2}).toPoint());
     }
 
     void rightClickDiffRow(QQuickWindow *window, int row)

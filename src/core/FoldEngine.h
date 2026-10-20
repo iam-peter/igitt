@@ -22,6 +22,7 @@ struct FoldResult
     QString newHead;
     QString newTarget;
     int rewritten = 0; // commits recreated, the target included
+    QList<std::pair<QString, QString>> rewrites; // old and new id of each
     bool indexUpdated = false;
 };
 
@@ -46,9 +47,13 @@ public:
     explicit FoldEngine(const GitRunner &git);
 
     // Why `target` cannot be folded into, or an empty string if it can.
-    QString blocker(const QString &target) const;
+    // `head` is the commit to treat as HEAD, for simulations.
+    QString blocker(const QString &target, const QString &head = QStringLiteral("HEAD")) const;
 
-    FoldResult fold(const QString &target, const QByteArray &patch, FoldBase base) const;
+    // With `moveHead` false, step 4 leaves HEAD alone (the index is still
+    // updated) and the caller takes result.newHead from there.
+    FoldResult fold(const QString &target, const QByteArray &patch, FoldBase base,
+                    const QString &head = QStringLiteral("HEAD"), bool moveHead = true) const;
 
 private:
     struct Commit

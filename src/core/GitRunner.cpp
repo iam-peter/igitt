@@ -23,9 +23,11 @@ GitResult GitRunner::run(const QStringList &args, const QByteArray &input,
     // with whatever the user is doing in a terminal at the same time.
     env.insert(QStringLiteral("GIT_OPTIONAL_LOCKS"), QStringLiteral("0"));
     env.insert(QStringLiteral("GIT_TERMINAL_PROMPT"), QStringLiteral("0"));
-    const QStringList extraKeys = extraEnv.keys();
-    for (const QString &key : extraKeys)
-        env.insert(key, extraEnv.value(key));
+    for (const QProcessEnvironment &add : {m_env, extraEnv}) {
+        const QStringList keys = add.keys();
+        for (const QString &key : keys)
+            env.insert(key, add.value(key));
+    }
 
     const QStringList fullArgs = QStringList{
         QStringLiteral("--no-pager"),

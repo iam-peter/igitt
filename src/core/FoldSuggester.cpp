@@ -79,10 +79,11 @@ void FoldSuggester::clear()
     m_origins.clear();
 }
 
-void FoldSuggester::analyze(const QList<FileDiff> &files, FoldBase base)
+void FoldSuggester::analyze(const QList<FileDiff> &files, FoldBase base, const QString &head)
 {
     clear();
-    loadCandidates();
+    m_head = head;
+    loadCandidates(head);
     for (const FileDiff &file : files) {
         FileOrigins origins;
         for (const DiffHunk &hunk : file.hunks)
@@ -93,12 +94,11 @@ void FoldSuggester::analyze(const QList<FileDiff> &files, FoldBase base)
     }
 }
 
-void FoldSuggester::loadCandidates()
+void FoldSuggester::loadCandidates(const QString &head)
 {
     QStringList args{QStringLiteral("rev-list"), QStringLiteral("--first-parent"), QStringLiteral("--parents"),
-                     QStringLiteral("--max-count=%1").arg(MaxCandidates), QStringLiteral("HEAD")};
-    const GitResult upstream = m_git.run({QStringLiteral("merge-base"), QStringLiteral("HEAD"),
-                                          QStringLiteral("@{upstream}")});
+                     QStringLiteral("--max-count=%1").arg(MaxCandidates), head};
+    const GitResult upstream = m_git.run({QStringLiteral("merge-base"), head, QStringLiteral("@{upstream}")});
     if (upstream.ok())
         args << QLatin1Char('^') + QString::fromLatin1(upstream.out).trimmed();
 
@@ -133,7 +133,7 @@ void FoldSuggester::analyzeFile(const FileDiff &file, FoldBase base, FileOrigins
             std::fill(hunk.begin(), hunk.end(), LineOrigin{Origin::Blocked, -1});
     };
 
-    const QString spec = base == FoldBase::Head ? QStringLiteral("HEAD:") + file.oldPath
+    const QString spec = base == FoldBase::Head ? m_head + QLatin1Char(':') + file.oldPath
                                                 : QStringLiteral(":") + file.oldPath;
     const GitResult content = m_git.run({QStringLiteral("cat-file"), QStringLiteral("blob"), spec});
     if (!content.ok()) {
@@ -185,7 +185,7 @@ void FoldSuggester::analyzeFile(const FileDiff &file, FoldBase base, FileOrigins
     args += lineRanges(all.values());
     if (base == FoldBase::Index)
         args << QStringLiteral("--contents") << QStringLiteral("-");
-    args << (m_boundary.isEmpty() ? QStringLiteral("HEAD") : m_boundary + QStringLiteral("..HEAD"))
+    args << (m_boundary.isEmpty() ? m_head : m_boundary + QStringLiteral("..") + m_head)
          << QStringLiteral("--") << file.oldPath;
     const GitResult blamed = m_git.run(args, base == FoldBase::Index ? content.out : QByteArray());
     if (!blamed.ok()) {
