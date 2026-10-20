@@ -107,13 +107,15 @@ Control {
                     remotes: delegate.refs.slice(delegate.shownRefs).map(ref => ref.name)
                 }
             }
-            // Leads from the labels to the commit node.
+            // Leads from the labels to the commit node, continued by
+            // CommitGraph; both are 2 px on the same pixel row so they meet
+            // without a step.
             Rectangle {
                 visible: delegate.refs.length > 0
                 x: labels.x + labels.width + 2
+                y: Math.round(parent.height / 2) - 1
                 width: Math.max(0, parent.width - x)
-                height: 1.5
-                anchors.verticalCenter: parent.verticalCenter
+                height: 2
                 color: Qt.alpha(delegate.laneColor, 0.6)
             }
         }

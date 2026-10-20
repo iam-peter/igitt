@@ -67,10 +67,12 @@ void CommitGraph::paint(QPainter *painter)
     const QPointF center(x(m_row.column), mid);
 
     if (m_connectLeft) {
+        // Continues the 2 px line from the ref labels, on the same pixel
+        // rows (see CommitDelegate), unsmoothed so the two parts match.
         QColor link = color;
         link.setAlphaF(0.6);
-        painter->setPen(QPen(link, 1.5));
-        painter->drawLine(QPointF(0, mid), center);
+        const qreal top = std::round(h / 2) - 1;
+        painter->fillRect(QRectF(0, top, center.x(), 2), link);
     }
 
     painter->setBrush(Qt::NoBrush);
