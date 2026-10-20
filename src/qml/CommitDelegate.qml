@@ -29,10 +29,12 @@ Control {
     required property var review
 
     required property Repository repo
-    // Set while lines are dragged over this row: the empty string when
-    // they can be folded into it, otherwise why not.
+    // Set while lines or a commit are dragged over this row: the empty
+    // string when they can be dropped here, otherwise why not.
     property bool dropTarget: false
     property string dropBlocker
+    // What dropping here does.
+    property string dropHint: qsTr("Fold into \"%1\"").arg(subject)
     // The selected lines most likely belong in this commit.
     property bool suggested: false
 
@@ -43,6 +45,9 @@ Control {
 
     signal clicked()
     signal contextMenuRequested(point position)
+    // The row is dragged to move the commit.
+    signal moveDragMoved(point scenePos)
+    signal moveDragFinished(point scenePos)
 
     implicitHeight: 30
     padding: 0
@@ -69,7 +74,7 @@ Control {
     }
 
     ToolTip.visible: dropTarget
-    ToolTip.text: dropBlocker === "" ? qsTr("Fold into \"%1\"").arg(subject) : dropBlocker
+    ToolTip.text: dropBlocker === "" ? dropHint : dropBlocker
 
     contentItem: RowLayout {
         spacing: 0
@@ -283,6 +288,42 @@ Control {
 
     TapHandler {
         onTapped: delegate.clicked()
+    }
+    DragHandler {
+        id: moveDrag
+
+        property point scenePos
+
+        objectName: "commitDrag"
+        target: null
+        yAxis.enabled: true
+        xAxis.enabled: false
+        cursorShape: Qt.ClosedHandCursor
+        onCentroidChanged: {
+            if (!active)
+                return
+            scenePos = centroid.scenePosition
+            delegate.moveDragMoved(scenePos)
+        }
+        onActiveChanged: {
+            if (!active)
+                delegate.moveDragFinished(scenePos)
+        }
+    }
+    // Follows the pointer while dragging.
+    Label {
+        parent: Overlay.overlay
+        visible: moveDrag.active
+        x: moveDrag.scenePos.x + 14
+        y: moveDrag.scenePos.y + 10
+        padding: 4
+        text: qsTr("Move “%1”").arg(delegate.subject)
+        textFormat: Text.PlainText
+        background: Rectangle {
+            color: delegate.palette.toolTipBase
+            border.color: delegate.palette.mid
+            radius: 3
+        }
     }
     TapHandler {
         acceptedButtons: Qt.RightButton

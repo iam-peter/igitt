@@ -79,6 +79,7 @@ class Repository : public QObject
                    NOTIFY ignoreWhitespaceChanged)
     // The file on display has unresolved conflicts; show the merge tool.
     Q_PROPERTY(bool diffConflicted READ diffConflicted NOTIFY diffChanged)
+    // The last fold or history edit can be undone.
     Q_PROPERTY(bool canUndoFold READ canUndoFold NOTIFY canUndoFoldChanged)
     // The commit the selected lines most likely belong in (see
     // FoldSuggester), and a sentence explaining it or why there is none.
@@ -264,9 +265,22 @@ public:
     // Folds the selected lines of the working diff into `sha` and rewrites
     // the commits after it.
     Q_INVOKABLE void foldSelection(const QString &sha);
-    // Restores the branch and index as they were before the last fold, as
-    // long as HEAD has not moved since.
+    // Restores the branch and index as they were before the last fold or
+    // history edit, as long as HEAD has not moved since.
     Q_INVOKABLE void undoFold();
+
+    // History edits, see HistoryEditor. `kind` is "reword", "moveUp",
+    // "moveDown", "move" (to where `to` is), "squash" (into the commit
+    // below), "fixup" (likewise, keeping that commit's message) or "drop".
+    // Why the edit is not possible, or an empty string if it is.
+    Q_INVOKABLE QString editBlocker(const QString &kind, const QString &sha, const QString &to = {}) const;
+    // Whether the edit rewrites a commit a remote-tracking branch has.
+    Q_INVOKABLE bool editRewritesPublished(const QString &kind, const QString &sha, const QString &to = {}) const;
+    // `message` is the new one, for "reword".
+    Q_INVOKABLE void editCommit(const QString &kind, const QString &sha, const QString &to = {},
+                                const QString &message = {});
+    // Loads a commit's full message; it arrives with messageLoaded().
+    Q_INVOKABLE void requestMessage(const QString &sha);
 
     Q_INVOKABLE void startPlanning();
     Q_INVOKABLE void discardPlan();
@@ -288,6 +302,7 @@ signals:
     void reviewsChanged();
     void commitReviewChanged();
     void committed();
+    void messageLoaded(const QString &sha, const QString &message);
     void errorOccurred(const QString &message);
     // `links` are URLs the remote printed, such as Gerrit's changes.
     void notice(const QString &message, const QStringList &links);
@@ -298,6 +313,8 @@ private:
         QString oldHead;
         QString newHead;
         QByteArray stagedPatch; // applied to the index by the fold
+        bool edit = false;      // a history edit, not a fold
+        bool indexCarried = false; // the edit moved the index along with HEAD
     };
 
     struct PlanSnapshot
@@ -318,6 +335,7 @@ private:
         RepositoryState state;
         std::optional<LastFold> fold;
         bool committed = false;
+        std::optional<std::pair<QString, QString>> message; // sha and message
         QString gitDir;
         QString pushRejected; // why the remote refused a push
         QHash<QString, CommitStats> stats;
@@ -355,6 +373,9 @@ private:
     void forgetFold();
     void updateFoldSuggestion();
     QString commitLabel(const QString &sha) const;
+    bool isMergeCommit(const QString &sha) const;
+    // The oldest commit `kind` rewrites, or an empty string if it can't.
+    QString oldestEdited(const QString &kind, const QString &sha, const QString &to) const;
     QByteArray selectionPatch(PatchDirection direction) const;
 
     GitRunner m_git;
@@ -384,6 +405,7 @@ private:
     QTimer m_statsTimer;
     QString m_headMessage;
     QSet<QString> m_foldTargets;
+    QStringList m_editChain; // the fold targets in order, HEAD first
     QSet<QString> m_unpublished;
     CommitModel m_commits;
     FileListModel m_unstaged{false};

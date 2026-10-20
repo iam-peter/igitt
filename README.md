@@ -2,7 +2,9 @@
 
 A Qt Quick git tool combining what gitk (history browsing) and git gui
 (staging and committing) do, plus the operations neither of them offers —
-first of all folding working tree changes into any earlier commit.
+first of all folding working tree changes into any earlier commit, and
+editing the history like `git rebase -i` without touching the working
+tree.
 
 ## Building
 
@@ -27,6 +29,8 @@ ctest --test-dir build --output-on-failure
 - `src/models` — list models over that data for QML.
 - `src/core/StateLoader.*` — reads status, history and diffs into plain
   values on the git thread, from the repository or a plan's simulation.
+- `src/core/FoldEngine.*`, `src/core/HistoryEditor.*` — folds and history
+  edits, with the commit-level steps they share in `CommitRewriter`.
 - `src/core/PlanSession.*` — plan mode: simulates actions, replays them,
   publishes the result.
 - `src/Repository.*` — the facade QML talks to (QML module `Igitt.Core`).
@@ -141,7 +145,7 @@ click its status badge, to stage or unstage all of it.
 ## Plan mode
 
 With **Plan** switched on, write actions (staging, unstaging, commit,
-amend, fold) are not carried out but collected in a plan. Each one is
+amend, fold, history edits) are not carried out but collected in a plan. Each one is
 simulated on a scratch copy of the index and a simulated HEAD, so the
 history, file lists and diffs show the result, with planned commits
 tagged. Every entry lists the git commands it ran, with patches and
@@ -194,6 +198,32 @@ instead.
 Not supported yet: merge commits between the target and HEAD, and moving
 other branches that point into the rewritten range (like `rebase
 --update-refs`).
+
+## Editing the history
+
+Right-click a commit for **Reword…**, **Move Up**, **Move Down**,
+**Squash into Previous**, **Fix Up into Previous** (keeping only the
+previous commit's message) and **Drop…**, or drag a commit onto another
+one to move it there. This is `git rebase -i` done by `HistoryEditor`, the
+same way folds are done:
+
+1. Replay the commits from the oldest one the edit affects up to HEAD in
+   their new order, each with `git merge-tree --write-tree
+   --merge-base=<its old parent>` onto its new parent, recreating it with
+   its author, date and message. Commits below the edit keep their ids.
+2. Move HEAD with `git update-ref HEAD <new> <old>`.
+3. Carry the index over with `git read-tree -m -i <old> <new>`: what was
+   staged stays staged, and since the working tree is not touched, what a
+   dropped commit changed shows up as uncommitted changes.
+
+Rewording opens the commit form with the message split into title, body
+and trailers; a Change-Id that goes missing is put back, and squashing
+keeps only the first commit's. A conflict aborts with nothing changed,
+editing a commit already on a remote branch asks first, and dropping
+always does. Undo works as for folds, and the reflog has every edit
+("igitt: reword …", "igitt: move …"). The same restrictions apply: no
+merge commits between the edited commit and HEAD, though a merge commit
+itself can be reworded.
 
 ## Ideas
 

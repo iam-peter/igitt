@@ -2,6 +2,7 @@
 
 #include "core/FoldEngine.h"
 #include "core/GerritReview.h"
+#include "core/HistoryEditor.h"
 #include "core/PatchBuilder.h"
 
 #include <QDir>
@@ -118,6 +119,8 @@ void Repository::finish(JobKind kind, Outcome outcome)
             endPlan();
         if (outcome.committed)
             emit committed();
+        if (outcome.message)
+            emit messageLoaded(outcome.message->first, outcome.message->second);
         if (!outcome.pushRejected.isEmpty())
             emit pushRejected(outcome.pushRejected, m_pushTarget.description());
         if (!outcome.notice.isEmpty())
@@ -146,6 +149,7 @@ void Repository::applyState(const RepositoryState &state)
         m_wipGraph = history.wipGraph;
         m_headMessage = history.headMessage;
         m_foldTargets = QSet<QString>(history.foldTargets.cbegin(), history.foldTargets.cend());
+        m_editChain = history.foldTargets;
         m_unpublished = history.unpublished;
         m_commits.setCommits(history.commits, history.graph, history.refs, history.head, m_status.branch,
                              history.planned);
@@ -667,10 +671,18 @@ void Repository::undoFold()
                              history = historyRequest(true)](const GitRunner &git) {
         Outcome outcome;
         const GitResult moved = git.run({QStringLiteral("update-ref"), QStringLiteral("-m"),
-                                         QStringLiteral("igitt: undo fold"), QStringLiteral("HEAD"),
-                                         fold.oldHead, fold.newHead});
+                                         fold.edit ? QStringLiteral("igitt: undo history edit")
+                                                   : QStringLiteral("igitt: undo fold"),
+                                         QStringLiteral("HEAD"), fold.oldHead, fold.newHead});
         if (!moved.ok()) {
-            outcome.error = tr("Undoing the fold failed: %1").arg(moved.errorText());
+            outcome.error = fold.edit ? tr("Undoing the history edit failed: %1").arg(moved.errorText())
+                                      : tr("Undoing the fold failed: %1").arg(moved.errorText());
+        } else if (fold.indexCarried) {
+            const GitResult carried = git.run({QStringLiteral("read-tree"), QStringLiteral("-m"),
+                                               QStringLiteral("-i"), fold.newHead, fold.oldHead});
+            if (!carried.ok())
+                outcome.error = tr("The history edit was undone, but the index could not follow: %1")
+                                    .arg(carried.errorText());
         } else if (!fold.stagedPatch.isEmpty()) {
             const GitResult unstaged = git.run({QStringLiteral("apply"), QStringLiteral("--cached"),
                                                 QStringLiteral("--reverse"), QStringLiteral("--whitespace=nowarn")},
@@ -680,8 +692,149 @@ void Repository::undoFold()
                                     .arg(unstaged.errorText());
         }
         if (outcome.error.isEmpty())
-            outcome.notice = tr("Fold undone.");
+            outcome.notice = fold.edit ? tr("History edit undone.") : tr("Fold undone.");
         outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+QString Repository::editBlocker(const QString &kind, const QString &sha, const QString &to) const
+{
+    if (const QString op = operation(); !op.isEmpty())
+        return tr("git is in the middle of an operation (%1); finish or abort it first.").arg(op);
+    const qsizetype i = m_editChain.indexOf(sha);
+    if (i < 0)
+        return tr("Only commits of the current branch, from HEAD down to its last merge, can be edited.");
+    if (kind == QLatin1StringView("reword"))
+        return {};
+    if (isMergeCommit(sha))
+        return tr("A merge commit can only be reworded.");
+    if (kind == QLatin1StringView("moveUp"))
+        return i == 0 ? tr("It is the latest commit already.") : QString();
+    if (kind == QLatin1StringView("drop"))
+        return m_editChain.size() == 1 ? tr("Dropping the only commit would leave the branch empty.") : QString();
+    if (kind == QLatin1StringView("moveDown") || kind == QLatin1StringView("squash")
+        || kind == QLatin1StringView("fixup")) {
+        if (i + 1 >= m_editChain.size())
+            return tr("There is no commit below it that can be edited.");
+        if (isMergeCommit(m_editChain[i + 1]))
+            return tr("The commit below it is a merge commit.");
+        return {};
+    }
+    if (kind == QLatin1StringView("move")) {
+        const qsizetype j = m_editChain.indexOf(to);
+        if (j < 0)
+            return tr("Commits can only be moved within the current branch, from HEAD down to its last merge.");
+        if (j == i)
+            return tr("Drop it onto another commit to move it there.");
+        if (isMergeCommit(to))
+            return tr("Commits cannot be moved past a merge commit.");
+        return {};
+    }
+    return tr("Unknown edit “%1”.").arg(kind);
+}
+
+bool Repository::editRewritesPublished(const QString &kind, const QString &sha, const QString &to) const
+{
+    const QString oldest = oldestEdited(kind, sha, to);
+    return !oldest.isEmpty() && isPublished(oldest);
+}
+
+QString Repository::oldestEdited(const QString &kind, const QString &sha, const QString &to) const
+{
+    if (!editBlocker(kind, sha, to).isEmpty())
+        return {};
+    const qsizetype i = m_editChain.indexOf(sha);
+    if (kind == QLatin1StringView("moveDown") || kind == QLatin1StringView("squash")
+        || kind == QLatin1StringView("fixup"))
+        return m_editChain[i + 1];
+    if (kind == QLatin1StringView("move"))
+        return m_editChain[std::max(i, m_editChain.indexOf(to))]; // HEAD first: older is further down
+    return sha;
+}
+
+void Repository::editCommit(const QString &kind, const QString &sha, const QString &to, const QString &message)
+{
+    if (const QString reason = editBlocker(kind, sha, to); !reason.isEmpty()) {
+        emit errorOccurred(reason);
+        return;
+    }
+    const qsizetype i = m_editChain.indexOf(sha);
+    const QString label = commitLabel(sha);
+    HistoryEdit edit;
+    edit.commit = sha;
+    QString title;
+    if (kind == QLatin1StringView("reword")) {
+        edit.kind = HistoryEdit::Reword;
+        edit.message = message;
+        title = tr("Reword %1").arg(label);
+    } else if (kind == QLatin1StringView("moveUp")) {
+        edit.kind = HistoryEdit::Move;
+        edit.to = m_editChain[i - 1];
+        title = tr("Move %1 up").arg(label);
+    } else if (kind == QLatin1StringView("moveDown")) {
+        edit.kind = HistoryEdit::Move;
+        edit.to = m_editChain[i + 1];
+        title = tr("Move %1 down").arg(label);
+    } else if (kind == QLatin1StringView("move")) {
+        edit.kind = HistoryEdit::Move;
+        edit.to = to;
+        title = tr("Move %1 to where %2 is").arg(label, commitLabel(to));
+    } else if (kind == QLatin1StringView("squash")) {
+        edit.kind = HistoryEdit::Squash;
+        title = tr("Squash %1 into %2").arg(label, commitLabel(m_editChain[i + 1]));
+    } else if (kind == QLatin1StringView("fixup")) {
+        edit.kind = HistoryEdit::Fixup;
+        title = tr("Fix up %1 with %2").arg(commitLabel(m_editChain[i + 1]), label);
+    } else {
+        edit.kind = HistoryEdit::Drop;
+        title = tr("Drop %1").arg(label);
+    }
+
+    if (m_plan) {
+        PlanEntry entry;
+        entry.kind = PlanEntry::EditHistory;
+        entry.edit = edit;
+        entry.title = title;
+        enqueuePlanEntry(entry);
+        return;
+    }
+
+    enqueue(JobKind::Write, [edit, title, request = diffRequest(),
+                             history = historyRequest(true)](const GitRunner &git) {
+        Outcome outcome;
+        const RewriteResult result = HistoryEditor(git).edit(edit);
+        if (!result.ok) {
+            outcome.error = tr("%1 failed: %2").arg(title, result.error);
+            if (!result.conflicts.isEmpty())
+                outcome.error += QLatin1Char(' ')
+                    + tr("Conflicting files: %1").arg(result.conflicts.join(QStringLiteral(", ")));
+        } else if (result.newHead == result.oldHead) {
+            outcome.notice = tr("Nothing changed.");
+        } else {
+            outcome.fold = LastFold{result.oldHead, result.newHead, {}, true, result.indexUpdated};
+            if (!result.error.isEmpty())
+                outcome.error = result.error;
+            else
+                outcome.notice = tr("%1: rewrote %n commit(s).", "", result.rewritten).arg(title);
+        }
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::requestMessage(const QString &sha)
+{
+    if (sha.isEmpty() || !valid())
+        return;
+    enqueue(JobKind::Read, [sha, plan = m_plan](const GitRunner &git) {
+        Outcome outcome;
+        const GitResult r = sourceFor(git, plan).git.run({QStringLiteral("log"), QStringLiteral("-1"),
+                                                          QStringLiteral("--format=%B"), sha});
+        if (r.ok())
+            outcome.message = std::make_pair(sha, QString::fromUtf8(r.out));
+        else
+            outcome.error = tr("Reading the message of %1 failed: %2").arg(sha.left(10), r.errorText());
         return outcome;
     });
 }
@@ -1313,6 +1466,12 @@ QString Repository::commitLabel(const QString &sha) const
     if (row < 0)
         return sha.left(10);
     return QStringLiteral("“%1”").arg(m_commits.data(m_commits.index(row), CommitModel::SubjectRole).toString());
+}
+
+bool Repository::isMergeCommit(const QString &sha) const
+{
+    const int row = m_commits.rowOf(sha);
+    return row >= 0 && m_commits.data(m_commits.index(row), CommitModel::IsMergeRole).toBool();
 }
 
 QByteArray Repository::selectionPatch(PatchDirection direction) const

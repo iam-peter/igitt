@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CommitRewriter.h"
 #include "GitRunner.h"
 
 #include <QByteArray>
@@ -56,32 +57,6 @@ public:
                     const QString &head = QStringLiteral("HEAD"), bool moveHead = true) const;
 
 private:
-    struct Commit
-    {
-        QString sha;
-        QString tree;
-        QStringList parents;
-        QByteArray authorName;
-        QByteArray authorEmail;
-        QByteArray authorDate;
-        QByteArray encoding;
-        QByteArray message;
-        QString subject() const;
-    };
-
-    struct Merge
-    {
-        QString tree;
-        QStringList conflicts;
-        QString error;
-    };
-
-    QString revParse(const QString &rev) const;
-    bool readCommit(const QString &sha, Commit &commit) const;
-    QString commitTree(const QString &tree, const QStringList &parents, const Commit &meta,
-                       QString &error) const;
-    QString wrapTree(const QString &tree, const QStringList &parents, QString &error) const;
-    Merge merge(const QString &base, const QString &ours, const QString &theirs) const;
-
     const GitRunner &m_git;
+    CommitRewriter m_objects;
 };
