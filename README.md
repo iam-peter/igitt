@@ -6,7 +6,7 @@ first of all folding working tree changes into any earlier commit.
 
 ## Building
 
-Requires Qt ≥ 6.8, CMake ≥ 3.21 and git ≥ 2.40 at runtime.
+Requires Qt ≥ 6.9, CMake ≥ 3.21 and git ≥ 2.40 at runtime.
 
 ```bash
 cmake -B build -G Ninja -DCMAKE_PREFIX_PATH=$HOME/Qt/6.12.0/gcc_64

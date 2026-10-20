@@ -16,20 +16,35 @@ Pane {
         anchors.fill: parent
         orientation: Qt.Vertical
 
+        // Drag a file onto the other list to stage or unstage it.
         FileList {
+            id: unstagedFiles
             SplitView.fillHeight: true
             SplitView.minimumHeight: 80
             repo: pane.repo
             staged: false
             title: qsTr("Unstaged Changes")
+            onFileDragMoved: (path, pos) => stagedFiles.dropTarget = stagedFiles.containsScenePoint(pos)
+            onFileDropped: (path, pos) => {
+                stagedFiles.dropTarget = false
+                if (stagedFiles.containsScenePoint(pos))
+                    pane.repo.stageFile(path)
+            }
         }
 
         FileList {
+            id: stagedFiles
             SplitView.preferredHeight: 160
             SplitView.minimumHeight: 80
             repo: pane.repo
             staged: true
             title: qsTr("Staged Changes")
+            onFileDragMoved: (path, pos) => unstagedFiles.dropTarget = unstagedFiles.containsScenePoint(pos)
+            onFileDropped: (path, pos) => {
+                unstagedFiles.dropTarget = false
+                if (unstagedFiles.containsScenePoint(pos))
+                    pane.repo.unstageFile(path)
+            }
         }
 
         ColumnLayout {

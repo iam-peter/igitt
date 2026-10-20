@@ -146,6 +146,25 @@ private slots:
         QCOMPARE(gitOut({"log", "-1", "--format=%s"}), "Change line 21\n"_ba);
         screenshot(window, u"executed"_s);
 
+        // Files: stage from the context menu, move between the lists by drag and drop.
+        // The planned commit took everything that was staged.
+        QVERIFY(gitOut({"diff", "--cached", "--name-only"}).isEmpty());
+        QQuickItem *notes = fileRow(window, u"unstagedList"_s, u"notes.txt"_s);
+        QVERIFY(notes);
+        QTest::mouseClick(window, Qt::RightButton, {},
+                          notes->mapToScene({notes->width() / 2, notes->height() / 2}).toPoint());
+        click(window, u"stageFileMenuItem"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(gitOut({"diff", "--cached", "--name-only"}), "notes.txt\n"_ba);
+
+        dragFile(window, u"unstagedList"_s, u"app.txt"_s, u"stagedList"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(gitOut({"diff", "--cached", "--name-only"}), "app.txt\nnotes.txt\n"_ba);
+
+        dragFile(window, u"stagedList"_s, u"notes.txt"_s, u"unstagedList"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(gitOut({"diff", "--cached", "--name-only"}), "app.txt\n"_ba);
+
         for (const QQmlError &w : std::as_const(warnings))
             qWarning().noquote() << w.toString();
         QVERIFY(warnings.isEmpty());
@@ -182,6 +201,37 @@ private:
         QTRY_VERIFY(item->isVisible() && item->isEnabled());
         QTest::mouseClick(window, Qt::LeftButton, {},
                           item->mapToScene({item->width() / 2, item->height() / 2}).toPoint());
+    }
+
+    QQuickItem *fileRow(QQuickWindow *window, const QString &list, const QString &path)
+    {
+        auto *view = window->findChild<QQuickItem *>(list);
+        if (!view)
+            return nullptr;
+        for (int row = 0; row < view->property("count").toInt(); ++row) {
+            QQuickItem *item = nullptr;
+            QMetaObject::invokeMethod(view, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, item), Q_ARG(int, row));
+            if (item && item->property("path").toString() == path)
+                return item;
+        }
+        return nullptr;
+    }
+
+    // Drags a file row onto the middle of the other list.
+    void dragFile(QQuickWindow *window, const QString &fromList, const QString &path, const QString &toList)
+    {
+        QQuickItem *row = fileRow(window, fromList, path);
+        auto *target = window->findChild<QQuickItem *>(toList);
+        QVERIFY2(row && target, qPrintable(path));
+        const QPoint from = row->mapToScene({row->width() / 2, row->height() / 2}).toPoint();
+        const QPoint to = target->mapToScene({target->width() / 2, target->height() / 2}).toPoint();
+        QTest::mousePress(window, Qt::LeftButton, {}, from);
+        constexpr int steps = 10;
+        for (int i = 1; i <= steps; ++i)
+            QTest::mouseMove(window, from + (to - from) * i / steps);
+        QTest::qWait(30);
+        screenshot(window, u"file-drag"_s);
+        QTest::mouseRelease(window, Qt::LeftButton, {}, to);
     }
 
     void rightClickDiffRow(QQuickWindow *window, int row)
