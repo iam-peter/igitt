@@ -25,9 +25,9 @@ Control {
     required property bool isMerge
     required property bool planned
     required property var stats
+    required property bool matched
 
     required property Repository repo
-    property string query
     // Set while lines are dragged over this row: the empty string when
     // they can be folded into it, otherwise why not.
     property bool dropTarget: false
@@ -37,7 +37,6 @@ Control {
 
     readonly property var columns: AppSettings.graph
     readonly property bool current: ListView.isCurrentItem
-    readonly property bool matched: query === "" || repo.commits.matches(index, query)
     // As many ref labels as fit; the others are counted in a "+N" label.
     readonly property int shownRefs: Math.min(refs.length, Math.max(1, Math.floor((columns.refsWidth - 40) / 90)))
 

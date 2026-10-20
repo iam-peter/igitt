@@ -52,6 +52,7 @@ qt_add_qml_module(igitt_ui
     SOURCES
         ui/CommitGraph.h ui/CommitGraph.cpp
         ui/Clipboard.h
+        ui/ActivityMinimap.h ui/ActivityMinimap.cpp
 )
 target_include_directories(igitt_ui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ui)
 target_link_libraries(igitt_ui PUBLIC

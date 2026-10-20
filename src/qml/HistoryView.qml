@@ -15,9 +15,6 @@ Pane {
     property string dropBlocker
 
     readonly property var columns: AppSettings.graph
-    readonly property string query: search.text.trim()
-    // Depends on the count so it updates when the history reloads.
-    readonly property int matchCount: query === "" || repo.commits.count < 0 ? 0 : repo.commits.countMatches(query)
 
     signal foldRequested(string sha)
 
@@ -46,11 +43,15 @@ Pane {
             foldRequested(sha)
     }
 
+    function updateSearch() {
+        repo.commits.setSearch(search.text, matchCase.checked, regex.checked)
+    }
+
     function findMatch(forward: bool) {
-        if (query === "")
+        if (!repo.commits.searching)
             return
         const from = list.currentIndex >= 0 ? list.currentIndex : (forward ? -1 : 0)
-        const row = repo.commits.findNext(query, from, forward)
+        const row = repo.commits.findNext(from, forward)
         if (row < 0)
             return
         list.currentIndex = row
@@ -106,6 +107,7 @@ Pane {
         Toggle { text: qsTr("Tags"); setting: "showTags" }
         Toggle { text: qsTr("Dim Merge Commits"); setting: "dimMerges" }
         Toggle { text: qsTr("Author Initials in Graph"); setting: "showInitials" }
+        Toggle { text: qsTr("Activity Minimap"); setting: "showMinimap" }
     }
 
     ColumnLayout {
@@ -120,30 +122,60 @@ Pane {
                 anchors.leftMargin: 6
                 anchors.rightMargin: 6
 
+                ComboBox {
+                    objectName: "branchScope"
+                    model: [qsTr("All Branches"), qsTr("Current Branch")]
+                    currentIndex: view.columns.currentBranchOnly ? 1 : 0
+                    onActivated: index => view.columns.currentBranchOnly = index === 1
+                }
                 TextField {
                     id: search
                     objectName: "historySearch"
-                    Layout.preferredWidth: 320
-                    placeholderText: qsTr("Search commits: message, author or SHA")
+                    Layout.preferredWidth: 380
+                    placeholderText: qsTr("Search commits, e.g. \"fix crash\" author:ada sha:1a2b")
                     selectByMouse: true
+                    onTextChanged: view.updateSearch()
                     onAccepted: view.findMatch(true)
                     Keys.onEscapePressed: clear()
+                    ToolTip.visible: hovered && text === ""
+                    ToolTip.delay: 800
+                    ToolTip.text: qsTr("Terms must all match. author:, message: and sha: limit a term to "
+                                       + "that field; quotes keep a phrase together.")
+                }
+                ToolButton {
+                    id: matchCase
+                    text: "Aa"
+                    checkable: true
+                    onToggled: view.updateSearch()
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Match case")
+                }
+                ToolButton {
+                    id: regex
+                    text: ".*"
+                    checkable: true
+                    onToggled: view.updateSearch()
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Regular expressions")
                 }
                 Label {
-                    visible: view.query !== ""
-                    text: qsTr("%n match(es)", "", view.matchCount)
-                    opacity: 0.7
+                    visible: view.repo.commits.searching
+                    text: view.repo.commits.searchError !== "" ? view.repo.commits.searchError
+                        : view.repo.commits.matchCount === 0 ? qsTr("No results")
+                        : qsTr("%n match(es)", "", view.repo.commits.matchCount)
+                    color: view.repo.commits.searchError !== "" ? "#d62728" : view.palette.text
+                    opacity: 0.8
                 }
                 ToolButton {
                     text: "▲"
-                    enabled: view.matchCount > 0
+                    enabled: view.repo.commits.matchCount > 0
                     onClicked: view.findMatch(false)
                     ToolTip.visible: hovered
                     ToolTip.text: qsTr("Previous match (Shift+Enter)")
                 }
                 ToolButton {
                     text: "▼"
-                    enabled: view.matchCount > 0
+                    enabled: view.repo.commits.matchCount > 0
                     onClicked: view.findMatch(true)
                     ToolTip.visible: hovered
                     ToolTip.text: qsTr("Next match (Enter)")
@@ -161,6 +193,36 @@ Pane {
                 sequence: "Shift+Return"
                 enabled: search.activeFocus
                 onActivated: view.findMatch(false)
+            }
+        }
+
+        ActivityMinimap {
+            objectName: "minimap"
+            Layout.fillWidth: true
+            Layout.preferredHeight: 54
+            visible: view.columns.showMinimap
+            model: view.repo.commits
+            currentRow: list.currentIndex
+            // Depend on contentY so the band follows scrolling.
+            firstVisibleRow: list.contentY, list.indexAt(10, list.contentY + 2)
+            lastVisibleRow: {
+                const row = list.indexAt(10, list.contentY + list.height - 2)
+                return row >= 0 ? row : list.count - 1
+            }
+            lineColor: view.palette.highlight
+            bandColor: view.palette.highlight
+            textColor: view.palette.placeholderText
+            onRowRequested: row => {
+                list.currentIndex = row
+                list.positionViewAtIndex(row, ListView.Center)
+                list.showCurrent()
+            }
+
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 1
+                color: view.palette.mid
             }
         }
 
@@ -320,7 +382,6 @@ Pane {
             delegate: CommitDelegate {
                 width: ListView.view.width
                 repo: view.repo
-                query: view.query
                 dropTarget: index === view.dropRow
                 dropBlocker: dropTarget ? view.dropBlocker : ""
                 suggested: sha === view.repo.suggestedFoldTarget

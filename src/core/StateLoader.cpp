@@ -147,13 +147,17 @@ HistoryState loadHistory(const StateSource &source, const StatusInfo &status, co
     QStringList args{QStringLiteral("log"), QStringLiteral("--topo-order"),
                      QStringLiteral("--max-count=%1").arg(MaxHistory)};
     args += logFormatArgs();
-    if (source.simulated && !status.branch.isEmpty())
-        args.append(QStringLiteral("--exclude=") + branchRef);
-    args.append(QStringLiteral("--branches"));
-    if (filter.remotes)
-        args.append(QStringLiteral("--remotes"));
-    if (filter.tags)
-        args.append(QStringLiteral("--tags"));
+    if (!filter.currentBranchOnly) {
+        if (source.simulated && !status.branch.isEmpty())
+            args.append(QStringLiteral("--exclude=") + branchRef);
+        args.append(QStringLiteral("--branches"));
+        if (filter.remotes)
+            args.append(QStringLiteral("--remotes"));
+        if (filter.tags)
+            args.append(QStringLiteral("--tags"));
+    } else if (status.headSha.isEmpty()) {
+        return history;
+    }
     if (!status.headSha.isEmpty())
         args.append(status.headSha);
     args.append(QStringLiteral("--"));

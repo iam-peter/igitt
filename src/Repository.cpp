@@ -295,6 +295,15 @@ void Repository::setShowRemotes(bool show)
     refresh();
 }
 
+void Repository::setCurrentBranchOnly(bool only)
+{
+    if (m_filter.currentBranchOnly == only)
+        return;
+    m_filter.currentBranchOnly = only;
+    emit filterChanged();
+    refresh();
+}
+
 void Repository::setShowTags(bool show)
 {
     if (m_filter.tags == show)

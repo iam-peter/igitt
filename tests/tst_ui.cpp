@@ -128,6 +128,16 @@ private slots:
         QTest::qWait(50);
         screenshot(window, u"commit"_s);
 
+        // Searching dims what doesn't match; the minimap is above the graph.
+        auto *search = window->findChild<QQuickItem *>(u"historySearch"_s);
+        QVERIFY(search);
+        search->setProperty("text", u"message:line author:ada"_s);
+        QTRY_COMPARE(repo->commits()->matchCount(), 5);
+        QVERIFY(window->findChild<QQuickItem *>(u"minimap"_s)->isVisible());
+        screenshot(window, u"search"_s);
+        search->setProperty("text", QString());
+        QVERIFY(!repo->commits()->searching());
+
         // Plan mode: stage and commit, review, execute.
         const QByteArray realHead = gitOut({"rev-parse", "HEAD"});
         click(window, u"planButton"_s);
@@ -311,6 +321,13 @@ private:
         return text;
     }
 
+    // Spreads the demo history over months, as a real one would be.
+    static void setDate(const char *iso)
+    {
+        qputenv("GIT_AUTHOR_DATE", iso);
+        qputenv("GIT_COMMITTER_DATE", iso);
+    }
+
     void createDemoRepository()
     {
         QHash<int, QByteArray> changes;
@@ -318,37 +335,46 @@ private:
         write(u"app.txt"_s, appText(changes));
         write(u"README.md"_s, "# Demo\n");
         git({"add", "."});
+        setDate("2026-03-02T10:00:00");
         git({"commit", "-q", "-m", "Initial import"});
         git({"tag", "v0.1"});
 
         changes[3] = " parsed";
         write(u"app.txt"_s, appText(changes));
+        setDate("2026-03-20T10:00:00");
         git({"commit", "-q", "-a", "-m", "Parse line three"});
 
         git({"checkout", "-q", "-b", "feature"});
         write(u"feature.txt"_s, "feature\n");
         git({"add", "feature.txt"});
+        setDate("2026-04-11T10:00:00");
         git({"commit", "-q", "-m", "Add feature skeleton"});
         auto featureChanges = changes;
         featureChanges[20] = " feature";
         write(u"app.txt"_s, appText(featureChanges));
+        setDate("2026-04-12T15:00:00");
         git({"commit", "-q", "-a", "-m", "Wire feature into app"});
 
         git({"checkout", "-q", "main"});
         changes[10] = " fixed";
         write(u"app.txt"_s, appText(changes));
+        setDate("2026-05-05T10:00:00");
         git({"commit", "-q", "-a", "-m", "Fix line ten"});
+        setDate("2026-05-06T10:00:00");
         git({"merge", "-q", "--no-ff", "feature", "-m", "Merge branch 'feature'"});
         changes[20] = " feature";
         changes[25] = " tuned";
         write(u"app.txt"_s, appText(changes));
+        setDate("2026-06-19T10:00:00");
         git({"commit", "-q", "-a", "-m", "Tune line 25"});
 
         changes[15] = " documented";
         write(u"app.txt"_s, appText(changes));
+        setDate("2026-08-01T10:00:00");
         git({"commit", "-q", "-a", "-m", "Document line 15"});
         changes[28] = " polished";
         write(u"app.txt"_s, appText(changes));
+        setDate("2026-09-15T10:00:00");
         git({"commit", "-q", "-a", "-m", "Polish line 28"});
 
         changes[4] = " changed";
@@ -356,6 +382,8 @@ private:
         changes[21] = " changed";
         write(u"app.txt"_s, appText(changes));
         write(u"notes.txt"_s, "untracked\n");
+        qunsetenv("GIT_AUTHOR_DATE");
+        qunsetenv("GIT_COMMITTER_DATE");
         write(u"README.md"_s, "# Demo\n\nstaged\n");
         git({"add", "README.md"});
     }

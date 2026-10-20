@@ -63,6 +63,7 @@ class Repository : public QObject
     // What the history shows besides local branches.
     Q_PROPERTY(bool showRemotes READ showRemotes WRITE setShowRemotes NOTIFY filterChanged)
     Q_PROPERTY(bool showTags READ showTags WRITE setShowTags NOTIFY filterChanged)
+    Q_PROPERTY(bool currentBranchOnly READ currentBranchOnly WRITE setCurrentBranchOnly NOTIFY filterChanged)
     // Uncommitted changes, drawn as a row on top of the history.
     Q_PROPERTY(bool hasWip READ hasWip NOTIFY headChanged)
     Q_PROPERTY(QVariant wipGraph READ wipGraph NOTIFY headChanged)
@@ -104,6 +105,8 @@ public:
     void setShowRemotes(bool show);
     bool showTags() const { return m_filter.tags; }
     void setShowTags(bool show);
+    bool currentBranchOnly() const { return m_filter.currentBranchOnly; }
+    void setCurrentBranchOnly(bool only);
     bool hasWip() const { return m_historyWip; }
     QVariant wipGraph() const { return QVariant::fromValue(m_wipGraph); }
     QString wipLaneColor() const { return laneColorName(m_wipGraph.color); }

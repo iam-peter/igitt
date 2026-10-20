@@ -63,9 +63,12 @@ void CommitModel::setCommits(const QList<CommitInfo> &commits, const QList<Graph
             labels.prepend(label(QStringLiteral("HEAD"), QStringLiteral("head"), color, true));
         m_refs.insert(it.key(), labels);
     }
+    updateMatches();
     endResetModel();
     if (count() != oldCount)
         emit countChanged();
+    if (searching())
+        emit searchChanged();
 }
 
 // One label per local branch, carrying the remote-tracking branches of
@@ -145,6 +148,7 @@ QVariant CommitModel::data(const QModelIndex &index, int role) const
     case IsHeadRole: return c.sha == m_headSha;
     case IsMergeRole: return c.parents.size() > 1;
     case PlannedRole: return m_planned.contains(c.sha);
+    case MatchedRole: return matches(index.row()) || !searching();
     case StatsRole: {
         const auto it = m_stats.constFind(c.sha);
         if (it == m_stats.cend())
@@ -176,6 +180,7 @@ QHash<int, QByteArray> CommitModel::roleNames() const
         {IsMergeRole, "isMerge"},
         {PlannedRole, "planned"},
         {StatsRole, "stats"},
+        {MatchedRole, "matched"},
     };
 }
 
@@ -189,30 +194,103 @@ int CommitModel::rowOf(const QString &sha) const
     return m_rowBySha.value(sha, -1);
 }
 
-bool CommitModel::matches(int row, const QString &query) const
+void CommitModel::setSearch(const QString &query, bool caseSensitive, bool regex)
 {
-    if (row < 0 || row >= m_commits.size() || query.isEmpty())
-        return false;
-    const CommitInfo &c = m_commits[row];
-    return c.subject.contains(query, Qt::CaseInsensitive) || c.authorName.contains(query, Qt::CaseInsensitive)
-        || c.authorEmail.contains(query, Qt::CaseInsensitive) || c.sha.startsWith(query.toLower());
+    static const QRegularExpression token(QStringLiteral("(?:(\\w+):)?(?:\"([^\"]*)\"?|(\\S+))"));
+    m_terms.clear();
+    m_caseSensitive = caseSensitive;
+    m_regex = regex;
+    m_searchError.clear();
+
+    for (auto it = token.globalMatch(query); it.hasNext();) {
+        const QRegularExpressionMatch m = it.next();
+        SearchTerm term;
+        term.text = m.captured(2).isNull() ? m.captured(3) : m.captured(2);
+        const QString field = m.captured(1).toLower();
+        if (field == QLatin1StringView("author"))
+            term.field = SearchTerm::Author;
+        else if (field == QLatin1StringView("message") || field == QLatin1StringView("msg"))
+            term.field = SearchTerm::Message;
+        else if (field == QLatin1StringView("sha") || field == QLatin1StringView("commit"))
+            term.field = SearchTerm::Sha;
+        else if (!field.isEmpty())
+            term.text = m.captured(0); // not an operator, e.g. "fix:" in a message
+        if (term.text.isEmpty())
+            continue;
+        if (regex) {
+            term.pattern.setPattern(term.text);
+            if (!caseSensitive)
+                term.pattern.setPatternOptions(QRegularExpression::CaseInsensitiveOption);
+            if (!term.pattern.isValid())
+                m_searchError = tr("Invalid pattern: %1").arg(term.pattern.errorString());
+        }
+        m_terms.append(term);
+    }
+
+    updateMatches();
+    if (count() > 0)
+        emit dataChanged(index(0), index(count() - 1), {MatchedRole});
+    emit searchChanged();
 }
 
-int CommitModel::countMatches(const QString &query) const
+bool CommitModel::termMatches(const SearchTerm &term, const CommitInfo &commit) const
 {
-    int n = 0;
-    for (int row = 0; row < count(); ++row)
-        n += matches(row, query) ? 1 : 0;
-    return n;
+    const auto contains = [this, &term](const QString &text) {
+        return m_regex ? term.pattern.match(text).hasMatch()
+                       : text.contains(term.text, m_caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive);
+    };
+    const bool shaMatches = commit.sha.startsWith(term.text.toLower());
+    switch (term.field) {
+    case SearchTerm::Author: return contains(commit.authorName) || contains(commit.authorEmail);
+    case SearchTerm::Message: return contains(commit.subject);
+    case SearchTerm::Sha: return shaMatches;
+    case SearchTerm::Any: break;
+    }
+    return contains(commit.subject) || contains(commit.authorName) || contains(commit.authorEmail) || shaMatches;
 }
 
-int CommitModel::findNext(const QString &query, int from, bool forward) const
+void CommitModel::updateMatches()
+{
+    m_matched.assign(m_commits.size(), false);
+    m_matchCount = 0;
+    if (m_terms.isEmpty() || !m_searchError.isEmpty())
+        return;
+    for (qsizetype row = 0; row < m_commits.size(); ++row) {
+        const CommitInfo &commit = m_commits[row];
+        const bool all = std::all_of(m_terms.cbegin(), m_terms.cend(),
+                                     [&](const SearchTerm &term) { return termMatches(term, commit); });
+        m_matched[row] = all;
+        m_matchCount += all ? 1 : 0;
+    }
+}
+
+bool CommitModel::matches(int row) const
+{
+    return row >= 0 && row < m_matched.size() && m_matched[row];
+}
+
+int CommitModel::findNext(int from, bool forward) const
 {
     const int n = count();
     for (int step = 1; step <= n; ++step) {
         const int row = ((from + (forward ? step : -step)) % n + n) % n;
-        if (matches(row, query))
+        if (matches(row))
             return row;
     }
     return -1;
+}
+
+qint64 CommitModel::timestampAt(int row) const
+{
+    return m_commits[row].authorDate.toSecsSinceEpoch();
+}
+
+bool CommitModel::hasRefsAt(int row) const
+{
+    return m_refs.contains(m_commits[row].sha);
+}
+
+QString CommitModel::laneColorAt(int row) const
+{
+    return laneColorName(m_graph[row].color);
 }

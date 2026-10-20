@@ -51,6 +51,7 @@ struct HistoryFilter
 {
     bool remotes = true;
     bool tags = true;
+    bool currentBranchOnly = false; // only what HEAD reaches
 };
 
 // When loadState() reloads the history: if `force` is set, or if HEAD or

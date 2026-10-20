@@ -415,10 +415,35 @@ private slots:
         git({"update-ref", "refs/remotes/origin/main", "HEAD"});
         open(m_dir->path());
         CommitModel *commits = repo().commits();
-        QCOMPARE(commits->countMatches(u"sec"_s), 1);
-        QCOMPARE(commits->findNext(u"first"_s, -1), 1);
-        QCOMPARE(commits->findNext(u"test"_s, 0), 1); // by author, wrapping
-        QCOMPARE(commits->findNext(commits->shaAt(1).left(7), 1), 1);
+        commits->setSearch(u"sec"_s);
+        QCOMPARE(commits->matchCount(), 1);
+        commits->setSearch(u"first"_s);
+        QCOMPARE(commits->findNext(-1), 1);
+        commits->setSearch(u"test"_s); // by author
+        QCOMPARE(commits->matchCount(), 2);
+        QCOMPARE(commits->findNext(1), 0); // wrapping
+        commits->setSearch(u"sha:"_s + commits->shaAt(1).left(7));
+        QCOMPARE(commits->findNext(1), 1);
+        commits->setSearch(u"author:test message:sec"_s);
+        QCOMPARE(commits->matchCount(), 1);
+        commits->setSearch(u"author:nobody"_s);
+        QCOMPARE(commits->matchCount(), 0);
+        commits->setSearch(u"\"irst\""_s);
+        QCOMPARE(commits->matchCount(), 1);
+        commits->setSearch(u"FIRST"_s, true);
+        QCOMPARE(commits->matchCount(), 0);
+        commits->setSearch(u"^S.c"_s, false, true);
+        QCOMPARE(commits->matchCount(), 1);
+        commits->setSearch(u"(unclosed"_s, false, true);
+        QVERIFY(!commits->searchError().isEmpty());
+        QVERIFY(!commits->data(commits->index(0), CommitModel::MatchedRole).toBool());
+        commits->setSearch({});
+        QVERIFY(!commits->searching());
+        QVERIFY(commits->data(commits->index(0), CommitModel::MatchedRole).toBool());
+
+        repo().setCurrentBranchOnly(true);
+        QVERIFY(settle(repo()));
+        QCOMPARE(commits->rowCount(), 2);
 
         // main and origin/main share a label; the tag has its own.
         const QVariantList headLabels = commits->data(commits->index(0), CommitModel::RefsRole).toList();

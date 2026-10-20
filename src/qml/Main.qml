@@ -21,6 +21,7 @@ ApplicationWindow {
         id: repo
         showRemotes: AppSettings.graph.showRemotes
         showTags: AppSettings.graph.showTags
+        currentBranchOnly: AppSettings.graph.currentBranchOnly
         onErrorOccurred: message => messageBar.show(message, true)
         onNotice: message => messageBar.show(message, false)
     }

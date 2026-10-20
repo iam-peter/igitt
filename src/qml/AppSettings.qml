@@ -28,6 +28,8 @@ QtObject {
         property bool showTags: true
         property bool dimMerges: false
         property bool showInitials: true
+        property bool showMinimap: true
+        property bool currentBranchOnly: false
 
         property bool showRefs: true
         property bool showGraph: true
