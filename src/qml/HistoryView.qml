@@ -13,10 +13,15 @@ Pane {
 
     property int dropRow: -1
     property string dropBlocker
+    // The commit being dragged to another place.
+    property string movingSha
 
     readonly property var columns: AppSettings.graph
 
     signal foldRequested(string sha)
+    // A history edit, see Repository.editCommit().
+    signal editRequested(string kind, string sha, string to)
+    signal rewordRequested(string sha)
 
     function rowAt(scenePos: point): int {
         const local = list.mapFromItem(null, scenePos.x, scenePos.y)
@@ -41,6 +46,27 @@ Pane {
         dropBlocker = ""
         if (sha !== "")
             foldRequested(sha)
+    }
+
+    function updateMove(sha: string, scenePos: point) {
+        movingSha = sha
+        let row = rowAt(scenePos)
+        if (row >= 0 && repo.commits.shaAt(row) === sha)
+            row = -1
+        if (row === dropRow)
+            return
+        dropBlocker = row >= 0 ? repo.editBlocker("move", sha, repo.commits.shaAt(row)) : ""
+        dropRow = row
+    }
+
+    function finishMove(sha: string, scenePos: point) {
+        updateMove(sha, scenePos)
+        const to = dropRow >= 0 && dropBlocker === "" ? repo.commits.shaAt(dropRow) : ""
+        dropRow = -1
+        dropBlocker = ""
+        movingSha = ""
+        if (to !== "")
+            editRequested("move", sha, to)
     }
 
     function updateSearch() {
@@ -68,6 +94,23 @@ Pane {
         property string subject
         property string blocker
 
+        // A history edit, enabled as Repository.editBlocker() says.
+        component EditItem: MenuItem {
+            id: editItem
+
+            required property string kind
+            readonly property string blocker: commitMenu.visible ? view.repo.editBlocker(kind, commitMenu.sha) : ""
+
+            objectName: kind + "MenuItem"
+            enabled: blocker === ""
+            icon.color: palette.windowText
+            onTriggered: kind === "reword" ? view.rewordRequested(commitMenu.sha)
+                                           : view.editRequested(kind, commitMenu.sha, "")
+            ToolTip.visible: hovered && blocker !== ""
+            ToolTip.text: blocker
+            ToolTip.delay: 300
+        }
+
         MenuItem {
             text: commitMenu.blocker === ""
                   ? qsTr("Fold %n selected line(s) into this commit", "", view.repo.diff.selectedCount)
@@ -76,6 +119,37 @@ Pane {
             icon.source: Icons.source("fold-vertical")
             icon.color: palette.windowText
             onTriggered: view.foldRequested(commitMenu.sha)
+        }
+        MenuSeparator {}
+        EditItem {
+            kind: "reword"
+            text: qsTr("Reword…")
+            icon.source: Icons.source("pencil")
+        }
+        EditItem {
+            kind: "moveUp"
+            text: qsTr("Move Up")
+            icon.source: Icons.source("arrow-up")
+        }
+        EditItem {
+            kind: "moveDown"
+            text: qsTr("Move Down")
+            icon.source: Icons.source("arrow-down")
+        }
+        EditItem {
+            kind: "squash"
+            text: qsTr("Squash into Previous")
+            icon.source: Icons.source("git-merge")
+        }
+        EditItem {
+            kind: "fixup"
+            text: qsTr("Fix Up into Previous")
+            icon.source: Icons.source("git-merge")
+        }
+        EditItem {
+            kind: "drop"
+            text: qsTr("Drop…")
+            icon.source: Icons.source("trash-2")
         }
         MenuSeparator {}
         MenuItem {
@@ -362,6 +436,9 @@ Pane {
             boundsMovement: Flickable.StopAtBounds
             highlightMoveDuration: 0
             keyNavigationEnabled: false
+            // Dragging with the mouse moves commits, not the list; the wheel
+            // and the scroll bar still scroll.
+            acceptedButtons: Qt.NoButton
             ScrollBar.vertical: ScrollBar {}
 
             header: WipRow {
@@ -392,6 +469,7 @@ Pane {
                 repo: view.repo
                 dropTarget: index === view.dropRow
                 dropBlocker: dropTarget ? view.dropBlocker : ""
+                dropHint: view.movingSha !== "" ? qsTr("Move it here") : qsTr("Fold into \"%1\"").arg(subject)
                 suggested: sha === view.repo.suggestedFoldTarget
                 onContextMenuRequested: position => {
                     commitMenu.sha = sha
@@ -399,6 +477,8 @@ Pane {
                     commitMenu.blocker = view.repo.foldBlocker(sha)
                     commitMenu.popup(this, position.x, position.y)
                 }
+                onMoveDragMoved: scenePos => view.updateMove(sha, scenePos)
+                onMoveDragFinished: scenePos => view.finishMove(sha, scenePos)
                 onClicked: {
                     list.currentIndex = index
                     list.forceActiveFocus()

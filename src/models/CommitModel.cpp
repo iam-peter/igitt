@@ -201,6 +201,11 @@ QString CommitModel::shaAt(int row) const
     return row >= 0 && row < m_commits.size() ? m_commits[row].sha : QString();
 }
 
+QString CommitModel::subjectAt(int row) const
+{
+    return row >= 0 && row < m_commits.size() ? m_commits[row].subject : QString();
+}
+
 int CommitModel::rowOf(const QString &sha) const
 {
     return m_rowBySha.value(sha, -1);

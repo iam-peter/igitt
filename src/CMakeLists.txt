@@ -56,6 +56,7 @@ qt_add_qml_module(igitt_ui
         qml/WipRow.qml
         qml/Tag.qml
         qml/CommitBox.qml
+        qml/MessageEditor.qml
         qml/SettingsDialog.qml
         qml/AppSettings.qml
         qml/TimelapseWindow.qml
@@ -74,6 +75,8 @@ qt_add_qml_module(igitt_ui
         ui/Fonts.h ui/Fonts.cpp
         ui/RevisionTimeline.h ui/RevisionTimeline.cpp
     RESOURCES
+        icons/arrow-down.svg
+        icons/arrow-up.svg
         icons/case-sensitive.svg
         icons/check.svg
         icons/chevron-down.svg
@@ -101,6 +104,7 @@ qt_add_qml_module(igitt_ui
         icons/history.svg
         icons/list-checks.svg
         icons/pause.svg
+        icons/pencil.svg
         icons/play.svg
         icons/plus.svg
         icons/refresh-cw.svg
@@ -112,6 +116,7 @@ qt_add_qml_module(igitt_ui
         icons/step-back.svg
         icons/step-forward.svg
         icons/tag.svg
+        icons/trash-2.svg
         icons/undo-2.svg
         icons/x.svg
         fonts/Inter-Bold.ttf

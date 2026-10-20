@@ -58,6 +58,7 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     Q_INVOKABLE QString shaAt(int row) const;
+    Q_INVOKABLE QString subjectAt(int row) const;
     Q_INVOKABLE int rowOf(const QString &sha) const;
 
     // Search terms separated by spaces must all match; quote a phrase to

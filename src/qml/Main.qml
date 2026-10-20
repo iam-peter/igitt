@@ -41,8 +41,30 @@ ApplicationWindow {
             repo.foldSelection(sha)
             return
         }
-        publishedDialog.sha = sha
-        publishedDialog.open()
+        publishedDialog.ask("fold", sha, "", "")
+    }
+
+    // A history edit (see Repository.editCommit()), after asking where it
+    // needs a confirmation.
+    function requestEdit(kind: string, sha: string, to: string, message: string) {
+        if (kind === "drop") {
+            dropDialog.sha = sha
+            dropDialog.subject = repo.commits.subjectAt(repo.commits.rowOf(sha))
+            dropDialog.published = repo.editRewritesPublished(kind, sha, to)
+            dropDialog.open()
+        } else if (repo.editRewritesPublished(kind, sha, to)) {
+            publishedDialog.ask(kind, sha, to, message)
+        } else {
+            repo.editCommit(kind, sha, to, message)
+        }
+    }
+
+    function requestReword(sha: string) {
+        rewordDialog.sha = sha
+        rewordDialog.loaded = false
+        rewordEditor.clear()
+        repo.requestMessage(sha)
+        rewordDialog.open()
     }
 
     // Only show the busy indicator for jobs that take a noticeable time.
@@ -203,18 +225,118 @@ ApplicationWindow {
     ModalDialog {
         id: publishedDialog
 
+        property string kind
         property string sha
+        property string to
+        property string message
 
+        function ask(kind: string, sha: string, to: string, message: string) {
+            this.kind = kind
+            this.sha = sha
+            this.to = to
+            this.message = message
+            open()
+        }
+
+        objectName: "publishedDialog"
         width: Math.min(480, root.width - 40)
         title: qsTr("Rewrite a published commit?")
         standardButtons: Dialog.Ok | Dialog.Cancel
-        onAccepted: repo.foldSelection(sha)
+        onAccepted: {
+            if (kind === "fold")
+                repo.foldSelection(sha)
+            else
+                repo.editCommit(kind, sha, to, message)
+        }
 
         Label {
             width: parent.width
             wrapMode: Text.Wrap
-            text: qsTr("This commit is already on a remote branch. Folding into it rewrites it and "
-                       + "every commit after it, so you will have to force push.")
+            text: publishedDialog.kind === "fold"
+                  ? qsTr("This commit is already on a remote branch. Folding into it rewrites it and "
+                         + "every commit after it, so you will have to force push.")
+                  : qsTr("This rewrites commits that are already on a remote branch, so you will have "
+                         + "to force push.")
+        }
+    }
+
+    ModalDialog {
+        id: dropDialog
+
+        property string sha
+        property string subject
+        property bool published
+
+        objectName: "dropDialog"
+        width: Math.min(480, root.width - 40)
+        title: qsTr("Drop “%1”?").arg(subject)
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: repo.editCommit("drop", sha, "", "")
+        Component.onCompleted: standardButton(Dialog.Ok).objectName = "dropOkButton"
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 10
+
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: qsTr("The commit is removed from the branch and the commits after it are rewritten. "
+                           + "The working tree is not touched: what the commit changed shows up as "
+                           + "uncommitted changes, to keep or discard.")
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: dropDialog.published
+                wrapMode: Text.Wrap
+                text: qsTr("The commit is already on a remote branch, so you will have to force push.")
+                color: "#d62728"
+            }
+        }
+    }
+
+    ModalDialog {
+        id: rewordDialog
+
+        property string sha
+        property bool loaded
+
+        objectName: "rewordDialog"
+        width: Math.min(640, root.width - 40)
+        height: Math.min(460, root.height - 40)
+        title: qsTr("Reword %1").arg(sha.slice(0, 10))
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: root.requestEdit("reword", sha, "", rewordEditor.message())
+        onOpened: rewordEditor.focusTitle()
+        Component.onCompleted: standardButton(Dialog.Ok).objectName = "rewordOkButton"
+
+        Binding {
+            target: rewordDialog.standardButton(Dialog.Ok)
+            property: "enabled"
+            value: rewordDialog.loaded && rewordEditor.titleAccepted
+        }
+        Connections {
+            target: repo
+            function onMessageLoaded(sha: string, message: string) {
+                if (sha !== rewordDialog.sha || rewordDialog.loaded)
+                    return
+                rewordEditor.load(message)
+                rewordDialog.loaded = true
+            }
+        }
+        Shortcut {
+            sequences: ["Ctrl+Return", "Ctrl+Enter"]
+            enabled: rewordDialog.visible && rewordEditor.editing && rewordDialog.loaded
+                     && rewordEditor.titleAccepted
+            onActivated: rewordDialog.accept()
+        }
+
+        MessageEditor {
+            id: rewordEditor
+            anchors.fill: parent
+            namePrefix: "reword"
+            monoFont: root.monoFont
+            enabled: rewordDialog.loaded
         }
     }
 
@@ -374,6 +496,8 @@ ApplicationWindow {
                 id: history
                 repo: repo
                 onFoldRequested: sha => root.requestFold(sha)
+                onEditRequested: (kind, sha, to) => root.requestEdit(kind, sha, to, "")
+                onRewordRequested: sha => root.requestReword(sha)
                 SplitView.preferredHeight: root.height * 0.4
                 SplitView.minimumHeight: 100
             }

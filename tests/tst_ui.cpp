@@ -132,6 +132,48 @@ private slots:
         QVERIFY(gitOut({"show", "HEAD~1", "--format="}).contains("+line 16 changed"));
         QVERIFY(gitOut({"diff"}).contains("+line 4 changed"));
 
+        // History edits: reword from the context menu, move by drag and
+        // drop, drop with confirmation; each can be undone.
+        {
+            const QByteArray before = gitOut({"log", "--format=%s"});
+            rightClickCommit(window, 1);
+            screenshot(window, u"commit-menu"_s);
+            click(window, u"rewordMenuItem"_s);
+            auto *rewordTitle = window->findChild<QQuickItem *>(u"rewordTitle"_s);
+            QVERIFY(rewordTitle);
+            QTRY_COMPARE(rewordTitle->property("text").toString(), u"Document line 15"_s);
+            rewordTitle->setProperty("text", u"Document line fifteen"_s);
+            screenshot(window, u"reword"_s);
+            click(window, u"rewordOkButton"_s);
+            QVERIFY(settle(*repo));
+            QCOMPARE(gitOut({"log", "-1", "--format=%s", "HEAD~1"}), "Document line fifteen\n"_ba);
+            QVERIFY(repo->canUndoFold());
+            repo->undoFold();
+            QVERIFY(settle(*repo));
+            QCOMPARE(gitOut({"log", "--format=%s"}), before);
+
+            dragCommit(window, 0, 1);
+            QVERIFY(settle(*repo));
+            QCOMPARE(gitOut({"log", "-2", "--format=%s"}), "Document line 15\nPolish line 28\n"_ba);
+            repo->undoFold();
+            QVERIFY(settle(*repo));
+            QCOMPARE(gitOut({"log", "--format=%s"}), before);
+
+            rightClickCommit(window, 0);
+            click(window, u"dropMenuItem"_s);
+            click(window, u"dropOkButton"_s);
+            QVERIFY(settle(*repo));
+            QCOMPARE(gitOut({"log", "-1", "--format=%s"}), "Document line 15\n"_ba);
+            // The working tree still has the change; it is uncommitted now.
+            QVERIFY(gitOut({"diff"}).contains("+line 28 polished"));
+            repo->undoFold();
+            QVERIFY(settle(*repo));
+            QCOMPARE(gitOut({"log", "--format=%s"}), before);
+            QVERIFY(!gitOut({"diff"}).contains("line 28"));
+            QVERIFY(gitOut({"diff"}).contains("+line 4 changed"));
+            QCOMPARE(gitOut({"diff", "--cached", "--name-only"}), "README.md\n"_ba);
+        }
+
         repo->showCommit(repo->commits()->shaAt(3));
         QVERIFY(settle(*repo));
         QTest::qWait(50);
@@ -433,6 +475,43 @@ private:
             QTest::mouseMove(window, from + (to - from) * i / steps);
         QTest::qWait(50);
         screenshot(window, u"dragging"_s);
+        QTest::mouseRelease(window, Qt::LeftButton, {}, to);
+    }
+
+    QQuickItem *historyRow(QQuickWindow *window, int row)
+    {
+        if (!QQuickTest::qWaitForPolish(window))
+            return nullptr;
+        auto *list = window->findChild<QQuickItem *>(u"historyList"_s);
+        QQuickItem *rowItem = nullptr;
+        if (list)
+            QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, rowItem), Q_ARG(int, row));
+        return rowItem;
+    }
+
+    void rightClickCommit(QQuickWindow *window, int row)
+    {
+        QQuickItem *rowItem = historyRow(window, row);
+        QVERIFY(rowItem);
+        QTest::mouseClick(window, Qt::RightButton, {},
+                          rowItem->mapToScene({rowItem->width() / 2, rowItem->height() / 2}).toPoint());
+        QTest::qWait(50);
+    }
+
+    // Drags a history row onto another one.
+    void dragCommit(QQuickWindow *window, int fromRow, int toRow)
+    {
+        QQuickItem *fromItem = historyRow(window, fromRow);
+        QQuickItem *toItem = historyRow(window, toRow);
+        QVERIFY(fromItem && toItem);
+        const QPoint from = fromItem->mapToScene({fromItem->width() / 2, fromItem->height() / 2}).toPoint();
+        const QPoint to = toItem->mapToScene({toItem->width() / 2, toItem->height() / 2}).toPoint();
+        QTest::mousePress(window, Qt::LeftButton, {}, from);
+        constexpr int steps = 10;
+        for (int i = 1; i <= steps; ++i)
+            QTest::mouseMove(window, from + (to - from) * i / steps);
+        QTest::qWait(30);
+        screenshot(window, u"commit-drag"_s);
         QTest::mouseRelease(window, Qt::LeftButton, {}, to);
     }
 
