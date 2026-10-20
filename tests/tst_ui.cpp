@@ -19,6 +19,16 @@ Q_IMPORT_QML_PLUGIN(IgittPlugin)
 
 using namespace Qt::StringLiterals;
 
+namespace {
+
+// Waits until every queued git job has run and its result is applied.
+[[nodiscard]] bool settle(Repository &repo)
+{
+    return QTest::qWaitFor([&repo] { return !repo.busy(); }, 10000);
+}
+
+} // namespace
+
 class TestUi : public QObject
 {
     Q_OBJECT
@@ -56,11 +66,13 @@ private slots:
 
         auto *repo = window->findChild<Repository *>();
         QVERIFY(repo);
+        QVERIFY(settle(*repo));
         QCOMPARE(repo->commits()->rowCount(), 9);
         QCOMPARE(repo->unstaged()->count(), 2);
         QCOMPARE(repo->staged()->count(), 1);
 
         repo->showFile(u"app.txt"_s, false);
+        QVERIFY(settle(*repo));
         DiffModel *diff = repo->diff();
         for (int row = 0; row < diff->rowCount(); ++row) {
             if (diff->data(diff->index(row), DiffModel::TextRole).toString().startsWith("line 4"_L1))
@@ -68,9 +80,13 @@ private slots:
         }
         QTRY_COMPARE(diff->selectedCount(), 2);
         screenshot(window, u"working-tree"_s);
+        rightClickDiffRow(window, 5);
+        screenshot(window, u"line-menu"_s);
+        QTest::keyClick(window, Qt::Key_Escape);
 
         dragSelectionOntoCommit(window, 2);
-        QTRY_VERIFY(repo->canUndoFold());
+        QVERIFY(settle(*repo));
+        QVERIFY(repo->canUndoFold());
         QCOMPARE(repo->commits()->rowCount(), 9);
         QVERIFY(gitOut({"show", "HEAD~2", "--format="}).contains("+line 4 changed"));
         QVERIFY(!gitOut({"diff"}).contains("+line 4 changed"));
@@ -79,7 +95,8 @@ private slots:
         QVERIFY(messageBar && messageBar->isVisible());
         screenshot(window, u"folded"_s);
 
-        QVERIFY(repo->undoFold());
+        repo->undoFold();
+        QVERIFY(settle(*repo));
         QVERIFY(gitOut({"diff"}).contains("+line 4 changed"));
 
         // Line 16 borders line 15, last changed by "Document line 15".
@@ -95,10 +112,12 @@ private slots:
         screenshot(window, u"suggested"_s);
         QTest::mouseClick(window, Qt::LeftButton, {},
                           suggestButton->mapToScene({suggestButton->width() / 2, suggestButton->height() / 2}).toPoint());
-        QTRY_VERIFY(gitOut({"show", "HEAD~1", "--format="}).contains("+line 16 changed"));
+        QVERIFY(settle(*repo));
+        QVERIFY(gitOut({"show", "HEAD~1", "--format="}).contains("+line 16 changed"));
         QVERIFY(gitOut({"diff"}).contains("+line 4 changed"));
 
         repo->showCommit(repo->commits()->shaAt(3));
+        QVERIFY(settle(*repo));
         QTest::qWait(50);
         screenshot(window, u"commit"_s);
 
@@ -129,6 +148,19 @@ private:
         QTest::qWait(50);
         screenshot(window, u"dragging"_s);
         QTest::mouseRelease(window, Qt::LeftButton, {}, to);
+    }
+
+    void rightClickDiffRow(QQuickWindow *window, int row)
+    {
+        auto *list = window->findChild<QQuickItem *>(u"diffList"_s);
+        QVERIFY(list);
+        QQuickItem *rowItem = nullptr;
+        QVERIFY(QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, rowItem),
+                                          Q_ARG(int, row)));
+        QVERIFY(rowItem);
+        QTest::mouseClick(window, Qt::RightButton, {},
+                          rowItem->mapToScene({rowItem->width() / 4, rowItem->height() / 2}).toPoint());
+        QTest::qWait(50);
     }
 
     QByteArray gitOut(const QStringList &args)

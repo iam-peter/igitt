@@ -30,6 +30,40 @@ Pane {
         font: view.monoFont
     }
 
+    // The git gui actions: stage or unstage the hunk or line under the
+    // pointer.
+    Menu {
+        id: lineMenu
+
+        property int row: -1
+        property bool onLine: false
+        property bool inSelection: false
+
+        function show(row: int, onLine: bool, item: Item, x: real, y: real) {
+            lineMenu.row = row
+            lineMenu.onLine = onLine
+            inSelection = onLine && view.repo.diff.isRowSelected(row) && view.repo.diff.selectedCount > 1
+            popup(item, x, y)
+        }
+
+        MenuItem {
+            text: view.stagedDiff ? qsTr("Unstage Hunk") : qsTr("Stage Hunk")
+            enabled: !view.repo.writing
+            onTriggered: view.repo.applyHunk(lineMenu.row)
+        }
+        MenuItem {
+            text: {
+                const n = view.repo.diff.selectedCount
+                if (lineMenu.inSelection)
+                    return view.stagedDiff ? qsTr("Unstage %n Selected Lines", "", n)
+                                           : qsTr("Stage %n Selected Lines", "", n)
+                return view.stagedDiff ? qsTr("Unstage Line") : qsTr("Stage Line")
+            }
+            enabled: lineMenu.onLine && !view.repo.writing
+            onTriggered: view.repo.applyLine(lineMenu.row)
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
@@ -137,7 +171,7 @@ Pane {
                 }
                 ToolButton {
                     visible: view.workingDiff
-                    enabled: view.repo.diff.selectedCount > 0
+                    enabled: view.repo.diff.selectedCount > 0 && !view.repo.writing
                     text: view.stagedDiff ? qsTr("Unstage %n line(s)", "", view.repo.diff.selectedCount)
                                           : qsTr("Stage %n line(s)", "", view.repo.diff.selectedCount)
                     onClicked: view.repo.applySelection()
@@ -164,6 +198,8 @@ Pane {
             id: lines
 
             property int anchorRow: -1
+
+            objectName: "diffList"
             readonly property real gutterWidth: metrics.averageCharacterWidth * 12 + 8
 
             Layout.fillWidth: true
@@ -237,12 +273,19 @@ Pane {
                 }
 
                 MouseArea {
+                    readonly property bool clickable: row.selectable || row.kind === DiffModel.HunkHeader
+
                     anchors.fill: parent
                     enabled: view.workingDiff
-                             && (row.selectable || row.kind === DiffModel.HunkHeader)
-                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                             && row.kind >= DiffModel.HunkHeader && row.kind <= DiffModel.NoNewline
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    cursorShape: enabled && clickable ? Qt.PointingHandCursor : Qt.ArrowCursor
                     onClicked: mouse => {
-                        if (row.kind === DiffModel.HunkHeader) {
+                        if (mouse.button === Qt.RightButton) {
+                            lineMenu.show(row.index, row.selectable, this, mouse.x, mouse.y)
+                        } else if (!clickable) {
+                            return
+                        } else if (row.kind === DiffModel.HunkHeader) {
                             view.repo.diff.toggleHunk(row.index)
                         } else if ((mouse.modifiers & Qt.ShiftModifier) && lines.anchorRow >= 0) {
                             view.repo.diff.selectRange(lines.anchorRow, row.index)

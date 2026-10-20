@@ -17,12 +17,14 @@ QString kindName(RefInfo::Kind kind)
 
 } // namespace
 
-void CommitModel::setCommits(const QList<CommitInfo> &commits, const QList<RefInfo> &refs,
-                             const QString &headSha, const QString &currentBranch)
+void CommitModel::setCommits(const QList<CommitInfo> &commits, const QList<GraphRow> &graph,
+                             const QList<RefInfo> &refs, const QString &headSha,
+                             const QString &currentBranch)
 {
+    Q_ASSERT(graph.size() == commits.size());
     beginResetModel();
     m_commits = commits;
-    m_graph = layoutGraph(commits);
+    m_graph = graph;
     m_headSha = headSha;
 
     m_rowBySha.clear();

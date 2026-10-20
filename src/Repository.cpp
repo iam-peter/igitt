@@ -1,195 +1,292 @@
 #include "Repository.h"
 
-#include "core/DiffParser.h"
 #include "core/FoldEngine.h"
-#include "core/LogParser.h"
 #include "core/PatchBuilder.h"
 
 #include <QUrl>
 
 namespace {
 
-constexpr int MaxHistory = 20000;
+DiffKind diffKind(Repository::DiffSource source)
+{
+    switch (source) {
+    case Repository::UnstagedDiff: return DiffKind::Unstaged;
+    case Repository::StagedDiff: return DiffKind::Staged;
+    case Repository::CommitDiff: return DiffKind::Commit;
+    case Repository::NoDiff: break;
+    }
+    return DiffKind::None;
+}
 
 } // namespace
 
 Repository::Repository(QObject *parent)
     : QObject(parent)
 {
+    m_pool.setMaxThreadCount(1);
     connect(&m_diff, &DiffModel::selectionChanged, this, &Repository::updateFoldSuggestion);
 }
 
-bool Repository::open(const QString &pathOrUrl)
+Repository::~Repository()
+{
+    // Jobs only hold copies; wait so none posts back into a dead object.
+    m_pool.clear();
+    m_pool.waitForDone();
+}
+
+void Repository::enqueue(JobKind kind, Job job)
+{
+    ++m_pendingJobs;
+    if (kind == JobKind::Write)
+        ++m_pendingWrites;
+    if (m_pendingJobs == 1 || (kind == JobKind::Write && m_pendingWrites == 1))
+        emit busyChanged();
+
+    m_pool.start([this, kind, git = m_git, job = std::move(job)] {
+        Outcome outcome = job(git);
+        if (outcome.workDir.isEmpty())
+            outcome.workDir = git.workDir();
+        QMetaObject::invokeMethod(this, [this, kind, outcome = std::move(outcome)]() mutable {
+            finish(kind, std::move(outcome));
+        }, Qt::QueuedConnection);
+    });
+}
+
+void Repository::finish(JobKind kind, Outcome outcome)
+{
+    --m_pendingJobs;
+    if (kind == JobKind::Write)
+        --m_pendingWrites;
+    if (m_pendingJobs == 0 || (kind == JobKind::Write && m_pendingWrites == 0))
+        emit busyChanged();
+
+    if (!outcome.openedPath.isEmpty()) {
+        m_git.setWorkDir(outcome.openedPath);
+        m_historyHead.clear();
+        m_lastFold = {};
+        m_diffSource = NoDiff;
+        m_diffPath.clear();
+        m_diffCommit.clear();
+        m_commitDetails.clear();
+        ++*m_diffGeneration;
+        m_suggester = FoldSuggester();
+        m_diff.clear();
+        emit pathChanged();
+        emit diffChanged();
+        emit canUndoFoldChanged();
+    }
+
+    // Results of jobs for a repository that has been replaced meanwhile
+    // are of no use.
+    if (outcome.workDir == m_git.workDir()) {
+        if (outcome.fold) {
+            m_lastFold = *outcome.fold;
+            emit canUndoFoldChanged();
+        }
+        applyState(outcome.state);
+        if (outcome.committed)
+            emit committed();
+        if (!outcome.notice.isEmpty())
+            emit notice(outcome.notice);
+    }
+    if (!outcome.error.isEmpty())
+        emit errorOccurred(outcome.error);
+}
+
+void Repository::applyState(const RepositoryState &state)
+{
+    if (state.status) {
+        m_status = *state.status;
+        // Undo is only safe while HEAD is still where the fold left it.
+        if (canUndoFold() && m_status.headSha != m_lastFold.newHead)
+            forgetFold();
+        m_unstaged.setEntries(m_status.entries);
+        m_staged.setEntries(m_status.entries);
+    }
+    if (state.history) {
+        const HistoryState &history = *state.history;
+        m_historyHead = history.head;
+        m_headMessage = history.headMessage;
+        m_foldTargets = QSet<QString>(history.foldTargets.cbegin(), history.foldTargets.cend());
+        m_unpublished = history.unpublished;
+        m_commits.setCommits(history.commits, history.graph, history.refs, history.head, m_status.branch);
+        if (!history.error.isEmpty())
+            emit errorOccurred(history.error);
+    }
+    if (state.status || state.history)
+        emit headChanged();
+
+    if (state.diff && state.diff->request.generation == *m_diffGeneration) {
+        const DiffState &diff = *state.diff;
+        // Before the model: resetting it clears the selection, which
+        // updates the suggestion.
+        m_suggester = diff.suggester;
+        m_commitDetails = diff.details;
+        if (!diff.message.isEmpty())
+            m_diff.setMessage(diff.message);
+        else
+            m_diff.setFiles(diff.files);
+        if (!diff.error.isEmpty())
+            emit errorOccurred(diff.error);
+        emit diffChanged();
+    }
+    if (!state.error.isEmpty())
+        emit errorOccurred(state.error);
+}
+
+void Repository::open(const QString &pathOrUrl)
 {
     const QUrl url(pathOrUrl);
     const QString path = url.isLocalFile() ? url.toLocalFile() : pathOrUrl;
-
-    const GitResult result = GitRunner(path).run({QStringLiteral("rev-parse"),
-                                                  QStringLiteral("--show-toplevel")});
-    if (!result.ok()) {
-        emit errorOccurred(tr("%1 is not inside a git work tree: %2").arg(path, result.errorText()));
-        return false;
-    }
-
-    m_git.setWorkDir(QString::fromUtf8(result.out).trimmed());
-    m_historyHead.clear();
-    m_lastFold = {};
-    emit canUndoFoldChanged();
-    m_diffSource = NoDiff;
-    m_diffPath.clear();
-    m_diffCommit.clear();
-    m_commitDetails.clear();
-    m_suggester.clear();
-    m_diff.clear();
-    emit pathChanged();
-    emit diffChanged();
-
-    refresh();
-    return true;
+    enqueue(JobKind::Read, [path](const GitRunner &) {
+        Outcome outcome;
+        const GitResult result = GitRunner(path).run({QStringLiteral("rev-parse"),
+                                                      QStringLiteral("--show-toplevel")});
+        if (!result.ok()) {
+            outcome.error = tr("%1 is not inside a git work tree: %2").arg(path, result.errorText());
+            return outcome;
+        }
+        outcome.openedPath = QString::fromUtf8(result.out).trimmed();
+        outcome.workDir = outcome.openedPath;
+        outcome.state = loadState(GitRunner(outcome.openedPath), {}, {}, true);
+        return outcome;
+    });
 }
 
 void Repository::refresh()
 {
     if (!valid())
         return;
-    loadStatus();
-    loadHistory();
-    reloadDiff();
+    enqueue(JobKind::Read, [request = diffRequest()](const GitRunner &git) {
+        Outcome outcome;
+        outcome.state = loadState(git, request, {}, true);
+        return outcome;
+    });
 }
 
 void Repository::refreshStatus()
 {
     if (!valid())
         return;
-    loadStatus();
-    if (m_status.headSha != m_historyHead)
-        loadHistory();
-    reloadDiff();
+    enqueue(JobKind::Read, [request = diffRequest(), head = m_historyHead](const GitRunner &git) {
+        Outcome outcome;
+        outcome.state = loadState(git, request, head, false);
+        return outcome;
+    });
 }
 
 void Repository::showCommit(const QString &sha)
 {
-    if (sha.isEmpty())
+    if (sha.isEmpty() || !valid())
         return;
-    m_diffSource = CommitDiff;
-    m_diffPath.clear();
-    m_diffCommit = sha;
-
-    const GitResult details = m_git.run({
-        QStringLiteral("show"), QStringLiteral("-s"), QStringLiteral("--date=iso"),
-        QStringLiteral("--format=commit %H%nParents: %P%nAuthor: %an <%ae>  %ad%n"
-                       "Committer: %cn <%ce>  %cd%n%n%B"),
-        sha, QStringLiteral("--"),
+    setDiffView(CommitDiff, {}, sha);
+    enqueue(JobKind::Read, [request = diffRequest(), current = m_diffGeneration](const GitRunner &git) {
+        Outcome outcome;
+        // Arrow keys through the history queue a load per row; only the
+        // last one matters.
+        if (request.generation == *current)
+            outcome.state.diff = loadDiff(git, request, {});
+        return outcome;
     });
-    m_commitDetails = QString::fromUtf8(details.out).trimmed();
-
-    const GitResult diff = m_git.run(QStringList{QStringLiteral("show"), QStringLiteral("--format="),
-                                                 QStringLiteral("--diff-merges=first-parent")}
-                                     + diffArgs() + QStringList{sha, QStringLiteral("--")});
-    m_suggester.clear();
-    if (check(diff, tr("Showing commit %1").arg(sha.left(10))))
-        m_diff.setFiles(parseDiff(diff.out));
-    else
-        m_diff.clear();
-    emit diffChanged();
 }
 
 void Repository::showFile(const QString &path, bool staged)
 {
-    m_diffSource = staged ? StagedDiff : UnstagedDiff;
-    m_diffPath = path;
-    m_diffCommit.clear();
-    m_commitDetails.clear();
-    reloadDiff();
-    emit diffChanged();
+    if (!valid())
+        return;
+    setDiffView(staged ? StagedDiff : UnstagedDiff, path, {});
+    enqueue(JobKind::Read, [request = diffRequest(), head = m_historyHead,
+                            current = m_diffGeneration](const GitRunner &git) {
+        Outcome outcome;
+        if (request.generation == *current)
+            outcome.state = loadState(git, request, head, false);
+        return outcome;
+    });
 }
 
-bool Repository::stageFile(const QString &path)
+void Repository::stageFile(const QString &path)
 {
-    if (!check(m_git.run({QStringLiteral("add"), QStringLiteral("--"), path}),
-               tr("Staging %1").arg(path)))
-        return false;
-    if (m_diffSource == UnstagedDiff && m_diffPath == path) {
-        m_diffSource = StagedDiff;
-        emit diffChanged();
-    }
-    refreshStatus();
-    return true;
+    // Follow the file to the side it moves to.
+    if (m_diffSource == UnstagedDiff && m_diffPath == path)
+        setDiffView(StagedDiff, path, {});
+    enqueueCommand(tr("Staging %1").arg(path), {QStringLiteral("add"), QStringLiteral("--"), path});
 }
 
-bool Repository::unstageFile(const QString &path)
+void Repository::unstageFile(const QString &path)
 {
     QStringList paths{path};
     if (const StatusEntry *entry = m_staged.entry(path); entry && !entry->origPath.isEmpty())
         paths.append(entry->origPath);
+    if (m_diffSource == StagedDiff && m_diffPath == path)
+        setDiffView(UnstagedDiff, path, {});
 
     const QStringList command = m_status.headSha.isEmpty()
         ? QStringList{QStringLiteral("rm"), QStringLiteral("--cached"), QStringLiteral("-q")}
         : QStringList{QStringLiteral("reset"), QStringLiteral("-q"), QStringLiteral("HEAD")};
-    if (!check(m_git.run(command + QStringList{QStringLiteral("--")} + paths),
-               tr("Unstaging %1").arg(path)))
-        return false;
-    if (m_diffSource == StagedDiff && m_diffPath == path) {
-        m_diffSource = UnstagedDiff;
-        emit diffChanged();
-    }
-    refreshStatus();
-    return true;
+    enqueueCommand(tr("Unstaging %1").arg(path), command + QStringList{QStringLiteral("--")} + paths);
 }
 
-bool Repository::stageAll()
+void Repository::stageAll()
 {
-    const bool ok = check(m_git.run({QStringLiteral("add"), QStringLiteral("-A")}), tr("Staging all changes"));
-    refreshStatus();
-    return ok;
+    enqueueCommand(tr("Staging all changes"), {QStringLiteral("add"), QStringLiteral("-A")});
 }
 
-bool Repository::unstageAll()
+void Repository::unstageAll()
 {
     const QStringList command = m_status.headSha.isEmpty()
         ? QStringList{QStringLiteral("rm"), QStringLiteral("--cached"), QStringLiteral("-r"),
                       QStringLiteral("-q"), QStringLiteral(".")}
         : QStringList{QStringLiteral("reset"), QStringLiteral("-q")};
-    const bool ok = check(m_git.run(command), tr("Unstaging all changes"));
-    refreshStatus();
-    return ok;
+    enqueueCommand(tr("Unstaging all changes"), command);
 }
 
-bool Repository::applySelection()
+void Repository::applySelection()
 {
     if (m_diffSource != UnstagedDiff && m_diffSource != StagedDiff)
-        return false;
-
+        return;
     const bool unstage = m_diffSource == StagedDiff;
     const QByteArray patch = selectionPatch(unstage ? PatchDirection::Reverse : PatchDirection::Forward);
     if (patch.isEmpty())
-        return false;
+        return;
 
     QStringList args{QStringLiteral("apply"), QStringLiteral("--cached"),
                      QStringLiteral("--whitespace=nowarn")};
     if (unstage)
         args.append(QStringLiteral("--reverse"));
-    const bool ok = check(m_git.run(args, patch),
-                          unstage ? tr("Unstaging lines") : tr("Staging lines"));
-    refreshStatus();
-    return ok;
+    enqueueCommand(unstage ? tr("Unstaging lines") : tr("Staging lines"), args, patch);
 }
 
-bool Repository::commit(const QString &message, bool amend)
+void Repository::applyHunk(int row)
+{
+    if (!m_diff.inHunk(row))
+        return;
+    m_diff.selectHunk(row);
+    applySelection();
+}
+
+void Repository::applyLine(int row)
+{
+    if (!m_diff.isRowSelected(row)) {
+        m_diff.clearSelection();
+        m_diff.toggleLine(row);
+    }
+    applySelection();
+}
+
+void Repository::commit(const QString &message, bool amend)
 {
     QStringList args{QStringLiteral("commit"), QStringLiteral("-F"), QStringLiteral("-")};
     if (amend)
         args.append(QStringLiteral("--amend"));
-    const bool ok = check(m_git.run(args, message.toUtf8()), tr("Committing"));
-    refresh();
-    return ok;
-}
-
-QString Repository::headMessage() const
-{
-    const GitResult result = m_git.run({QStringLiteral("log"), QStringLiteral("-1"),
-                                        QStringLiteral("--format=%B")});
-    return QString::fromUtf8(result.out).trimmed();
+    enqueue(JobKind::Write, [args, input = message.toUtf8(), request = diffRequest()](const GitRunner &git) {
+        Outcome outcome;
+        const GitResult result = git.run(args, input);
+        outcome.committed = result.ok();
+        if (!result.ok())
+            outcome.error = tr("Committing failed: %1").arg(result.errorText());
+        outcome.state = loadState(git, request, {}, true);
+        return outcome;
+    });
 }
 
 QString Repository::foldBlocker(const QString &sha) const
@@ -198,74 +295,105 @@ QString Repository::foldBlocker(const QString &sha) const
         return tr("Show a working tree file and select the lines to fold.");
     if (m_diff.selectedCount() == 0)
         return tr("Select the lines to fold first.");
-    return FoldEngine(m_git).blocker(sha);
+    if (!m_foldTargets.contains(sha))
+        return tr("Only commits of the current branch, from HEAD down to its last merge, can be folded into.");
+    return {};
 }
 
-QString Repository::publishedIn(const QString &sha) const
+bool Repository::isPublished(const QString &sha) const
 {
-    const GitResult result = m_git.run({QStringLiteral("for-each-ref"), QStringLiteral("--count=1"),
-                                        QStringLiteral("--format=%(refname:short)"),
-                                        QStringLiteral("--contains"), sha, QStringLiteral("refs/remotes")});
-    return QString::fromUtf8(result.out).trimmed();
+    return m_foldTargets.contains(sha) && !m_unpublished.contains(sha);
 }
 
-bool Repository::foldSelection(const QString &sha)
+void Repository::foldSelection(const QString &sha)
 {
     if (const QString reason = foldBlocker(sha); !reason.isEmpty()) {
         emit errorOccurred(reason);
-        return false;
+        return;
     }
 
     const int lines = m_diff.selectedCount();
-    const int row = m_commits.rowOf(sha);
-    const QString subject = m_commits.data(m_commits.index(row), CommitModel::SubjectRole).toString();
+    const QString target = commitLabel(sha);
     const QByteArray patch = selectionPatch(PatchDirection::Forward);
     const FoldBase base = m_diffSource == StagedDiff ? FoldBase::Head : FoldBase::Index;
 
-    const FoldResult result = FoldEngine(m_git).fold(sha, patch, base);
-    if (!result.ok) {
-        QString message = tr("Folding failed: %1").arg(result.error);
-        if (!result.conflicts.isEmpty())
-            message += QLatin1Char(' ') + tr("Conflicting files: %1").arg(result.conflicts.join(QStringLiteral(", ")));
-        emit errorOccurred(message);
-        return false;
-    }
-
-    m_lastFold = {result.oldHead, result.newHead, result.indexUpdated ? patch : QByteArray()};
-    refresh();
-    emit canUndoFoldChanged();
-    if (!result.error.isEmpty())
-        emit errorOccurred(result.error);
-    else
-        emit notice(tr("Folded %n line(s) into \"%1\" and rewrote %2 commit(s).", "", lines)
-                        .arg(subject).arg(result.rewritten));
-    return true;
+    enqueue(JobKind::Write, [=, request = diffRequest()](const GitRunner &git) {
+        Outcome outcome;
+        const FoldResult result = FoldEngine(git).fold(sha, patch, base);
+        if (!result.ok) {
+            outcome.error = tr("Folding failed: %1").arg(result.error);
+            if (!result.conflicts.isEmpty())
+                outcome.error += QLatin1Char(' ')
+                    + tr("Conflicting files: %1").arg(result.conflicts.join(QStringLiteral(", ")));
+        } else {
+            outcome.fold = LastFold{result.oldHead, result.newHead,
+                                    result.indexUpdated ? patch : QByteArray()};
+            if (!result.error.isEmpty())
+                outcome.error = result.error;
+            else
+                outcome.notice = tr("Folded %n line(s) into %1 and rewrote %2 commit(s).", "", lines)
+                                     .arg(target).arg(result.rewritten);
+        }
+        outcome.state = loadState(git, request, {}, true);
+        return outcome;
+    });
 }
 
-bool Repository::undoFold()
+void Repository::undoFold()
 {
     if (!canUndoFold())
-        return false;
+        return;
     const LastFold fold = m_lastFold;
     forgetFold();
 
-    const GitResult moved = m_git.run({QStringLiteral("update-ref"), QStringLiteral("-m"),
-                                       QStringLiteral("igitt: undo fold"), QStringLiteral("HEAD"),
-                                       fold.oldHead, fold.newHead});
-    if (!check(moved, tr("Undoing the fold"))) {
-        refresh();
-        return false;
-    }
-    bool ok = true;
-    if (!fold.stagedPatch.isEmpty()) {
-        ok = check(m_git.run({QStringLiteral("apply"), QStringLiteral("--cached"), QStringLiteral("--reverse"),
-                              QStringLiteral("--whitespace=nowarn")}, fold.stagedPatch),
-                   tr("Unstaging the folded lines"));
-    }
-    refresh();
-    if (ok)
-        emit notice(tr("Fold undone."));
-    return ok;
+    enqueue(JobKind::Write, [fold, request = diffRequest()](const GitRunner &git) {
+        Outcome outcome;
+        const GitResult moved = git.run({QStringLiteral("update-ref"), QStringLiteral("-m"),
+                                         QStringLiteral("igitt: undo fold"), QStringLiteral("HEAD"),
+                                         fold.oldHead, fold.newHead});
+        if (!moved.ok()) {
+            outcome.error = tr("Undoing the fold failed: %1").arg(moved.errorText());
+        } else if (!fold.stagedPatch.isEmpty()) {
+            const GitResult unstaged = git.run({QStringLiteral("apply"), QStringLiteral("--cached"),
+                                                QStringLiteral("--reverse"), QStringLiteral("--whitespace=nowarn")},
+                                               fold.stagedPatch);
+            if (!unstaged.ok())
+                outcome.error = tr("The fold was undone, but unstaging the folded lines failed: %1")
+                                    .arg(unstaged.errorText());
+        }
+        if (outcome.error.isEmpty())
+            outcome.notice = tr("Fold undone.");
+        outcome.state = loadState(git, request, {}, true);
+        return outcome;
+    });
+}
+
+void Repository::enqueueCommand(const QString &what, const QStringList &args, const QByteArray &input)
+{
+    enqueue(JobKind::Write, [=, request = diffRequest(), head = m_historyHead](const GitRunner &git) {
+        Outcome outcome;
+        const GitResult result = git.run(args, input);
+        if (!result.ok())
+            outcome.error = tr("%1 failed: %2").arg(what, result.errorText());
+        outcome.state = loadState(git, request, head, false);
+        return outcome;
+    });
+}
+
+void Repository::setDiffView(DiffSource source, const QString &path, const QString &commit)
+{
+    m_diffSource = source;
+    m_diffPath = path;
+    m_diffCommit = commit;
+    if (source != CommitDiff)
+        m_commitDetails.clear();
+    ++*m_diffGeneration;
+    emit diffChanged();
+}
+
+DiffRequest Repository::diffRequest() const
+{
+    return {diffKind(m_diffSource), m_diffPath, m_diffCommit, *m_diffGeneration};
 }
 
 void Repository::forgetFold()
@@ -315,7 +443,7 @@ QString Repository::commitLabel(const QString &sha) const
     const int row = m_commits.rowOf(sha);
     if (row < 0)
         return sha.left(10);
-    return QStringLiteral("\u201c%1\u201d").arg(m_commits.data(m_commits.index(row), CommitModel::SubjectRole).toString());
+    return QStringLiteral("“%1”").arg(m_commits.data(m_commits.index(row), CommitModel::SubjectRole).toString());
 }
 
 QByteArray Repository::selectionPatch(PatchDirection direction) const
@@ -324,101 +452,4 @@ QByteArray Repository::selectionPatch(PatchDirection direction) const
     for (int f = 0; f < m_diff.files().size(); ++f)
         patch += buildPatch(m_diff.files()[f], m_diff.selection(f), direction);
     return patch;
-}
-
-bool Repository::check(const GitResult &result, const QString &what)
-{
-    if (result.ok())
-        return true;
-    emit errorOccurred(what + QStringLiteral(" failed: ") + result.errorText());
-    return false;
-}
-
-void Repository::loadStatus()
-{
-    const GitResult result = m_git.run({QStringLiteral("status"), QStringLiteral("--porcelain=v2"),
-                                        QStringLiteral("-z"), QStringLiteral("--branch"),
-                                        QStringLiteral("--untracked-files=all")});
-    if (!check(result, tr("Reading status")))
-        return;
-    m_status = parseStatus(result.out);
-    // Undo is only safe while HEAD is still where the fold left it.
-    if (canUndoFold() && m_status.headSha != m_lastFold.newHead)
-        forgetFold();
-    m_unstaged.setEntries(m_status.entries);
-    m_staged.setEntries(m_status.entries);
-    emit headChanged();
-}
-
-void Repository::loadHistory()
-{
-    const GitResult refsResult = m_git.run(QStringList{QStringLiteral("for-each-ref")} + refFormatArgs());
-    const QList<RefInfo> refs = parseRefs(refsResult.out);
-
-    QList<CommitInfo> commits;
-    if (!refs.isEmpty() || !m_status.headSha.isEmpty()) {
-        QStringList args{QStringLiteral("log"), QStringLiteral("--topo-order"),
-                         QStringLiteral("--max-count=%1").arg(MaxHistory)};
-        args += logFormatArgs();
-        args += {QStringLiteral("--branches"), QStringLiteral("--remotes"), QStringLiteral("--tags")};
-        if (!m_status.headSha.isEmpty())
-            args.append(QStringLiteral("HEAD"));
-        args.append(QStringLiteral("--"));
-        const GitResult result = m_git.run(args);
-        if (check(result, tr("Reading history")))
-            commits = parseLog(result.out);
-    }
-    m_commits.setCommits(commits, refs, m_status.headSha, m_status.branch);
-    m_historyHead = m_status.headSha;
-}
-
-void Repository::reloadDiff()
-{
-    if (m_diffSource != UnstagedDiff && m_diffSource != StagedDiff)
-        return;
-
-    const bool staged = m_diffSource == StagedDiff;
-    const StatusEntry *entry = (staged ? m_staged : m_unstaged).entry(m_diffPath);
-    m_suggester.clear();
-    if (!entry) {
-        m_diff.clear();
-        return;
-    }
-    if (entry->conflicted) {
-        m_diff.setMessage(tr("Unresolved merge conflict. Resolve it in your editor, then stage the file."));
-        return;
-    }
-
-    QStringList args{QStringLiteral("diff")};
-    if (entry->untracked)
-        args.append(QStringLiteral("--no-index"));
-    else if (staged)
-        args.append(QStringLiteral("--cached"));
-    args += diffArgs();
-    args.append(QStringLiteral("--"));
-    if (entry->untracked)
-        args.append(QStringLiteral("/dev/null"));
-    else if (staged && !entry->origPath.isEmpty())
-        args.append(entry->origPath);
-    args.append(m_diffPath);
-
-    const GitResult result = m_git.run(args);
-    // `git diff --no-index` exits with 1 when the files differ.
-    if (result.ok() || (entry->untracked && result.exitCode == 1)) {
-        // Analyze first: setFiles() resets the selection, which updates
-        // the suggestion.
-        const QList<FileDiff> files = parseDiff(result.out);
-        m_suggester.analyze(files, staged ? FoldBase::Head : FoldBase::Index);
-        m_diff.setFiles(files);
-    } else
-        check(result, tr("Showing %1").arg(m_diffPath));
-}
-
-QStringList Repository::diffArgs() const
-{
-    // Pin everything the parser and `git apply` depend on, whatever the
-    // user's diff configuration says.
-    return {QStringLiteral("--no-color"), QStringLiteral("--no-ext-diff"),
-            QStringLiteral("--src-prefix=a/"), QStringLiteral("--dst-prefix=b/"),
-            QStringLiteral("--find-renames")};
 }

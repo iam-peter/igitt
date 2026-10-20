@@ -34,6 +34,9 @@ class FoldSuggester
     Q_DECLARE_TR_FUNCTIONS(FoldSuggester)
 
 public:
+    // A plain value: analyze() on the git thread, then hand it over to the
+    // UI thread for suggest().
+    FoldSuggester() = default;
     explicit FoldSuggester(const GitRunner &git);
 
     // Blames what every change in `files` touches, so suggest() is cheap.
@@ -63,7 +66,7 @@ private:
     void loadCandidates();
     void analyzeFile(const FileDiff &file, FoldBase base, FileOrigins &origins) const;
 
-    const GitRunner &m_git;
+    GitRunner m_git;
     QStringList m_candidates;
     QString m_boundary; // blame stops here; empty if the candidates reach the root
     QList<FileOrigins> m_origins;

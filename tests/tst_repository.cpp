@@ -1,5 +1,6 @@
 #include "Repository.h"
 
+#include <QElapsedTimer>
 #include <QFile>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -14,6 +15,12 @@ void writeFile(const QString &path, const QByteArray &content)
     QFile file(path);
     QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
     file.write(content);
+}
+
+// Waits until every queued git job has run and its result is applied.
+[[nodiscard]] bool settle(Repository &repo)
+{
+    return QTest::qWaitFor([&repo] { return !repo.busy(); }, 10000);
 }
 
 } // namespace
@@ -46,6 +53,16 @@ private slots:
         writeFile(m_dir->filePath("g.txt"), "g\n");
         git({"add", "g.txt"});
         git({"commit", "-q", "-m", "Second"});
+        m_repo.reset(new Repository);
+        m_errors.reset(new QSignalSpy(m_repo.get(), &Repository::errorOccurred));
+    }
+
+    void cleanup()
+    {
+        if (m_errors && !m_errors->isEmpty())
+            qWarning() << "errors reported:" << *m_errors;
+        m_errors.reset();
+        m_repo.reset();
     }
 
     void opensHistoryAndStatus()
@@ -53,164 +70,277 @@ private slots:
         writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");
         writeFile(m_dir->filePath("new.txt"), "new\n");
 
-        Repository repo;
-        QVERIFY(repo.open(m_dir->filePath("f.txt").section('/', 0, -2)));
-        QCOMPARE(repo.branch(), u"main"_s);
-        QCOMPARE(repo.commits()->rowCount(), 2);
-        QCOMPARE(repo.commits()->data(repo.commits()->index(0), CommitModel::SubjectRole).toString(),
+        // Any directory inside the work tree will do.
+        QVERIFY(QDir(m_dir->path()).mkdir(u"sub"_s));
+        open(m_dir->filePath(u"sub"_s));
+        QCOMPARE(repo().path(), QDir(m_dir->path()).canonicalPath());
+        QCOMPARE(repo().branch(), u"main"_s);
+        QCOMPARE(repo().commits()->rowCount(), 2);
+        QCOMPARE(repo().commits()->data(repo().commits()->index(0), CommitModel::SubjectRole).toString(),
                  u"Second"_s);
-        QCOMPARE(repo.unstaged()->count(), 2);
-        QCOMPARE(repo.staged()->count(), 0);
+        QCOMPARE(repo().headMessage(), u"Second"_s);
+        QCOMPARE(repo().unstaged()->count(), 2);
+        QCOMPARE(repo().staged()->count(), 0);
+        QVERIFY(m_errors->isEmpty());
     }
 
     void rejectsNonRepository()
     {
         QTemporaryDir plain;
-        Repository repo;
-        QSignalSpy errors(&repo, &Repository::errorOccurred);
-        QVERIFY(!repo.open(plain.path()));
-        QCOMPARE(errors.size(), 1);
-        QVERIFY(!repo.valid());
+        repo().open(plain.path());
+        QVERIFY(settle(repo()));
+        QCOMPARE(m_errors->size(), 1);
+        QVERIFY(!repo().valid());
+        m_errors->clear();
+    }
+
+    void gitRunsOffTheUiThread()
+    {
+        // A slow hook would freeze a UI that waits for git.
+        writeFile(m_dir->filePath(".git/hooks/pre-commit"), "#!/bin/sh\nsleep 1\n");
+        QVERIFY(QFile::setPermissions(m_dir->filePath(".git/hooks/pre-commit"),
+                                      QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+        writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");
+        open(m_dir->path());
+        repo().stageFile(u"f.txt"_s);
+
+        QSignalSpy committed(&repo(), &Repository::committed);
+        QElapsedTimer timer;
+        timer.start();
+        repo().commit(u"Slow"_s, false);
+        QVERIFY(timer.elapsed() < 200);
+        QVERIFY(repo().busy());
+        QVERIFY(repo().writing());
+
+        QVERIFY(settle(repo()));
+        QCOMPARE(committed.size(), 1);
+        QCOMPARE(repo().headMessage(), u"Slow"_s);
     }
 
     void stagesSelectedLines()
     {
         writeFile(file(), "one\nTWO\nthree\nFOUR\nfive\n");
-        Repository repo;
-        QVERIFY(repo.open(m_dir->path()));
+        open(m_dir->path());
 
-        repo.showFile(u"f.txt"_s, false);
-        selectLinesContaining(repo, {u"two"_s, u"TWO"_s});
-        QCOMPARE(repo.diff()->selectedCount(), 2);
-        QVERIFY(repo.applySelection());
+        showFile(u"f.txt"_s, false);
+        selectLinesContaining({u"two"_s, u"TWO"_s});
+        QCOMPARE(repo().diff()->selectedCount(), 2);
+        repo().applySelection();
+        QVERIFY(settle(repo()));
 
         QVERIFY(git({"diff", "--cached"}).contains("+TWO"));
         QVERIFY(!git({"diff", "--cached"}).contains("FOUR"));
         QVERIFY(git({"diff"}).contains("+FOUR"));
         QVERIFY(!git({"diff"}).contains("+TWO"));
-        QCOMPARE(repo.staged()->count(), 1);
+        QCOMPARE(repo().staged()->count(), 1);
+        // The diff on display reloaded; TWO is context now.
+        QVERIFY(isChange(u"FOUR"_s));
+        QVERIFY(rowOf(u"TWO"_s) >= 0);
+        QVERIFY(!isChange(u"TWO"_s));
     }
 
     void unstagesSelectedLines()
     {
         writeFile(file(), "one\nTWO\nthree\nFOUR\nfive\n");
         git({"add", "f.txt"});
-        Repository repo;
-        QVERIFY(repo.open(m_dir->path()));
+        open(m_dir->path());
 
-        repo.showFile(u"f.txt"_s, true);
-        selectLinesContaining(repo, {u"four"_s, u"FOUR"_s});
-        QVERIFY(repo.applySelection());
+        showFile(u"f.txt"_s, true);
+        selectLinesContaining({u"four"_s, u"FOUR"_s});
+        repo().applySelection();
+        QVERIFY(settle(repo()));
 
         QVERIFY(git({"diff", "--cached"}).contains("+TWO"));
         QVERIFY(!git({"diff", "--cached"}).contains("FOUR"));
         QVERIFY(git({"diff"}).contains("+FOUR"));
     }
 
+    void stagesHunkAndLine()
+    {
+        // Far enough apart for two hunks.
+        const QByteArray middle = "2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+        writeFile(file(), "ONE\n" + middle + "ELEVEN\nTWELVE\n");
+        git({"commit", "-q", "-a", "-m", "Longer"});
+        writeFile(file(), "one\n" + middle + "eleven\ntwelve\n");
+        open(m_dir->path());
+        showFile(u"f.txt"_s, false);
+
+        // Stage Hunk from the context menu, on a context line of hunk two.
+        repo().applyHunk(rowOf(u"9"_s));
+        QVERIFY(settle(repo()));
+        QCOMPARE(git({"show", ":f.txt"}), "ONE\n" + middle + "eleven\ntwelve\n");
+
+        // Stage Line on the added line alone: the removed one stays.
+        repo().applyLine(rowOf(u"one"_s));
+        QVERIFY(settle(repo()));
+        QCOMPARE(git({"show", ":f.txt"}), "ONE\none\n" + middle + "eleven\ntwelve\n");
+    }
+
     void stagesPartOfUntrackedFile()
     {
         writeFile(m_dir->filePath("new.txt"), "keep\nlater\n");
-        Repository repo;
-        QVERIFY(repo.open(m_dir->path()));
+        open(m_dir->path());
 
-        repo.showFile(u"new.txt"_s, false);
-        selectLinesContaining(repo, {u"keep"_s});
-        QVERIFY(repo.applySelection());
+        showFile(u"new.txt"_s, false);
+        selectLinesContaining({u"keep"_s});
+        repo().applySelection();
+        QVERIFY(settle(repo()));
         QCOMPARE(git({"show", ":new.txt"}), "keep\n"_ba);
     }
 
     void stagesPartOfDeletion()
     {
         QFile::remove(file());
-        Repository repo;
-        QVERIFY(repo.open(m_dir->path()));
+        open(m_dir->path());
 
-        repo.showFile(u"f.txt"_s, false);
-        selectLinesContaining(repo, {u"one"_s});
-        QVERIFY(repo.applySelection());
+        showFile(u"f.txt"_s, false);
+        selectLinesContaining({u"one"_s});
+        repo().applySelection();
+        QVERIFY(settle(repo()));
         QCOMPARE(git({"show", ":f.txt"}), "two\nthree\nfour\nfive\n"_ba);
     }
 
     void commitsAndAmends()
     {
         writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");
-        Repository repo;
-        QVERIFY(repo.open(m_dir->path()));
-        QVERIFY(repo.stageFile(u"f.txt"_s));
-        QVERIFY(repo.commit(u"Third"_s, false));
-        QCOMPARE(repo.commits()->rowCount(), 3);
-        QCOMPARE(repo.headMessage(), u"Third"_s);
+        open(m_dir->path());
+        repo().stageFile(u"f.txt"_s);
+        repo().commit(u"Third"_s, false);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().commits()->rowCount(), 3);
+        QCOMPARE(repo().headMessage(), u"Third"_s);
 
-        QVERIFY(repo.commit(u"Third, reworded"_s, true));
-        QCOMPARE(repo.commits()->rowCount(), 3);
-        QCOMPARE(repo.headMessage(), u"Third, reworded"_s);
-        QCOMPARE(repo.staged()->count(), 0);
+        repo().commit(u"Third, reworded"_s, true);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().commits()->rowCount(), 3);
+        QCOMPARE(repo().headMessage(), u"Third, reworded"_s);
+        QCOMPARE(repo().staged()->count(), 0);
+    }
+
+    void failedCommitIsReported()
+    {
+        open(m_dir->path());
+        QSignalSpy committed(&repo(), &Repository::committed);
+        repo().commit(u"Nothing staged"_s, false);
+        QVERIFY(settle(repo()));
+        QCOMPARE(committed.size(), 0);
+        QCOMPARE(m_errors->size(), 1);
+        m_errors->clear();
+    }
+
+    void dropsResultsForViewsLeftMeanwhile()
+    {
+        open(m_dir->path());
+        // Queued back to back; only the last view may end up on screen.
+        repo().showCommit(repo().commits()->shaAt(1));
+        repo().showCommit(repo().commits()->shaAt(0));
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().diffCommit(), repo().commits()->shaAt(0));
+        QVERIFY(repo().commitDetails().contains("Second"_L1));
+        QVERIFY(rowOf(u"g"_s) >= 0);
     }
 
     void foldsSelectionAndUndoes()
     {
         writeFile(file(), "one\nTWO\nthree\nFOUR\nfive\n");
         const QByteArray oldHead = git({"rev-parse", "HEAD"});
-        Repository repo;
-        QVERIFY(repo.open(m_dir->path()));
-        const QString first = repo.commits()->shaAt(1);
+        open(m_dir->path());
+        const QString first = repo().commits()->shaAt(1);
 
-        QVERIFY(!repo.foldBlocker(first).isEmpty()); // nothing selected yet
-        repo.showFile(u"f.txt"_s, false);
-        selectLinesContaining(repo, {u"two"_s, u"TWO"_s});
-        QVERIFY(repo.foldBlocker(first).isEmpty());
-        QVERIFY(repo.publishedIn(first).isEmpty());
+        QVERIFY(!repo().foldBlocker(first).isEmpty()); // nothing selected yet
+        showFile(u"f.txt"_s, false);
+        selectLinesContaining({u"two"_s, u"TWO"_s});
+        QVERIFY(repo().foldBlocker(first).isEmpty());
+        QVERIFY(!repo().isPublished(first));
 
-        QSignalSpy notices(&repo, &Repository::notice);
-        QVERIFY(repo.foldSelection(first));
+        QSignalSpy notices(&repo(), &Repository::notice);
+        repo().foldSelection(first);
+        QVERIFY(settle(repo()));
         QCOMPARE(notices.size(), 1);
-        QVERIFY(repo.canUndoFold());
-        QCOMPARE(repo.commits()->rowCount(), 2);
+        QVERIFY(repo().canUndoFold());
+        QCOMPARE(repo().commits()->rowCount(), 2);
         QVERIFY(git({"show", "HEAD~1:f.txt"}).contains("TWO"));
         QVERIFY(git({"diff"}).contains("+FOUR"));
         QVERIFY(!git({"diff"}).contains("+TWO"));
         QVERIFY(git({"diff", "--cached"}).isEmpty());
 
-        QVERIFY(repo.undoFold());
-        QVERIFY(!repo.canUndoFold());
+        repo().undoFold();
+        QVERIFY(settle(repo()));
+        QVERIFY(!repo().canUndoFold());
         QCOMPARE(git({"rev-parse", "HEAD"}), oldHead);
         QVERIFY(git({"diff"}).contains("+TWO"));
         QVERIFY(git({"diff", "--cached"}).isEmpty());
     }
 
+    void knowsFoldTargetsAndPublishedCommits()
+    {
+        git({"update-ref", "refs/remotes/origin/main", "HEAD~1"});
+        git({"checkout", "-q", "-b", "side", "HEAD~1"});
+        writeFile(m_dir->filePath("side.txt"), "side\n");
+        git({"add", "side.txt"});
+        git({"commit", "-q", "-m", "Side"});
+        git({"checkout", "-q", "main"});
+        writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");
+        open(m_dir->path());
+        showFile(u"f.txt"_s, false);
+        selectLinesContaining({u"two"_s, u"TWO"_s});
+
+        const auto sha = [this](const char *rev) { return QString::fromLatin1(git({"rev-parse", rev}).trimmed()); };
+        QVERIFY(repo().foldBlocker(sha("main")).isEmpty());
+        QVERIFY(!repo().isPublished(sha("main")));
+        QVERIFY(repo().foldBlocker(sha("main~1")).isEmpty());
+        QVERIFY(repo().isPublished(sha("main~1")));
+        QVERIFY(!repo().foldBlocker(sha("side")).isEmpty());
+    }
+
     void suggestsFoldTarget()
     {
         writeFile(m_dir->filePath("g.txt"), "G\n");
-        Repository repo;
-        QVERIFY(repo.open(m_dir->path()));
-        repo.showFile(u"g.txt"_s, false);
-        QVERIFY(repo.suggestedFoldTarget().isEmpty());
+        open(m_dir->path());
+        showFile(u"g.txt"_s, false);
+        QVERIFY(repo().suggestedFoldTarget().isEmpty());
 
-        selectLinesContaining(repo, {u"g"_s, u"G"_s});
-        QCOMPARE(repo.suggestedFoldTarget(), repo.commits()->shaAt(0));
-        QVERIFY(repo.foldSuggestionText().contains("Second"_L1));
+        selectLinesContaining({u"g"_s, u"G"_s});
+        QCOMPARE(repo().suggestedFoldTarget(), repo().commits()->shaAt(0));
+        QVERIFY(repo().foldSuggestionText().contains("Second"_L1));
 
-        repo.diff()->clearSelection();
-        QVERIFY(repo.suggestedFoldTarget().isEmpty());
-        QVERIFY(repo.foldSuggestionText().isEmpty());
+        repo().diff()->clearSelection();
+        QVERIFY(repo().suggestedFoldTarget().isEmpty());
+        QVERIFY(repo().foldSuggestionText().isEmpty());
     }
 
     void undoIsForgottenWhenHeadMoves()
     {
         writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");
-        Repository repo;
-        QVERIFY(repo.open(m_dir->path()));
-        repo.showFile(u"f.txt"_s, false);
-        selectLinesContaining(repo, {u"two"_s, u"TWO"_s});
-        QVERIFY(repo.foldSelection(repo.commits()->shaAt(1)));
+        open(m_dir->path());
+        showFile(u"f.txt"_s, false);
+        selectLinesContaining({u"two"_s, u"TWO"_s});
+        repo().foldSelection(repo().commits()->shaAt(1));
+        QVERIFY(settle(repo()));
+        QVERIFY(repo().canUndoFold());
 
         git({"commit", "-q", "--allow-empty", "-m", "Elsewhere"});
-        repo.refreshStatus();
-        QVERIFY(!repo.canUndoFold());
+        repo().refreshStatus();
+        QVERIFY(settle(repo()));
+        QVERIFY(!repo().canUndoFold());
     }
 
 private:
+    Repository &repo() { return *m_repo; }
     QString file() const { return m_dir->filePath("f.txt"); }
+
+    void open(const QString &path)
+    {
+        repo().open(path);
+        QVERIFY(settle(repo()));
+        QVERIFY(repo().valid());
+    }
+
+    void showFile(const QString &path, bool staged)
+    {
+        repo().showFile(path, staged);
+        QVERIFY(settle(repo()));
+    }
 
     QByteArray git(const QStringList &args)
     {
@@ -220,10 +350,27 @@ private:
         return result.out;
     }
 
-    // Selects every changed line whose text is one of `texts`.
-    static void selectLinesContaining(Repository &repo, const QStringList &texts)
+    // Row of the diff line with exactly this text, or -1.
+    int rowOf(const QString &text)
     {
-        DiffModel *diff = repo.diff();
+        DiffModel *diff = repo().diff();
+        for (int row = 0; row < diff->rowCount(); ++row) {
+            if (diff->data(diff->index(row), DiffModel::TextRole).toString() == text)
+                return row;
+        }
+        return -1;
+    }
+
+    bool isChange(const QString &text)
+    {
+        const int row = rowOf(text);
+        return row >= 0 && repo().diff()->data(repo().diff()->index(row), DiffModel::SelectableRole).toBool();
+    }
+
+    // Selects every changed line whose text is one of `texts`.
+    void selectLinesContaining(const QStringList &texts)
+    {
+        DiffModel *diff = repo().diff();
         for (int row = 0; row < diff->rowCount(); ++row) {
             const QModelIndex idx = diff->index(row);
             if (diff->data(idx, DiffModel::SelectableRole).toBool()
@@ -234,6 +381,8 @@ private:
 
     std::unique_ptr<QTemporaryDir> m_dir;
     GitRunner m_git;
+    std::unique_ptr<Repository> m_repo;
+    std::unique_ptr<QSignalSpy> m_errors;
 };
 
 QTEST_GUILESS_MAIN(TestRepository)

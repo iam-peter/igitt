@@ -71,7 +71,7 @@ Pane {
                     enabled: pane.repo.headSha.length > 0
                     onToggled: {
                         if (checked && message.text.trim().length === 0)
-                            message.text = pane.repo.headMessage()
+                            message.text = pane.repo.headMessage
                     }
                 }
                 Item {
@@ -80,12 +80,16 @@ Pane {
                 Button {
                     id: commitButton
                     text: amend.checked ? qsTr("Amend") : qsTr("Commit")
-                    enabled: message.text.trim().length > 0
+                    enabled: message.text.trim().length > 0 && !pane.repo.writing
                              && (pane.repo.staged.count > 0 || amend.checked)
                     onClicked: {
-                        if (!enabled)
-                            return
-                        if (pane.repo.commit(message.text, amend.checked)) {
+                        if (enabled)
+                            pane.repo.commit(message.text, amend.checked)
+                    }
+
+                    Connections {
+                        target: pane.repo
+                        function onCommitted() {
                             message.clear()
                             amend.checked = false
                         }

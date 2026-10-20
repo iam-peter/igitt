@@ -167,19 +167,44 @@ void DiffModel::selectRange(int from, int to)
     emit selectionChanged();
 }
 
-void DiffModel::toggleHunk(int row)
+std::pair<int, int> DiffModel::hunkRows(int row) const
 {
-    if (row < 0 || row >= m_rows.size() || m_rows[row].hunk < 0)
-        return;
     const int file = m_rows[row].file;
     const int hunk = m_rows[row].hunk;
-
     int first = row;
     while (first > 0 && m_rows[first - 1].file == file && m_rows[first - 1].hunk == hunk)
         --first;
     int last = row;
     while (last + 1 < m_rows.size() && m_rows[last + 1].file == file && m_rows[last + 1].hunk == hunk)
         ++last;
+    return {first, last};
+}
+
+bool DiffModel::inHunk(int row) const
+{
+    return row >= 0 && row < m_rows.size() && m_rows[row].hunk >= 0;
+}
+
+bool DiffModel::isRowSelected(int row) const
+{
+    return row >= 0 && row < m_rows.size() && isSelected(m_rows[row]);
+}
+
+void DiffModel::selectHunk(int row)
+{
+    if (!inHunk(row))
+        return;
+    const auto [first, last] = hunkRows(row);
+    for (int r = 0; r < m_rows.size(); ++r)
+        setSelected(r, r >= first && r <= last);
+    emit selectionChanged();
+}
+
+void DiffModel::toggleHunk(int row)
+{
+    if (!inHunk(row))
+        return;
+    const auto [first, last] = hunkRows(row);
 
     bool allSelected = true;
     for (int r = first; r <= last; ++r) {

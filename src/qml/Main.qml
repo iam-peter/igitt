@@ -24,21 +24,33 @@ ApplicationWindow {
     }
 
     function requestFold(sha: string) {
-        const remote = repo.publishedIn(sha)
-        if (remote === "") {
+        if (!repo.isPublished(sha)) {
             repo.foldSelection(sha)
             return
         }
         publishedDialog.sha = sha
-        publishedDialog.remote = remote
         publishedDialog.open()
+    }
+
+    // Only show the busy indicator for jobs that take a noticeable time.
+    property bool showBusy: false
+    Timer {
+        interval: 300
+        running: repo.busy && !root.showBusy
+        onTriggered: root.showBusy = true
+    }
+    Connections {
+        target: repo
+        function onBusyChanged() {
+            if (!repo.busy)
+                root.showBusy = false
+        }
     }
 
     Dialog {
         id: publishedDialog
 
         property string sha
-        property string remote
 
         anchors.centerIn: parent
         width: Math.min(480, root.width - 40)
@@ -50,8 +62,8 @@ ApplicationWindow {
         Label {
             width: parent.width
             wrapMode: Text.Wrap
-            text: qsTr("This commit is already on %1. Folding into it rewrites it and every commit "
-                       + "after it, so you will have to force push.").arg(publishedDialog.remote)
+            text: qsTr("This commit is already on a remote branch. Folding into it rewrites it and "
+                       + "every commit after it, so you will have to force push.")
         }
     }
 
@@ -97,6 +109,13 @@ ApplicationWindow {
                 onClicked: repo.refresh()
             }
             ToolSeparator {}
+            BusyIndicator {
+                implicitWidth: 24
+                implicitHeight: 24
+                padding: 2
+                running: root.showBusy
+                visible: running
+            }
             Label {
                 Layout.fillWidth: true
                 elide: Text.ElideRight

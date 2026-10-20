@@ -58,7 +58,12 @@ public:
     // Selects all changed lines of the hunk containing `row`, or deselects
     // them if they already are all selected.
     Q_INVOKABLE void toggleHunk(int row);
+    // Selects exactly the changed lines of the hunk containing `row`.
+    Q_INVOKABLE void selectHunk(int row);
     Q_INVOKABLE void clearSelection();
+    Q_INVOKABLE bool isRowSelected(int row) const;
+    // Whether `row` belongs to a hunk, i.e. has lines one could stage.
+    Q_INVOKABLE bool inHunk(int row) const;
 
 signals:
     void selectionChanged();
@@ -79,6 +84,7 @@ private:
     };
 
     void setSelected(int row, bool selected);
+    std::pair<int, int> hunkRows(int row) const;
     bool isSelected(const Row &row) const;
 
     QList<FileDiff> m_files;

@@ -23,12 +23,27 @@ ctest --test-dir build --output-on-failure
   parsers for log, refs, status and diffs, the graph lane layout, and
   `PatchBuilder`, which turns a line selection into a patch for `git apply`.
 - `src/models` — list models over that data for QML.
+- `src/core/StateLoader.*` — reads status, history and diffs into plain
+  values on the git thread.
 - `src/Repository.*` — the facade QML talks to (QML module `Igitt.Core`).
 - `src/qml`, `src/ui` — the UI (QML module `Igitt`), including the
   `CommitGraph` item that paints the history lanes.
 
 All writes go through the git CLI so hooks, config and git's own checks
 behave exactly as in a terminal.
+
+git never runs on the UI thread. `Repository` queues every operation as a
+job for a single background thread, which runs them one at a time in order:
+writes never overlap, and every read sees the writes queued before it. Only
+the UI thread touches the models, applying each job's result when it
+arrives; results for a diff the user has already left are dropped.
+
+## Staging
+
+As in git gui: click lines to select them (Shift+click for a range, a hunk
+header for the whole hunk) and stage or unstage the selection, or
+right-click a line for Stage Hunk and Stage Line. Double-click a file, or
+click its status badge, to stage or unstage all of it.
 
 ## Folding changes into an earlier commit
 
@@ -70,4 +85,3 @@ other branches that point into the rewritten range (like `rebase
 ## Ideas
 
 - Split an ambiguous selection and fold each part into its own commit.
-- Run git off the UI thread for large repositories.

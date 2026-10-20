@@ -28,8 +28,9 @@ public:
 
     using QAbstractListModel::QAbstractListModel;
 
-    void setCommits(const QList<CommitInfo> &commits, const QList<RefInfo> &refs,
-                    const QString &headSha, const QString &currentBranch);
+    // `graph` is layoutGraph(commits), computed off the UI thread.
+    void setCommits(const QList<CommitInfo> &commits, const QList<GraphRow> &graph,
+                    const QList<RefInfo> &refs, const QString &headSha, const QString &currentBranch);
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;

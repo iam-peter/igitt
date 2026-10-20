@@ -2,23 +2,42 @@
 
 #include "core/FoldSuggester.h"
 #include "core/GitRunner.h"
+#include "core/StateLoader.h"
 #include "models/CommitModel.h"
 #include "models/DiffModel.h"
 #include "models/FileListModel.h"
 
 #include <QObject>
+#include <QSet>
+#include <QThreadPool>
 #include <QtQml/qqmlregistration.h>
+
+#include <atomic>
+#include <functional>
+#include <memory>
+#include <optional>
 
 // The repository as the UI sees it: history, working tree status and the
 // diff currently on display, plus the operations that change them.
+//
+// git never runs on the UI thread. Every invokable method queues a job for a
+// single git thread, which runs jobs one at a time in the order they were
+// queued, so a write never overlaps another and a read sees the effects of
+// every write queued before it. Results come back through the properties
+// and signals.
 class Repository : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
     Q_PROPERTY(QString path READ path NOTIFY pathChanged)
     Q_PROPERTY(bool valid READ valid NOTIFY pathChanged)
+    Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    // A queued or running job changes the repository; actions working on
+    // what is on screen should wait for it.
+    Q_PROPERTY(bool writing READ writing NOTIFY busyChanged)
     Q_PROPERTY(QString branch READ branch NOTIFY headChanged)
     Q_PROPERTY(QString headSha READ headSha NOTIFY headChanged)
+    Q_PROPERTY(QString headMessage READ headMessage NOTIFY headChanged)
     Q_PROPERTY(QString upstream READ upstream NOTIFY headChanged)
     Q_PROPERTY(int ahead READ ahead NOTIFY headChanged)
     Q_PROPERTY(int behind READ behind NOTIFY headChanged)
@@ -41,11 +60,15 @@ public:
     Q_ENUM(DiffSource)
 
     explicit Repository(QObject *parent = nullptr);
+    ~Repository() override;
 
     QString path() const { return m_git.workDir(); }
     bool valid() const { return !m_git.workDir().isEmpty(); }
+    bool busy() const { return m_pendingJobs > 0; }
+    bool writing() const { return m_pendingWrites > 0; }
     QString branch() const { return m_status.branch; }
     QString headSha() const { return m_status.headSha; }
+    QString headMessage() const { return m_headMessage; }
     QString upstream() const { return m_status.upstream; }
     int ahead() const { return m_status.ahead; }
     int behind() const { return m_status.behind; }
@@ -62,7 +85,7 @@ public:
     QString foldSuggestionText() const { return m_foldSuggestionText; }
 
     // Accepts a local path or a file:// URL anywhere inside a work tree.
-    Q_INVOKABLE bool open(const QString &pathOrUrl);
+    Q_INVOKABLE void open(const QString &pathOrUrl);
     // Reloads refs, history and status.
     Q_INVOKABLE void refresh();
     // Reloads status and the file diff on display; reloads history only if
@@ -72,53 +95,94 @@ public:
     Q_INVOKABLE void showCommit(const QString &sha);
     Q_INVOKABLE void showFile(const QString &path, bool staged);
 
-    Q_INVOKABLE bool stageFile(const QString &path);
-    Q_INVOKABLE bool unstageFile(const QString &path);
-    Q_INVOKABLE bool stageAll();
-    Q_INVOKABLE bool unstageAll();
+    Q_INVOKABLE void stageFile(const QString &path);
+    Q_INVOKABLE void unstageFile(const QString &path);
+    Q_INVOKABLE void stageAll();
+    Q_INVOKABLE void unstageAll();
     // Stages the selected lines of the unstaged diff, or unstages the
     // selected lines of the staged diff.
-    Q_INVOKABLE bool applySelection();
+    Q_INVOKABLE void applySelection();
+    // Like applySelection(), for the hunk containing `row` only.
+    Q_INVOKABLE void applyHunk(int row);
+    // Like applySelection() for the line at `row`, or for the whole
+    // selection if `row` is part of it.
+    Q_INVOKABLE void applyLine(int row);
 
-    Q_INVOKABLE bool commit(const QString &message, bool amend);
-    Q_INVOKABLE QString headMessage() const;
+    // Emits committed() on success.
+    Q_INVOKABLE void commit(const QString &message, bool amend);
 
     // Why the selected lines cannot be folded into `sha`, or an empty
     // string if they can.
     Q_INVOKABLE QString foldBlocker(const QString &sha) const;
-    // A remote branch already containing `sha`, if any; folding into it
-    // means force pushing.
-    Q_INVOKABLE QString publishedIn(const QString &sha) const;
+    // Whether a remote-tracking branch contains `sha` already, so folding
+    // into it means force pushing.
+    Q_INVOKABLE bool isPublished(const QString &sha) const;
     // Folds the selected lines of the working diff into `sha` and rewrites
     // the commits after it.
-    Q_INVOKABLE bool foldSelection(const QString &sha);
+    Q_INVOKABLE void foldSelection(const QString &sha);
     // Restores the branch and index as they were before the last fold, as
     // long as HEAD has not moved since.
-    Q_INVOKABLE bool undoFold();
+    Q_INVOKABLE void undoFold();
 
 signals:
     void pathChanged();
+    void busyChanged();
     void headChanged();
     void diffChanged();
     void canUndoFoldChanged();
     void foldSuggestionChanged();
+    void committed();
     void errorOccurred(const QString &message);
     void notice(const QString &message);
 
 private:
-    bool check(const GitResult &result, const QString &what);
-    void loadHistory();
-    void loadStatus();
-    void reloadDiff();
-    QStringList diffArgs() const;
-    QByteArray selectionPatch(PatchDirection direction) const;
+    struct LastFold
+    {
+        QString oldHead;
+        QString newHead;
+        QByteArray stagedPatch; // applied to the index by the fold
+    };
+
+    // What a job hands back to the UI thread.
+    struct Outcome
+    {
+        QString workDir; // the repository the job ran in
+        QString openedPath;
+        RepositoryState state;
+        std::optional<LastFold> fold;
+        bool committed = false;
+        QString notice;
+        QString error;
+    };
+    using Job = std::function<Outcome(const GitRunner &)>;
+    enum class JobKind { Read, Write };
+
+    void enqueue(JobKind kind, Job job);
+    void finish(JobKind kind, Outcome outcome);
+    void applyState(const RepositoryState &state);
+    // Runs `args`, then reloads the state.
+    void enqueueCommand(const QString &what, const QStringList &args, const QByteArray &input = {});
+
+    void setDiffView(DiffSource source, const QString &path, const QString &commit);
+    DiffRequest diffRequest() const;
     void forgetFold();
     void updateFoldSuggestion();
     QString commitLabel(const QString &sha) const;
+    QByteArray selectionPatch(PatchDirection direction) const;
 
     GitRunner m_git;
+    QThreadPool m_pool;
+    int m_pendingJobs = 0;
+    int m_pendingWrites = 0;
+    // Bumped whenever the diff view changes, so stale results are dropped,
+    // and queued loads for a view the user already left are skipped.
+    std::shared_ptr<std::atomic_int> m_diffGeneration = std::make_shared<std::atomic_int>(0);
+
     StatusInfo m_status;
     QString m_historyHead;
+    QString m_headMessage;
+    QSet<QString> m_foldTargets;
+    QSet<QString> m_unpublished;
     CommitModel m_commits;
     FileListModel m_unstaged{false};
     FileListModel m_staged{true};
@@ -127,15 +191,8 @@ private:
     QString m_diffPath;
     QString m_diffCommit;
     QString m_commitDetails;
-    FoldSuggester m_suggester{m_git};
+    FoldSuggester m_suggester;
     QString m_suggestedFoldTarget;
     QString m_foldSuggestionText;
-
-    struct LastFold
-    {
-        QString oldHead;
-        QString newHead;
-        QByteArray stagedPatch; // applied to the index by the fold
-    };
     LastFold m_lastFold;
 };
