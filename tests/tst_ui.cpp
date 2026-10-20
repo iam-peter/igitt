@@ -10,6 +10,8 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QSettings>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QtQml/qqmlextensionplugin.h>
@@ -42,6 +44,11 @@ private slots:
         qputenv("GIT_AUTHOR_EMAIL", "ada@example.com");
         qputenv("GIT_COMMITTER_NAME", "Ada Lovelace");
         qputenv("GIT_COMMITTER_EMAIL", "ada@example.com");
+        // Settings go to a throwaway location, not the user's.
+        QStandardPaths::setTestModeEnabled(true);
+        QCoreApplication::setOrganizationName(u"igitt-test"_s);
+        QCoreApplication::setOrganizationDomain(u"igitt.test"_s);
+        QSettings().clear();
         QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
         QQuickStyle::setStyle(u"Fusion"_s);
         createDemoRepository();
@@ -165,6 +172,25 @@ private slots:
         QVERIFY(settle(*repo));
         QCOMPARE(gitOut({"diff", "--cached", "--name-only"}), "app.txt\n"_ba);
 
+        // The commit form: title, a body that needs wrapping, a trailer.
+        auto *box = window->findChild<QQuickItem *>(u"commitBox"_s);
+        QVERIFY(box);
+        window->findChild<QQuickItem *>(u"commitTitle"_s)->setProperty("text", u"Change line four"_s);
+        window->findChild<QQuickItem *>(u"commitBody"_s)->setProperty(
+            "text", u"This explains at length why line four had to change, far beyond seventy-two characters."_s);
+        QVERIFY(QMetaObject::invokeMethod(box, "addTrailer", Q_ARG(QString, u"Task-number"_s)));
+        QTRY_VERIFY(findItem(window->contentItem(), u"trailerValue"_s));
+        findItem(window->contentItem(), u"trailerValue"_s)->setProperty("text", u"QTBUG-123"_s);
+        screenshot(window, u"commit-form"_s);
+        click(window, u"commitButton"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(gitOut({"log", "-1", "--format=%B"}).trimmed(),
+                 "Change line four\n\n"
+                 "This explains at length why line four had to change, far beyond\n"
+                 "seventy-two characters.\n\n"
+                 "Task-number: QTBUG-123"_ba);
+        QCOMPARE(window->findChild<QQuickItem *>(u"commitTitle"_s)->property("text").toString(), QString());
+
         for (const QQmlError &w : std::as_const(warnings))
             qWarning().noquote() << w.toString();
         QVERIFY(warnings.isEmpty());
@@ -201,6 +227,18 @@ private:
         QTRY_VERIFY(item->isVisible() && item->isEnabled());
         QTest::mouseClick(window, Qt::LeftButton, {},
                           item->mapToScene({item->width() / 2, item->height() / 2}).toPoint());
+    }
+
+    // Items a Repeater creates have no QObject parent; walk the item tree.
+    static QQuickItem *findItem(QQuickItem *root, const QString &objectName)
+    {
+        if (root->objectName() == objectName)
+            return root;
+        for (QQuickItem *child : root->childItems()) {
+            if (QQuickItem *found = findItem(child, objectName))
+                return found;
+        }
+        return nullptr;
     }
 
     QQuickItem *fileRow(QQuickWindow *window, const QString &list, const QString &path)

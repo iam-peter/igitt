@@ -373,6 +373,67 @@ private slots:
         QVERIFY(git({"diff", "--cached"}).isEmpty());
     }
 
+    void showsUncommittedChangesOnTop()
+    {
+        open(m_dir->path());
+        QVERIFY(!repo().hasWip());
+
+        writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");
+        writeFile(m_dir->filePath("new.txt"), "new\n");
+        repo().refreshStatus();
+        QVERIFY(settle(repo()));
+        QVERIFY(repo().hasWip());
+        QCOMPARE(repo().wipCounts().value(u"modified"_s).toInt(), 1);
+        QCOMPARE(repo().wipCounts().value(u"added"_s).toInt(), 1);
+
+        git({"checkout", "--", "f.txt"});
+        QFile::remove(m_dir->filePath("new.txt"));
+        repo().refreshStatus();
+        QVERIFY(settle(repo()));
+        QVERIFY(!repo().hasWip());
+    }
+
+    void loadsCommitStatsInBatches()
+    {
+        open(m_dir->path());
+        const QString second = repo().commits()->shaAt(0);
+        const QString first = repo().commits()->shaAt(1);
+        QVERIFY(!repo().commits()->data(repo().commits()->index(0), CommitModel::StatsRole).isValid());
+
+        repo().requestStats(second);
+        repo().requestStats(first);
+        QTRY_VERIFY(repo().commits()->hasStats(first) && repo().commits()->hasStats(second));
+        const QVariantMap stats = repo().commits()->data(repo().commits()->index(1), CommitModel::StatsRole).toMap();
+        QCOMPARE(stats.value(u"files"_s).toInt(), 1);
+        QCOMPARE(stats.value(u"added"_s).toInt(), 5);
+        QVERIFY(settle(repo()));
+    }
+
+    void searchesAndFiltersHistory()
+    {
+        git({"tag", "v1", "HEAD~1"});
+        git({"update-ref", "refs/remotes/origin/main", "HEAD"});
+        open(m_dir->path());
+        CommitModel *commits = repo().commits();
+        QCOMPARE(commits->countMatches(u"sec"_s), 1);
+        QCOMPARE(commits->findNext(u"first"_s, -1), 1);
+        QCOMPARE(commits->findNext(u"test"_s, 0), 1); // by author, wrapping
+        QCOMPARE(commits->findNext(commits->shaAt(1).left(7), 1), 1);
+
+        // main and origin/main share a label; the tag has its own.
+        const QVariantList headLabels = commits->data(commits->index(0), CommitModel::RefsRole).toList();
+        QCOMPARE(headLabels.size(), 1);
+        QCOMPARE(headLabels.first().toMap().value(u"remotes"_s).toStringList(), QStringList{u"origin/main"_s});
+        QCOMPARE(commits->data(commits->index(1), CommitModel::RefsRole).toList().size(), 1);
+
+        repo().setShowTags(false);
+        repo().setShowRemotes(false);
+        QVERIFY(settle(repo()));
+        QVERIFY(commits->data(commits->index(1), CommitModel::RefsRole).toList().isEmpty());
+        QVERIFY(commits->data(commits->index(0), CommitModel::RefsRole).toList().first().toMap()
+                    .value(u"remotes"_s).toStringList().isEmpty());
+    }
+
     void undoIsForgottenWhenHeadMoves()
     {
         writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");

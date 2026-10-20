@@ -28,3 +28,10 @@ struct GraphRow
 // Assigns lanes to commits given in topological order (children before
 // parents), the way gitk does.
 QList<GraphRow> layoutGraph(const QList<CommitInfo> &commits);
+
+// Like layoutGraph(), with a row for uncommitted changes on top that leads
+// into `head` (unconnected if empty). That row goes to `wipRow`.
+QList<GraphRow> layoutGraphWithWip(const QList<CommitInfo> &commits, const QString &head, GraphRow &wipRow);
+
+// The color of a lane, by GraphRow::color and GraphSegment::color.
+QString laneColorName(int color);

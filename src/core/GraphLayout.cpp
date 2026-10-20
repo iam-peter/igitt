@@ -31,6 +31,30 @@ int freeLane(QList<Lane> &lanes)
 
 } // namespace
 
+QString laneColorName(int color)
+{
+    static const char *const palette[] = {
+        "#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#b07aa1",
+        "#76b7b2", "#edc948", "#ff9da7", "#9c755f",
+    };
+    return QString::fromLatin1(palette[color % std::size(palette)]);
+}
+
+QList<GraphRow> layoutGraphWithWip(const QList<CommitInfo> &commits, const QString &head, GraphRow &wipRow)
+{
+    QList<CommitInfo> all;
+    all.reserve(commits.size() + 1);
+    CommitInfo wip;
+    wip.sha = QStringLiteral("(working tree)");
+    if (!head.isEmpty())
+        wip.parents = {head};
+    all.append(wip);
+    all += commits;
+    QList<GraphRow> rows = layoutGraph(all);
+    wipRow = rows.takeFirst();
+    return rows;
+}
+
 QList<GraphRow> layoutGraph(const QList<CommitInfo> &commits)
 {
     QList<Lane> lanes;

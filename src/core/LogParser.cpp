@@ -6,6 +6,32 @@ constexpr char FieldSep = '\x1f';
 
 } // namespace
 
+QStringList numstatArgs()
+{
+    return {QStringLiteral("log"), QStringLiteral("--no-walk=unsorted"),
+            QStringLiteral("--diff-merges=first-parent"), QStringLiteral("--numstat"),
+            QStringLiteral("--format=%x01%H")};
+}
+
+QHash<QString, CommitStats> parseNumstat(const QByteArray &out)
+{
+    QHash<QString, CommitStats> stats;
+    CommitStats *current = nullptr;
+    for (const QByteArray &line : out.split('\n')) {
+        if (line.startsWith('\x01')) {
+            current = &stats[QString::fromLatin1(line.mid(1).trimmed())];
+            continue;
+        }
+        const QList<QByteArray> fields = line.split('\t');
+        if (!current || fields.size() < 3)
+            continue;
+        ++current->files;
+        current->added += fields[0].toInt(); // "-" for binary files
+        current->removed += fields[1].toInt();
+    }
+    return stats;
+}
+
 QStringList logFormatArgs()
 {
     return {QStringLiteral("-z"),

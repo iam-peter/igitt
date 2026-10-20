@@ -19,6 +19,8 @@ ApplicationWindow {
 
     Repository {
         id: repo
+        showRemotes: AppSettings.graph.showRemotes
+        showTags: AppSettings.graph.showTags
         onErrorOccurred: message => messageBar.show(message, true)
         onNotice: message => messageBar.show(message, false)
     }
@@ -54,6 +56,11 @@ ApplicationWindow {
             repo.discardPlan()
         else
             discardDialog.open()
+    }
+
+    SettingsDialog {
+        id: settingsDialog
+        anchors.centerIn: parent
     }
 
     Dialog {
@@ -139,6 +146,10 @@ ApplicationWindow {
                 onClicked: repo.refresh()
             }
             ToolButton {
+                text: qsTr("Settings…")
+                onClicked: settingsDialog.open()
+            }
+            ToolButton {
                 objectName: "planButton"
                 text: qsTr("Plan")
                 checkable: true
@@ -219,6 +230,7 @@ ApplicationWindow {
 
                 ChangesPane {
                     repo: repo
+                    monoFont: root.monoFont
                     SplitView.preferredWidth: 360
                     SplitView.minimumWidth: 220
                 }

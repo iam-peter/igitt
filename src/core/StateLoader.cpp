@@ -114,12 +114,16 @@ StatusInfo loadSimulatedStatus(const StateSource &source)
     return info;
 }
 
-HistoryState loadHistory(const StateSource &source, const StatusInfo &status)
+HistoryState loadHistory(const StateSource &source, const StatusInfo &status, const HistoryFilter &filter)
 {
     const GitRunner &git = source.git;
     HistoryState history;
     history.head = status.headSha;
+    history.wip = !status.entries.isEmpty();
     history.refs = parseRefs(git.run(QStringList{QStringLiteral("for-each-ref")} + refFormatArgs()).out);
+    history.refs.removeIf([&filter](const RefInfo &ref) {
+        return (ref.kind == RefInfo::RemoteBranch && !filter.remotes) || (ref.kind == RefInfo::Tag && !filter.tags);
+    });
 
     // In a simulation the checked out branch points at the simulated HEAD,
     // and its real commits must not show up as a second line of history.
@@ -134,15 +138,22 @@ HistoryState loadHistory(const StateSource &source, const StatusInfo &status)
                 history.refs[i].sha = status.headSha;
         }
     }
-    if (history.refs.isEmpty() && status.headSha.isEmpty())
+    if (history.refs.isEmpty() && status.headSha.isEmpty()) {
+        if (history.wip)
+            layoutGraphWithWip({}, {}, history.wipGraph);
         return history;
+    }
 
     QStringList args{QStringLiteral("log"), QStringLiteral("--topo-order"),
                      QStringLiteral("--max-count=%1").arg(MaxHistory)};
     args += logFormatArgs();
     if (source.simulated && !status.branch.isEmpty())
         args.append(QStringLiteral("--exclude=") + branchRef);
-    args += {QStringLiteral("--branches"), QStringLiteral("--remotes"), QStringLiteral("--tags")};
+    args.append(QStringLiteral("--branches"));
+    if (filter.remotes)
+        args.append(QStringLiteral("--remotes"));
+    if (filter.tags)
+        args.append(QStringLiteral("--tags"));
     if (!status.headSha.isEmpty())
         args.append(status.headSha);
     args.append(QStringLiteral("--"));
@@ -152,7 +163,8 @@ HistoryState loadHistory(const StateSource &source, const StatusInfo &status)
         return history;
     }
     history.commits = parseLog(log.out);
-    history.graph = layoutGraph(history.commits);
+    history.graph = history.wip ? layoutGraphWithWip(history.commits, status.headSha, history.wipGraph)
+                                : layoutGraph(history.commits);
 
     if (status.headSha.isEmpty())
         return history;
@@ -253,8 +265,7 @@ DiffState loadDiff(const StateSource &source, const DiffRequest &request, const 
     return diff;
 }
 
-RepositoryState loadState(const StateSource &source, const DiffRequest &diff, const QString &knownHead,
-                          bool forceHistory)
+RepositoryState loadState(const StateSource &source, const DiffRequest &diff, const HistoryRequest &history)
 {
     RepositoryState state;
     if (source.simulated) {
@@ -269,9 +280,22 @@ RepositoryState loadState(const StateSource &source, const DiffRequest &diff, co
         }
         state.status = parseStatus(result.out);
     }
-    if (forceHistory || state.status->headSha != knownHead)
-        state.history = loadHistory(source, *state.status);
+    if (history.force || state.status->headSha != history.knownHead
+        || state.status->entries.isEmpty() == history.knownWip)
+        state.history = loadHistory(source, *state.status, history.filter);
     if (diff.kind == DiffKind::Unstaged || diff.kind == DiffKind::Staged)
         state.diff = loadDiff(source, diff, *state.status);
     return state;
+}
+
+QHash<QString, CommitStats> loadCommitStats(const GitRunner &git, const QStringList &shas)
+{
+    if (shas.isEmpty())
+        return {};
+    const GitResult result = git.run(numstatArgs() + shas + QStringList{QStringLiteral("--")});
+    QHash<QString, CommitStats> stats = parseNumstat(result.out);
+    // Commits without file changes print nothing; they still have stats.
+    for (const QString &sha : shas)
+        stats.try_emplace(sha);
+    return stats;
 }

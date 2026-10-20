@@ -12,6 +12,7 @@
 #include <QObject>
 #include <QSet>
 #include <QThreadPool>
+#include <QTimer>
 #include <QtQml/qqmlregistration.h>
 
 #include <atomic>
@@ -59,6 +60,15 @@ class Repository : public QObject
     // In plan mode write actions are simulated and collected in `plan`;
     // the repository changes only when the plan is executed.
     Q_PROPERTY(bool planning READ planning NOTIFY planningChanged)
+    // What the history shows besides local branches.
+    Q_PROPERTY(bool showRemotes READ showRemotes WRITE setShowRemotes NOTIFY filterChanged)
+    Q_PROPERTY(bool showTags READ showTags WRITE setShowTags NOTIFY filterChanged)
+    // Uncommitted changes, drawn as a row on top of the history.
+    Q_PROPERTY(bool hasWip READ hasWip NOTIFY headChanged)
+    Q_PROPERTY(QVariant wipGraph READ wipGraph NOTIFY headChanged)
+    Q_PROPERTY(QString wipLaneColor READ wipLaneColor NOTIFY headChanged)
+    // {modified, added, deleted}: files with uncommitted changes.
+    Q_PROPERTY(QVariantMap wipCounts READ wipCounts NOTIFY headChanged)
     Q_PROPERTY(PlanModel *plan READ plan CONSTANT)
 
 public:
@@ -90,6 +100,14 @@ public:
     QString suggestedFoldTarget() const { return m_suggestedFoldTarget; }
     QString foldSuggestionText() const { return m_foldSuggestionText; }
     bool planning() const { return m_plan != nullptr; }
+    bool showRemotes() const { return m_filter.remotes; }
+    void setShowRemotes(bool show);
+    bool showTags() const { return m_filter.tags; }
+    void setShowTags(bool show);
+    bool hasWip() const { return m_historyWip; }
+    QVariant wipGraph() const { return QVariant::fromValue(m_wipGraph); }
+    QString wipLaneColor() const { return laneColorName(m_wipGraph.color); }
+    QVariantMap wipCounts() const;
     PlanModel *plan() { return &m_planModel; }
 
     // Accepts a local path or a file:// URL anywhere inside a work tree.
@@ -102,6 +120,11 @@ public:
 
     Q_INVOKABLE void showCommit(const QString &sha);
     Q_INVOKABLE void showFile(const QString &path, bool staged);
+    // Shows the first changed file, unstaged ones first.
+    Q_INVOKABLE void showWorkingTree();
+    // Asks for the files and lines a commit changes; they arrive in the
+    // commit model's stats role. Requests are batched.
+    Q_INVOKABLE void requestStats(const QString &sha);
 
     Q_INVOKABLE void stageFile(const QString &path);
     Q_INVOKABLE void unstageFile(const QString &path);
@@ -145,6 +168,7 @@ signals:
     void canUndoFoldChanged();
     void foldSuggestionChanged();
     void planningChanged();
+    void filterChanged();
     void committed();
     void errorOccurred(const QString &message);
     void notice(const QString &message);
@@ -175,6 +199,7 @@ private:
         RepositoryState state;
         std::optional<LastFold> fold;
         bool committed = false;
+        QHash<QString, CommitStats> stats;
         QString notice;
         QString error;
     };
@@ -194,6 +219,8 @@ private:
 
     void setDiffView(DiffSource source, const QString &path, const QString &commit);
     DiffRequest diffRequest() const;
+    HistoryRequest historyRequest(bool force) const;
+    void loadRequestedStats();
     void forgetFold();
     void updateFoldSuggestion();
     QString commitLabel(const QString &sha) const;
@@ -209,6 +236,12 @@ private:
 
     StatusInfo m_status;
     QString m_historyHead;
+    bool m_historyWip = false;
+    GraphRow m_wipGraph;
+    HistoryFilter m_filter;
+    QStringList m_statsWanted;
+    QSet<QString> m_statsRequested;
+    QTimer m_statsTimer;
     QString m_headMessage;
     QSet<QString> m_foldTargets;
     QSet<QString> m_unpublished;

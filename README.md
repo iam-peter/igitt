@@ -40,6 +40,28 @@ writes never overlap, and every read sees the writes queued before it. Only
 the UI thread touches the models, applying each job's result when it
 arrives; results for a diff the user has already left are dropped.
 
+## History
+
+The commit graph follows GitKraken's: branch and tag labels in their own
+column, colored like their lane and linked to the commit; commits drawn
+with the author's initials; uncommitted changes as a "// WIP" row on top,
+connected to HEAD; and a Changes column with the number of files and a
+bar of added and removed lines, loaded for the rows on screen. Columns
+can be resized by dragging their header edge and picked from the View
+menu or by right-clicking the header. The search field matches message,
+author or SHA; Enter and Shift+Enter jump between matches.
+
+## Commit messages
+
+The commit form has a title with a character counter, a body with a guide
+at the wrap width, and trailer rows such as `Task-number: QTBUG-123`. The
+message is put together as title, blank line, body, blank line, and one
+contiguous trailer block. Settings… sets the title limit (50), the body
+width (72), whether the body is wrapped on commit (bullets keep a hanging
+indent; indented code and long URLs are left alone), and the trailer keys
+the form offers. Amend splits the existing message back into the form,
+trailers like Change-Id included.
+
 ## Staging
 
 As in git gui: click lines to select them (Shift+click for a range, a hunk

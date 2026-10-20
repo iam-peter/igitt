@@ -41,6 +41,17 @@ private slots:
         QCOMPARE(refs[2].kind, RefInfo::Tag);
     }
 
+    void parseNumstatCountsFilesAndLines()
+    {
+        const QByteArray out = "\x01" "aaaa\n\n3\t1\tsrc/a.cpp\n-\t-\timg.png\n\x01" "bbbb\n\n0\t7\tgone.txt\n"_ba;
+        const QHash<QString, CommitStats> stats = parseNumstat(out);
+        QCOMPARE(stats.size(), 2);
+        QCOMPARE(stats[u"aaaa"_s].files, 2);
+        QCOMPARE(stats[u"aaaa"_s].added, 3);
+        QCOMPARE(stats[u"aaaa"_s].removed, 1);
+        QCOMPARE(stats[u"bbbb"_s].removed, 7);
+    }
+
     void parseStatusEntries()
     {
         const QByteArray out =

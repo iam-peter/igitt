@@ -46,9 +46,28 @@ struct DiffState
     QString error;
 };
 
+// Which refs the history shows besides local branches and HEAD.
+struct HistoryFilter
+{
+    bool remotes = true;
+    bool tags = true;
+};
+
+// When loadState() reloads the history: if `force` is set, or if HEAD or
+// the presence of uncommitted changes differs from what the UI shows.
+struct HistoryRequest
+{
+    bool force = false;
+    QString knownHead;
+    bool knownWip = false;
+    HistoryFilter filter;
+};
+
 struct HistoryState
 {
     QString head;
+    bool wip = false; // uncommitted changes, shown as a row on top
+    GraphRow wipGraph;
     QList<CommitInfo> commits;
     QList<GraphRow> graph;
     QList<RefInfo> refs;
@@ -75,10 +94,11 @@ QStringList diffFormatArgs();
 // `git status` cannot be pointed at another HEAD or index, so a simulation
 // assembles the same information from plumbing commands.
 StatusInfo loadSimulatedStatus(const StateSource &source);
-HistoryState loadHistory(const StateSource &source, const StatusInfo &status);
+HistoryState loadHistory(const StateSource &source, const StatusInfo &status, const HistoryFilter &filter = {});
 DiffState loadDiff(const StateSource &source, const DiffRequest &request, const StatusInfo &status);
 
-// Status; history when HEAD is not `knownHead` or `forceHistory` is set;
-// the working tree diff `diff` asks for, if any.
-RepositoryState loadState(const StateSource &source, const DiffRequest &diff, const QString &knownHead,
-                          bool forceHistory);
+// Status; history as `history` asks; the working tree diff `diff` asks
+// for, if any.
+RepositoryState loadState(const StateSource &source, const DiffRequest &diff, const HistoryRequest &history);
+
+QHash<QString, CommitStats> loadCommitStats(const GitRunner &git, const QStringList &shas);

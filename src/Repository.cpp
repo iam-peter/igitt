@@ -25,6 +25,10 @@ Repository::Repository(QObject *parent)
 {
     m_pool.setMaxThreadCount(1);
     connect(&m_diff, &DiffModel::selectionChanged, this, &Repository::updateFoldSuggestion);
+    // Rows request their stats as they scroll into view; collect a batch.
+    m_statsTimer.setSingleShot(true);
+    m_statsTimer.setInterval(30);
+    connect(&m_statsTimer, &QTimer::timeout, this, &Repository::loadRequestedStats);
 }
 
 Repository::~Repository()
@@ -61,9 +65,14 @@ void Repository::finish(JobKind kind, Outcome outcome)
     if (m_pendingJobs == 0 || (kind == JobKind::Write && m_pendingWrites == 0))
         emit busyChanged();
 
+    // Stats never change for a commit; whatever mode they were read in.
+    if (!outcome.stats.isEmpty() && outcome.workDir == m_git.workDir())
+        m_commits.setStats(outcome.stats);
+
     if (!outcome.openedPath.isEmpty()) {
         m_git.setWorkDir(outcome.openedPath);
         m_historyHead.clear();
+        m_statsRequested.clear();
         m_lastFold = {};
         m_diffSource = NoDiff;
         m_diffPath.clear();
@@ -111,6 +120,8 @@ void Repository::applyState(const RepositoryState &state)
     if (state.history) {
         const HistoryState &history = *state.history;
         m_historyHead = history.head;
+        m_historyWip = history.wip;
+        m_wipGraph = history.wipGraph;
         m_headMessage = history.headMessage;
         m_foldTargets = QSet<QString>(history.foldTargets.cbegin(), history.foldTargets.cend());
         m_unpublished = history.unpublished;
@@ -155,7 +166,7 @@ void Repository::open(const QString &pathOrUrl)
         endPlan();
     const QUrl url(pathOrUrl);
     const QString path = url.isLocalFile() ? url.toLocalFile() : pathOrUrl;
-    enqueue(JobKind::Read, [path](const GitRunner &) {
+    enqueue(JobKind::Read, [path, history = historyRequest(true)](const GitRunner &) {
         Outcome outcome;
         const GitResult result = GitRunner(path).run({QStringLiteral("rev-parse"),
                                                       QStringLiteral("--show-toplevel")});
@@ -165,7 +176,7 @@ void Repository::open(const QString &pathOrUrl)
         }
         outcome.openedPath = QString::fromUtf8(result.out).trimmed();
         outcome.workDir = outcome.openedPath;
-        outcome.state = loadState(sourceFor(GitRunner(outcome.openedPath), nullptr), {}, {}, true);
+        outcome.state = loadState(sourceFor(GitRunner(outcome.openedPath), nullptr), {}, history);
         return outcome;
     });
 }
@@ -174,9 +185,10 @@ void Repository::refresh()
 {
     if (!valid())
         return;
-    enqueue(JobKind::Read, [request = diffRequest(), plan = m_plan](const GitRunner &git) {
+    enqueue(JobKind::Read, [request = diffRequest(), plan = m_plan,
+                            history = historyRequest(true)](const GitRunner &git) {
         Outcome outcome;
-        outcome.state = loadState(sourceFor(git, plan), request, {}, true);
+        outcome.state = loadState(sourceFor(git, plan), request, history);
         return outcome;
     });
 }
@@ -185,9 +197,10 @@ void Repository::refreshStatus()
 {
     if (!valid())
         return;
-    enqueue(JobKind::Read, [request = diffRequest(), head = m_historyHead, plan = m_plan](const GitRunner &git) {
+    enqueue(JobKind::Read, [request = diffRequest(), history = historyRequest(false),
+                            plan = m_plan](const GitRunner &git) {
         Outcome outcome;
-        outcome.state = loadState(sourceFor(git, plan), request, head, false);
+        outcome.state = loadState(sourceFor(git, plan), request, history);
         return outcome;
     });
 }
@@ -213,13 +226,82 @@ void Repository::showFile(const QString &path, bool staged)
     if (!valid())
         return;
     setDiffView(staged ? StagedDiff : UnstagedDiff, path, {});
-    enqueue(JobKind::Read, [request = diffRequest(), head = m_historyHead, current = m_diffGeneration,
-                            plan = m_plan](const GitRunner &git) {
+    enqueue(JobKind::Read, [request = diffRequest(), history = historyRequest(false),
+                            current = m_diffGeneration, plan = m_plan](const GitRunner &git) {
         Outcome outcome;
         if (request.generation == *current)
-            outcome.state = loadState(sourceFor(git, plan), request, head, false);
+            outcome.state = loadState(sourceFor(git, plan), request, history);
         return outcome;
     });
+}
+
+void Repository::showWorkingTree()
+{
+    if (m_unstaged.count() > 0)
+        showFile(m_unstaged.data(m_unstaged.index(0), FileListModel::PathRole).toString(), false);
+    else if (m_staged.count() > 0)
+        showFile(m_staged.data(m_staged.index(0), FileListModel::PathRole).toString(), true);
+}
+
+void Repository::requestStats(const QString &sha)
+{
+    if (sha.isEmpty() || m_commits.hasStats(sha) || m_statsRequested.contains(sha))
+        return;
+    m_statsRequested.insert(sha);
+    m_statsWanted.append(sha);
+    m_statsTimer.start();
+}
+
+void Repository::loadRequestedStats()
+{
+    constexpr int BatchSize = 100;
+    const QStringList batch = m_statsWanted.mid(0, BatchSize);
+    m_statsWanted.remove(0, batch.size());
+    if (!m_statsWanted.isEmpty())
+        m_statsTimer.start();
+    enqueue(JobKind::Read, [batch](const GitRunner &git) {
+        Outcome outcome;
+        outcome.stats = loadCommitStats(git, batch);
+        return outcome;
+    });
+}
+
+QVariantMap Repository::wipCounts() const
+{
+    int modified = 0;
+    int added = 0;
+    int deleted = 0;
+    for (const StatusEntry &e : m_status.entries) {
+        if (e.untracked || e.index == QLatin1Char('A'))
+            ++added;
+        else if (e.index == QLatin1Char('D') || e.worktree == QLatin1Char('D'))
+            ++deleted;
+        else
+            ++modified;
+    }
+    return {
+        {QStringLiteral("modified"), modified},
+        {QStringLiteral("added"), added},
+        {QStringLiteral("deleted"), deleted},
+    };
+}
+
+void Repository::setShowRemotes(bool show)
+{
+    if (m_filter.remotes == show)
+        return;
+    m_filter.remotes = show;
+    emit filterChanged();
+    refresh();
+}
+
+void Repository::setShowTags(bool show)
+{
+    if (m_filter.tags == show)
+        return;
+    m_filter.tags = show;
+    emit filterChanged();
+    refresh();
 }
 
 void Repository::stageFile(const QString &path)
@@ -350,13 +432,14 @@ void Repository::commit(const QString &message, bool amend)
     QStringList args{QStringLiteral("commit"), QStringLiteral("-F"), QStringLiteral("-")};
     if (amend)
         args.append(QStringLiteral("--amend"));
-    enqueue(JobKind::Write, [args, input = message.toUtf8(), request = diffRequest()](const GitRunner &git) {
+    enqueue(JobKind::Write, [args, input = message.toUtf8(), request = diffRequest(),
+                             history = historyRequest(true)](const GitRunner &git) {
         Outcome outcome;
         const GitResult result = git.run(args, input);
         outcome.committed = result.ok();
         if (!result.ok())
             outcome.error = tr("Committing failed: %1").arg(result.errorText());
-        outcome.state = loadState(sourceFor(git, nullptr), request, {}, true);
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
         return outcome;
     });
 }
@@ -368,7 +451,8 @@ QString Repository::foldBlocker(const QString &sha) const
     if (m_diff.selectedCount() == 0)
         return tr("Select the lines to fold first.");
     if (!m_foldTargets.contains(sha))
-        return tr("Only commits of the current branch, from HEAD down to its last merge, can be folded into.");
+        return tr("Only commits of the current branch, from HEAD down to its last merge, "
+                  "can be folded into.");
     return {};
 }
 
@@ -400,7 +484,8 @@ void Repository::foldSelection(const QString &sha)
         return;
     }
 
-    enqueue(JobKind::Write, [=, request = diffRequest()](const GitRunner &git) {
+    enqueue(JobKind::Write, [=, request = diffRequest(),
+                             history = historyRequest(true)](const GitRunner &git) {
         Outcome outcome;
         const FoldResult result = FoldEngine(git).fold(sha, patch, base);
         if (!result.ok) {
@@ -417,7 +502,7 @@ void Repository::foldSelection(const QString &sha)
                 outcome.notice = tr("Folded %n line(s) into %1 and rewrote %2 commit(s).", "", lines)
                                      .arg(target).arg(result.rewritten);
         }
-        outcome.state = loadState(sourceFor(git, nullptr), request, {}, true);
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
         return outcome;
     });
 }
@@ -429,7 +514,8 @@ void Repository::undoFold()
     const LastFold fold = m_lastFold;
     forgetFold();
 
-    enqueue(JobKind::Write, [fold, request = diffRequest()](const GitRunner &git) {
+    enqueue(JobKind::Write, [fold, request = diffRequest(),
+                             history = historyRequest(true)](const GitRunner &git) {
         Outcome outcome;
         const GitResult moved = git.run({QStringLiteral("update-ref"), QStringLiteral("-m"),
                                          QStringLiteral("igitt: undo fold"), QStringLiteral("HEAD"),
@@ -446,7 +532,7 @@ void Repository::undoFold()
         }
         if (outcome.error.isEmpty())
             outcome.notice = tr("Fold undone.");
-        outcome.state = loadState(sourceFor(git, nullptr), request, {}, true);
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
         return outcome;
     });
 }
@@ -461,7 +547,8 @@ void Repository::startPlanning()
     m_planModel.clear();
     emit planningChanged();
 
-    enqueue(JobKind::Read, [plan = m_plan, request = diffRequest()](const GitRunner &git) {
+    enqueue(JobKind::Read, [plan = m_plan, request = diffRequest(),
+                            history = historyRequest(true)](const GitRunner &git) {
         Outcome outcome;
         QString error;
         if (!plan->begin(git, error)) {
@@ -470,7 +557,7 @@ void Repository::startPlanning()
             return outcome;
         }
         outcome.plan = snapshot(*plan);
-        outcome.state = loadState(plan->source(), request, {}, true);
+        outcome.state = loadState(plan->source(), request, history);
         return outcome;
     });
 }
@@ -487,19 +574,20 @@ void Repository::executePlan()
 {
     if (!m_plan)
         return;
-    enqueue(JobKind::Write, [plan = m_plan, request = diffRequest()](const GitRunner &git) {
+    enqueue(JobKind::Write, [plan = m_plan, request = diffRequest(),
+                             history = historyRequest(true)](const GitRunner &git) {
         Outcome outcome;
         QString error;
         const int count = int(plan->entries().size());
         if (!plan->execute(error)) {
             outcome.error = tr("The plan was not executed: %1").arg(error);
             outcome.plan = snapshot(*plan);
-            outcome.state = loadState(plan->source(), request, {}, true);
+            outcome.state = loadState(plan->source(), request, history);
             return outcome;
         }
         outcome.planEnded = true;
         outcome.notice = tr("Executed %n planned action(s).", "", count);
-        outcome.state = loadState(sourceFor(git, nullptr), request, {}, true);
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
         return outcome;
     });
 }
@@ -508,18 +596,20 @@ void Repository::removePlanEntry(int entryId)
 {
     if (!m_plan)
         return;
-    enqueue(JobKind::Write, [plan = m_plan, entryId, request = diffRequest()](const GitRunner &) {
+    enqueue(JobKind::Write, [plan = m_plan, entryId, request = diffRequest(),
+                             history = historyRequest(true)](const GitRunner &) {
         Outcome outcome;
         plan->remove(entryId);
         outcome.plan = snapshot(*plan);
-        outcome.state = loadState(plan->source(), request, {}, true);
+        outcome.state = loadState(plan->source(), request, history);
         return outcome;
     });
 }
 
 void Repository::enqueuePlanEntry(const PlanEntry &entry)
 {
-    enqueue(JobKind::Write, [plan = m_plan, entry, request = diffRequest()](const GitRunner &) {
+    enqueue(JobKind::Write, [plan = m_plan, entry, request = diffRequest(),
+                             history = historyRequest(true)](const GitRunner &) {
         Outcome outcome;
         QString error;
         if (plan->add(entry, error))
@@ -527,7 +617,7 @@ void Repository::enqueuePlanEntry(const PlanEntry &entry)
         else
             outcome.error = tr("Could not plan “%1”: %2").arg(entry.title, error);
         outcome.plan = snapshot(*plan);
-        outcome.state = loadState(plan->source(), request, {}, true);
+        outcome.state = loadState(plan->source(), request, history);
         return outcome;
     });
 }
@@ -547,12 +637,13 @@ Repository::PlanSnapshot Repository::snapshot(const PlanSession &plan)
 
 void Repository::enqueueCommand(const QString &what, const QStringList &args, const QByteArray &input)
 {
-    enqueue(JobKind::Write, [=, request = diffRequest(), head = m_historyHead](const GitRunner &git) {
+    enqueue(JobKind::Write, [=, request = diffRequest(),
+                             history = historyRequest(false)](const GitRunner &git) {
         Outcome outcome;
         const GitResult result = git.run(args, input);
         if (!result.ok())
             outcome.error = tr("%1 failed: %2").arg(what, result.errorText());
-        outcome.state = loadState(sourceFor(git, nullptr), request, head, false);
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
         return outcome;
     });
 }
@@ -571,6 +662,11 @@ void Repository::setDiffView(DiffSource source, const QString &path, const QStri
 DiffRequest Repository::diffRequest() const
 {
     return {diffKind(m_diffSource), m_diffPath, m_diffCommit, *m_diffGeneration};
+}
+
+HistoryRequest Repository::historyRequest(bool force) const
+{
+    return {force, m_historyHead, m_historyWip, m_filter};
 }
 
 void Repository::forgetFold()

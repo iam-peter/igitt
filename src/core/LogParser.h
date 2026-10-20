@@ -27,6 +27,18 @@ struct RefInfo
     Kind kind = LocalBranch;
 };
 
+struct CommitStats
+{
+    int files = 0;
+    int added = 0;
+    int removed = 0; // binary files count as files only
+};
+
+// Arguments for `git log` that list the stats of the commits appended to
+// them, in the format parseNumstat() expects.
+QStringList numstatArgs();
+QHash<QString, CommitStats> parseNumstat(const QByteArray &out);
+
 // Arguments for `git log` that produce the format parseLog() expects.
 QStringList logFormatArgs();
 QList<CommitInfo> parseLog(const QByteArray &out);

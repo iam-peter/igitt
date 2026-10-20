@@ -60,6 +60,28 @@ private slots:
         QVERIFY(rows[3].segments.contains(GraphSegment{0, 0, 0, true}));
     }
 
+    void workingTreeRowLeadsIntoHead()
+    {
+        GraphRow wip;
+        const QList<GraphRow> rows = layoutGraphWithWip({commit("b", {"a"}), commit("a", {})}, "b", wip);
+        QCOMPARE(rows.size(), 2);
+        QCOMPARE(wip.column, 0);
+        QCOMPARE(wip.segments, (QList<GraphSegment>{{0, 0, 0, false}}));
+        // HEAD now has a line coming in from above.
+        QVERIFY(rows[0].segments.contains(GraphSegment{0, 0, 0, true}));
+    }
+
+    void workingTreeRowReachesHeadBelowOtherTips()
+    {
+        GraphRow wip;
+        const QList<GraphRow> rows = layoutGraphWithWip({commit("x", {"a"}), commit("b", {"a"}), commit("a", {})},
+                                                        "b", wip);
+        // The other tip takes a lane of its own; the WIP lane passes it.
+        QCOMPARE(rows[0].column, 1);
+        QVERIFY(rows[0].segments.contains(GraphSegment{0, 0, 0, true}));
+        QCOMPARE(rows[1].column, 0);
+    }
+
     void secondBranchTipGetsFreeLane()
     {
         const QList<GraphRow> rows = layoutGraph({

@@ -15,6 +15,7 @@ qt_add_qml_module(igitt_core
         core/FoldSuggester.h core/FoldSuggester.cpp
         core/StateLoader.h core/StateLoader.cpp
         core/PlanSession.h core/PlanSession.cpp
+        core/MessageFormat.h core/MessageFormat.cpp
         models/PlanModel.h models/PlanModel.cpp
         models/CommitModel.h models/CommitModel.cpp
         models/FileListModel.h models/FileListModel.cpp
@@ -24,11 +25,12 @@ qt_add_qml_module(igitt_core
 # The generated QML type registrations include headers by file name only.
 target_include_directories(igitt_core
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/models
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/models ${CMAKE_CURRENT_SOURCE_DIR}/core
 )
 target_link_libraries(igitt_core PUBLIC Qt6::Core Qt6::Qml)
 
 # UI: QML and the custom items, as a library so the UI smoke test can load it.
+set_source_files_properties(qml/AppSettings.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 qt_add_library(igitt_ui STATIC)
 qt_add_qml_module(igitt_ui
     URI Igitt
@@ -42,8 +44,14 @@ qt_add_qml_module(igitt_ui
         qml/FileList.qml
         qml/DiffView.qml
         qml/PlanPane.qml
+        qml/WipRow.qml
+        qml/Tag.qml
+        qml/CommitBox.qml
+        qml/SettingsDialog.qml
+        qml/AppSettings.qml
     SOURCES
         ui/CommitGraph.h ui/CommitGraph.cpp
+        ui/Clipboard.h
 )
 target_include_directories(igitt_ui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ui)
 target_link_libraries(igitt_ui PUBLIC

@@ -13,6 +13,8 @@ int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
     QGuiApplication::setApplicationName(QStringLiteral("igitt"));
+    QGuiApplication::setOrganizationName(QStringLiteral("igitt"));
+    QGuiApplication::setOrganizationDomain(QStringLiteral("igitt.local"));
     QGuiApplication::setApplicationVersion(QStringLiteral(PROJECT_VERSION));
     QQuickStyle::setStyle(QStringLiteral("Fusion"));
 
