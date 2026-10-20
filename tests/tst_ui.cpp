@@ -53,7 +53,8 @@ private slots:
         QCoreApplication::setOrganizationName(u"igitt-test"_s);
         QCoreApplication::setOrganizationDomain(u"igitt.test"_s);
         QSettings().clear();
-        QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
+        if (qEnvironmentVariableIsEmpty("IGITT_TEST_DEFAULT_RHI"))
+            QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
         QQuickStyle::setStyle(u"Fusion"_s);
         Fonts::registerBundled();
         createDemoRepository();
@@ -187,8 +188,17 @@ private slots:
         lapse->setRevision(lapse->revisionCount() - 2);
         QTRY_VERIFY(!lapse->busy());
         screenshot(lapseWindow, u"timelapse-previous"_s);
+        // Like dragging the slider and toggling, then closing mid-load.
+        for (int r = 0; r < lapse->revisionCount(); ++r) {
+            lapse->setRevision(r);
+            QTest::qWait(5);
+        }
+        lapse->setShowDeleted(false);
+        QTest::qWait(30);
+        lapse->setShowDeleted(true);
         lapseWindow->close();
         QTRY_VERIFY(!timelapseWindow());
+        QTest::qWait(300);
 
         // Searching dims what doesn't match; the minimap is above the graph.
         auto *search = window->findChild<QQuickItem *>(u"historySearch"_s);
@@ -318,6 +328,18 @@ private slots:
 
         for (const QQmlError &w : std::as_const(warnings))
             qWarning().noquote() << w.toString();
+        QVERIFY(warnings.isEmpty());
+
+        // A time-lapse window survives garbage collection, and closes with
+        // the main window.
+        QVERIFY(QMetaObject::invokeMethod(window, "openTimelapse", Q_ARG(QString, u"app.txt"_s)));
+        QTRY_VERIFY(timelapseWindow() && !timelapseWindow()->findChild<Timelapse *>()->busy()
+                    && timelapseWindow()->findChild<Timelapse *>()->rowCount() > 0);
+        engine.collectGarbage();
+        QTest::qWait(200);
+        QVERIFY(timelapseWindow());
+        window->close();
+        QTRY_VERIFY(!timelapseWindow());
         QVERIFY(warnings.isEmpty());
     }
 

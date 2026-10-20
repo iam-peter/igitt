@@ -60,16 +60,30 @@ ApplicationWindow {
         }
     }
 
+    // Open time-lapse windows. They have no parent (so they are not kept
+    // above this window), which leaves them to the garbage collector unless
+    // something refers to them.
+    property list<Window> timelapses
+
     function openTimelapse(path: string) {
-        timelapseWindow.createObject(null, {workDir: repo.path, path: path, monoFont: root.monoFont,
-                                            font: root.uiFont})
+        timelapses.push(timelapseWindow.createObject(null, {workDir: repo.path, path: path,
+                                                           monoFont: root.monoFont, font: root.uiFont}))
     }
 
     Component {
         id: timelapseWindow
         TimelapseWindow {
-            onClosing: destroy()
+            id: timelapse
+            onClosing: {
+                root.timelapses = Array.from(root.timelapses).filter(w => w !== timelapse)
+                timelapse.destroy()
+            }
         }
+    }
+
+    onClosing: {
+        for (const timelapse of Array.from(timelapses))
+            timelapse.close()
     }
 
     function openSettings() {
