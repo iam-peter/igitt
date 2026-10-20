@@ -276,9 +276,12 @@ private slots:
         window->findChild<QQuickItem *>(u"commitTitle"_s)->setProperty("text", u"Change line four"_s);
         window->findChild<QQuickItem *>(u"commitBody"_s)->setProperty(
             "text", u"This explains at length why line four had to change, far beyond seventy-two characters."_s);
+        // Not only the first key in the list: each row keeps the key picked.
         QVERIFY(QMetaObject::invokeMethod(box, "addTrailer", Q_ARG(QString, u"Task-number"_s)));
-        QTRY_VERIFY(findItem(window->contentItem(), u"trailerValue"_s));
-        findItem(window->contentItem(), u"trailerValue"_s)->setProperty("text", u"QTBUG-123"_s);
+        QVERIFY(QMetaObject::invokeMethod(box, "addTrailer", Q_ARG(QString, u"Fixes"_s)));
+        QTRY_COMPARE(findItems(window->contentItem(), u"trailerValue"_s).size(), 2);
+        findItems(window->contentItem(), u"trailerValue"_s)[0]->setProperty("text", u"QTBUG-123"_s);
+        findItems(window->contentItem(), u"trailerValue"_s)[1]->setProperty("text", u"QTBUG-99"_s);
         screenshot(window, u"commit-form"_s);
         click(window, u"commitButton"_s);
         QVERIFY(settle(*repo));
@@ -286,8 +289,36 @@ private slots:
                  "Change line four\n\n"
                  "This explains at length why line four had to change, far beyond\n"
                  "seventy-two characters.\n\n"
-                 "Task-number: QTBUG-123"_ba);
+                 "Task-number: QTBUG-123\n"
+                 "Fixes: QTBUG-99"_ba);
         QCOMPARE(window->findChild<QQuickItem *>(u"commitTitle"_s)->property("text").toString(), QString());
+
+        // A trailer's key can be picked from the list or typed.
+        {
+            QVERIFY(QMetaObject::invokeMethod(box, "addTrailer", Q_ARG(QString, u"Fixes"_s)));
+            QVERIFY(QMetaObject::invokeMethod(box, "addTrailer", Q_ARG(QString, u"Fixes"_s)));
+            QTRY_COMPARE(findItems(window->contentItem(), u"trailerKey"_s).size(), 2);
+            const QList<QQuickItem *> keys = findItems(window->contentItem(), u"trailerKey"_s);
+            const QList<QQuickItem *> values = findItems(window->contentItem(), u"trailerValue"_s);
+            int pickTo = -1;
+            QVERIFY(QMetaObject::invokeMethod(keys[0], "find", Q_RETURN_ARG(int, pickTo), Q_ARG(QString, u"Pick-to"_s)));
+            QVERIFY(pickTo > 0);
+            QVERIFY(QMetaObject::invokeMethod(keys[0], "activated", Q_ARG(int, pickTo)));
+            // Adding a trailer focuses its value field; then edit the key.
+            QTRY_VERIFY(values[1]->hasActiveFocus());
+            QVERIFY(QQuickTest::qWaitForPolish(window));
+            QTest::mouseClick(window, Qt::LeftButton, {}, keys[1]->mapToScene({20, keys[1]->height() / 2}).toPoint());
+            QTRY_VERIFY(keys[1]->hasActiveFocus());
+            QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+            for (const char c : "Reviewed-by"_ba)
+                QTest::keyClick(window, c);
+            values[0]->setProperty("text", u"6.8"_s);
+            values[1]->setProperty("text", u"Ada"_s);
+            QString message;
+            QVERIFY(QMetaObject::invokeMethod(box, "message", Q_RETURN_ARG(QString, message)));
+            QVERIFY2(message.endsWith(u"Pick-to: 6.8\nReviewed-by: Ada\n"_s), qPrintable(message));
+            QVERIFY(QMetaObject::invokeMethod(box, "clear"));
+        }
 
         // A merge conflict, resolved in the merge tool.
         git({"add", "-A"});
@@ -435,6 +466,18 @@ private:
                 return found;
         }
         return nullptr;
+    }
+
+    static QList<QQuickItem *> findItems(QQuickItem *root, const QString &objectName)
+    {
+        QList<QQuickItem *> found;
+        if (!root->isVisible())
+            return found;
+        if (root->objectName() == objectName)
+            found.append(root);
+        for (QQuickItem *child : root->childItems())
+            found += findItems(child, objectName);
+        return found;
     }
 
     QQuickItem *fileRow(QQuickWindow *window, const QString &list, const QString &path)

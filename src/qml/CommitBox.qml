@@ -179,11 +179,22 @@ ColumnLayout {
             Layout.rightMargin: 4
 
             ComboBox {
+                objectName: "trailerKey"
                 Layout.preferredWidth: 150
                 editable: true
                 model: box.limits.trailerKeys
-                editText: trailerRow.key
-                onEditTextChanged: trailers.setProperty(trailerRow.index, "key", editText)
+                // Set once rather than bound: loading the model selects its
+                // first entry, which would overwrite the key that was picked.
+                Component.onCompleted: {
+                    currentIndex = find(trailerRow.key)
+                    editText = trailerRow.key
+                }
+                // Only what the user picks or types changes the trailer.
+                onActivated: index => trailers.setProperty(trailerRow.index, "key", textAt(index))
+                onEditTextChanged: {
+                    if (activeFocus)
+                        trailers.setProperty(trailerRow.index, "key", editText)
+                }
             }
             TextField {
                 id: valueField
