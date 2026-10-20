@@ -80,6 +80,9 @@ QString upstreamRemote(const GitRunner &git);
 NetworkResult pushTo(const GitRunner &git, const PushTarget &target, bool force);
 // Fetches `remote`, or all remotes if empty, pruning deleted branches.
 NetworkResult fetchFrom(const GitRunner &git, const QString &remote);
+// Fetches the objects of `ref` from `remote` without writing any ref or
+// FETCH_HEAD, e.g. a Gerrit patch set to compare with.
+NetworkResult fetchObjects(const GitRunner &git, const QString &remote, const QString &ref);
 
 QStringList remoteLinks(const QString &stderrText);
 // Turns git's errors about credentials and SSH into advice; igitt cannot

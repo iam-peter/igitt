@@ -230,6 +230,27 @@ DiffState loadDiff(const StateSource &source, const DiffRequest &request, const 
             diff.error = tr("Showing commit %1 failed: %2").arg(request.commit.left(10), result.errorText());
         return diff;
     }
+    if (request.kind == DiffKind::Range) {
+        const QString commit = QString::fromUtf8(git.run({QStringLiteral("show"), QStringLiteral("-s"),
+                                                          QStringLiteral("--format=%h %s"), request.commit,
+                                                          QStringLiteral("--")}).out).trimmed();
+        diff.details = tr("From %1 (%2)\nto %3").arg(request.baseName, request.base.left(10), commit);
+        const GitResult parents = git.run({QStringLiteral("rev-parse"), request.base + QStringLiteral("^@"),
+                                           request.commit + QStringLiteral("^@")});
+        const QList<QByteArray> ids = parents.out.trimmed().split('\n');
+        if (parents.ok() && (ids.size() != 2 || ids[0] != ids[1]))
+            diff.details += QLatin1String("\n\n")
+                + tr("They are on different parents, so this includes what the rebase brought in.");
+        const GitResult result = git.run(QStringList{QStringLiteral("diff")} + diffFormatArgs()
+                                         + QStringList{request.base, request.commit, QStringLiteral("--")});
+        if (result.ok())
+            diff.files = parseDiff(result.out);
+        else
+            diff.error = tr("Comparing with %1 failed: %2").arg(request.baseName, result.errorText());
+        if (result.ok() && diff.files.isEmpty())
+            diff.message = tr("No differences.");
+        return diff;
+    }
     if (request.kind == DiffKind::Content) {
         // The file as it is on disk; if it is gone from there, as staged.
         QByteArray data;

@@ -110,6 +110,9 @@ Pane {
                         case Repository.StagedDiff: return qsTr("Staged: %1").arg(view.repo.diffPath)
                         case Repository.CommitDiff: return qsTr("Commit %1").arg(view.repo.diffCommit.substring(0, 10))
                         case Repository.FileContent: return qsTr("File: %1").arg(view.repo.diffPath)
+                        case Repository.PatchSetDiff:
+                            return qsTr("Patch set %1 → commit %2").arg(view.repo.diffPatchSet)
+                                .arg(view.repo.diffCommit.substring(0, 10))
                         default: return ""
                         }
                     }
@@ -244,8 +247,8 @@ Pane {
 
         BoundedScrollView {
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.min(details.implicitHeight + 12, view.height * 0.35)
-            visible: view.repo.diffSource === Repository.CommitDiff
+            Layout.preferredHeight: Math.min(details.implicitHeight + 12, view.height * (review.visible ? 0.25 : 0.35))
+            visible: view.repo.diffSource === Repository.CommitDiff || view.repo.diffSource === Repository.PatchSetDiff
 
             TextArea {
                 id: details
@@ -255,6 +258,17 @@ Pane {
                 font: view.monoFont
                 text: view.repo.commitDetails
             }
+        }
+
+        ReviewPanel {
+            id: review
+
+            objectName: "reviewPanel"
+            Layout.fillWidth: true
+            Layout.fillHeight: false // the diff gets what is left
+            repo: view.repo
+            monoFont: view.monoFont
+            maxBodyHeight: view.height * 0.25
         }
 
         ListView {
@@ -297,9 +311,17 @@ Pane {
                 required property int removed
 
                 readonly property bool header: kind === DiffModel.FileHeader
+                // Gerrit's inline comments on this line, on either side.
+                readonly property var comments: {
+                    const marks = view.repo.diffComments
+                    if (kind < DiffModel.Context || kind > DiffModel.Removed || marks.newSide === undefined)
+                        return []
+                    const on = (side, line) => line > 0 ? side[`${path}:${line}`] ?? [] : []
+                    return on(marks.oldSide, oldLine).concat(on(marks.newSide, newLine))
+                }
 
                 width: lines.contentWidth
-                height: header ? metrics.height + 12 : metrics.height + 2
+                height: lineArea.height + (comments.length > 0 ? commentBox.implicitHeight : 0)
                 color: {
                     if (selected)
                         return Qt.alpha(view.palette.highlight, 0.55)
@@ -312,11 +334,72 @@ Pane {
                     }
                 }
 
+                Item {
+                    id: lineArea
+                    width: parent.width
+                    height: row.header ? metrics.height + 12 : metrics.height + 2
+                }
+
+                // Shown below the line, as Gerrit does, without the
+                // line's tint.
+                Rectangle {
+                    visible: commentBox.visible
+                    y: lineArea.height
+                    width: parent.width
+                    height: parent.height - y
+                    color: view.palette.base
+                }
+                Column {
+                    id: commentBox
+
+                    visible: row.comments.length > 0
+                    x: lines.contentX + lines.gutterWidth
+                    y: lineArea.height
+                    width: Math.min(lines.width - lines.gutterWidth - 16, 720)
+                    spacing: 2
+                    bottomPadding: 4
+
+                    Repeater {
+                        model: row.comments
+
+                        delegate: Rectangle {
+                            id: lineComment
+
+                            required property var modelData
+
+                            width: commentBox.width
+                            height: commentText.implicitHeight + 8
+                            radius: 4
+                            color: view.palette.toolTipBase
+                            border.color: view.palette.mid
+
+                            Icon {
+                                id: commentIcon
+                                x: 5
+                                y: 5
+                                name: "message-square"
+                                size: 14
+                                color: view.palette.toolTipText
+                            }
+                            Text {
+                                id: commentText
+                                x: commentIcon.x + commentIcon.width + 6
+                                y: 4
+                                width: parent.width - x - 6
+                                wrapMode: Text.Wrap
+                                textFormat: Text.PlainText
+                                color: view.palette.toolTipText
+                                text: `${lineComment.modelData.author}: ${lineComment.modelData.text}`
+                            }
+                        }
+                    }
+                }
+
                 Text {
                     id: gutter
                     visible: row.kind >= DiffModel.Context && row.kind <= DiffModel.Removed
                     width: lines.gutterWidth
-                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenter: lineArea.verticalCenter
                     font: view.monoFont
                     color: view.palette.placeholderText
                     text: {
@@ -329,7 +412,7 @@ Pane {
                 Icon {
                     visible: row.header
                     x: 6
-                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenter: lineArea.verticalCenter
                     name: row.collapsed ? "chevron-right" : "chevron-down"
                 }
 
@@ -337,7 +420,7 @@ Pane {
                     id: lineText
                     anchors.left: parent.left
                     anchors.leftMargin: row.header ? 28 : lines.gutterWidth
-                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenter: lineArea.verticalCenter
                     font.family: view.monoFont.family
                     font.pointSize: view.monoFont.pointSize
                     font.bold: row.header
@@ -361,7 +444,7 @@ Pane {
                     visible: row.header && (row.added > 0 || row.removed > 0)
                     anchors.left: lineText.right
                     anchors.leftMargin: 12
-                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenter: lineArea.verticalCenter
                     spacing: 6
 
                     Label {

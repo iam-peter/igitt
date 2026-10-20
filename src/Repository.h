@@ -57,6 +57,22 @@ class Repository : public QObject
     Q_PROPERTY(QString diffPath READ diffPath NOTIFY diffChanged)
     Q_PROPERTY(QString diffCommit READ diffCommit NOTIFY diffChanged)
     Q_PROPERTY(QString commitDetails READ commitDetails NOTIFY diffChanged)
+    // PatchSetDiff: the patch set the commit on display is compared with.
+    Q_PROPERTY(int diffPatchSet READ diffPatchSet NOTIFY diffChanged)
+    // What Gerrit has on the commit on display, if it is one of those a
+    // push for review sends and Gerrit has a change for it; empty if not.
+    // {number, url, patchSet, localPatchSet, unresolved,
+    //  messages: [{author, date, text}],
+    //  comments: [{patchSet, file, line, author, text, marked}], newest
+    //  patch set first; `marked` ones are shown on their lines in the diff,
+    //  patchSets: [{number, revision, uploader, date, kind, kindText,
+    //  comments, current, local}], newest first}
+    Q_PROPERTY(QVariantMap commitReview READ commitReview NOTIFY commitReviewChanged)
+    // The inline comments on the lines of the diff on display:
+    // {oldSide: {"path:line": [{author, text}]}, newSide: {...}}. Only
+    // comments on a patch set that is one side of the diff are there, as
+    // line numbers of other patch sets need not match.
+    Q_PROPERTY(QVariantMap diffComments READ diffComments NOTIFY commitReviewChanged)
     // The file on display has unresolved conflicts; show the merge tool.
     Q_PROPERTY(bool diffConflicted READ diffConflicted NOTIFY diffChanged)
     Q_PROPERTY(bool canUndoFold READ canUndoFold NOTIFY canUndoFoldChanged)
@@ -98,7 +114,9 @@ class Repository : public QObject
     Q_PROPERTY(PlanModel *plan READ plan CONSTANT)
 
 public:
-    enum DiffSource { NoDiff, UnstagedDiff, StagedDiff, CommitDiff, FileContent };
+    // PatchSetDiff: from a Gerrit patch set (diffPatchSet) to the commit
+    // on display (diffCommit).
+    enum DiffSource { NoDiff, UnstagedDiff, StagedDiff, CommitDiff, FileContent, PatchSetDiff };
     Q_ENUM(DiffSource)
 
     explicit Repository(QObject *parent = nullptr);
@@ -123,6 +141,9 @@ public:
     QString diffPath() const { return m_diffPath; }
     QString diffCommit() const { return m_diffCommit; }
     QString commitDetails() const { return m_commitDetails; }
+    int diffPatchSet() const { return m_diffSource == PatchSetDiff ? m_diffPatchSet : 0; }
+    QVariantMap commitReview() const;
+    QVariantMap diffComments() const;
     bool diffConflicted() const { return m_diffConflicted; }
     bool canUndoFold() const { return !m_lastFold.newHead.isEmpty(); }
     QString suggestedFoldTarget() const { return m_suggestedFoldTarget; }
@@ -161,6 +182,9 @@ public:
     Q_INVOKABLE void refreshStatus();
 
     Q_INVOKABLE void showCommit(const QString &sha);
+    // Compares the commit on display with its change's patch set `number`,
+    // fetching the patch set first if it is not here yet.
+    Q_INVOKABLE void comparePatchSet(int number);
     Q_INVOKABLE void showFile(const QString &path, bool staged);
     // Shows a file's content as it is in the working tree.
     Q_INVOKABLE void showFileContent(const QString &path);
@@ -235,6 +259,7 @@ signals:
     void pushSettingsChanged();
     void pushRejected(const QString &reason, const QString &target);
     void reviewsChanged();
+    void commitReviewChanged();
     void committed();
     void errorOccurred(const QString &message);
     // `links` are URLs the remote printed, such as Gerrit's changes.
@@ -292,7 +317,9 @@ private:
     // Where jobs read from: the plan's simulation while planning.
     static StateSource sourceFor(const GitRunner &git, const std::shared_ptr<PlanSession> &plan);
 
-    void setDiffView(DiffSource source, const QString &path, const QString &commit);
+    void setDiffView(DiffSource source, const QString &path, const QString &commit, int patchSet = 0);
+    // What Gerrit has on the commit on display, if anything.
+    const ReviewInfo *shownReview() const;
     DiffRequest diffRequest() const;
     HistoryRequest historyRequest(bool force) const;
     void loadRequestedStats();
@@ -337,6 +364,8 @@ private:
     DiffSource m_diffSource = NoDiff;
     QString m_diffPath;
     QString m_diffCommit;
+    int m_diffPatchSet = 0;
+    QString m_diffBase; // PatchSetDiff: the patch set's revision
     QString m_commitDetails;
     bool m_diffConflicted = false;
     FoldSuggester m_suggester;

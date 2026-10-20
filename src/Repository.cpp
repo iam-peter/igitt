@@ -17,6 +17,7 @@ DiffKind diffKind(Repository::DiffSource source)
     case Repository::StagedDiff: return DiffKind::Staged;
     case Repository::CommitDiff: return DiffKind::Commit;
     case Repository::FileContent: return DiffKind::Content;
+    case Repository::PatchSetDiff: return DiffKind::Range;
     case Repository::NoDiff: break;
     }
     return DiffKind::None;
@@ -88,12 +89,15 @@ void Repository::finish(JobKind kind, Outcome outcome)
         m_diffSource = NoDiff;
         m_diffPath.clear();
         m_diffCommit.clear();
+        m_diffPatchSet = 0;
+        m_diffBase.clear();
         m_commitDetails.clear();
         ++*m_diffGeneration;
         m_suggester = FoldSuggester();
         m_diff.clear();
         emit pathChanged();
         emit diffChanged();
+        emit commitReviewChanged();
         emit canUndoFoldChanged();
     }
 
@@ -239,6 +243,39 @@ void Repository::showCommit(const QString &sha)
         // last one matters.
         if (request.generation == *current)
             outcome.state.diff = loadDiff(sourceFor(git, plan), request, {});
+        return outcome;
+    });
+}
+
+void Repository::comparePatchSet(int number)
+{
+    const ReviewInfo *review = shownReview();
+    const GerritPatchSet *patchSet = review ? review->findPatchSet(number) : nullptr;
+    if (!patchSet || patchSet->revision.isEmpty())
+        return;
+    const QString revision = patchSet->revision;
+    const QString ref = patchSet->ref;
+    setDiffView(PatchSetDiff, {}, m_diffCommit, number);
+    m_diffBase = revision;
+    enqueue(JobKind::Read, [request = diffRequest(), current = m_diffGeneration, plan = m_plan,
+                            remote = m_pushTarget.remote, ref](const GitRunner &git) {
+        Outcome outcome;
+        if (request.generation != *current)
+            return outcome;
+        // Patch sets uploaded from elsewhere are not here yet. Fetched
+        // without a ref to keep them, as only this comparison needs them.
+        if (!git.run({QStringLiteral("cat-file"), QStringLiteral("-e"), request.base + QStringLiteral("^{commit}")})
+                 .ok()) {
+            const NetworkResult fetched = fetchObjects(git, remote, ref);
+            if (!fetched.ok) {
+                DiffState diff;
+                diff.request = request;
+                diff.message = tr("Fetching %1 from %2 failed: %3").arg(ref, remote, fetched.message);
+                outcome.state.diff = diff;
+                return outcome;
+            }
+        }
+        outcome.state.diff = loadDiff(sourceFor(git, plan), request, {});
         return outcome;
     });
 }
@@ -757,21 +794,33 @@ void Repository::enqueueCommand(const QString &what, const QStringList &args, co
     });
 }
 
-void Repository::setDiffView(DiffSource source, const QString &path, const QString &commit)
+void Repository::setDiffView(DiffSource source, const QString &path, const QString &commit, int patchSet)
 {
     m_diffSource = source;
     m_diffPath = path;
     m_diffCommit = commit;
-    if (source != CommitDiff)
+    m_diffPatchSet = patchSet;
+    m_diffBase.clear();
+    if (source != CommitDiff && source != PatchSetDiff)
         m_commitDetails.clear();
     m_diffConflicted = false;
     ++*m_diffGeneration;
     emit diffChanged();
+    emit commitReviewChanged();
 }
 
 DiffRequest Repository::diffRequest() const
 {
-    return {diffKind(m_diffSource), m_diffPath, m_diffCommit, *m_diffGeneration};
+    DiffRequest request;
+    request.kind = diffKind(m_diffSource);
+    request.path = m_diffPath;
+    request.commit = m_diffCommit;
+    request.generation = *m_diffGeneration;
+    if (m_diffSource == PatchSetDiff) {
+        request.base = m_diffBase;
+        request.baseName = tr("patch set %1").arg(m_diffPatchSet);
+    }
+    return request;
 }
 
 HistoryRequest Repository::historyRequest(bool force) const
@@ -821,7 +870,7 @@ void Repository::setReviews(const ReviewQuery &reviews)
             {QStringLiteral("hashtags"), it->hashtags},
             {QStringLiteral("codeReview"), it->shownVote(QStringLiteral("Code-Review"))},
             {QStringLiteral("verified"), it->shownVote(QStringLiteral("Verified"))},
-            {QStringLiteral("comments"), it->comments},
+            {QStringLiteral("comments"), int(it->comments.size())},
             {QStringLiteral("unresolved"), it->unresolved ? QVariant(*it->unresolved) : QVariant()},
             {QStringLiteral("badges"), it->badges()},
             {QStringLiteral("details"), it->details()},
@@ -829,6 +878,91 @@ void Repository::setReviews(const ReviewQuery &reviews)
     }
     m_commits.setReviews(bySha);
     emit reviewsChanged();
+    emit commitReviewChanged();
+}
+
+const ReviewInfo *Repository::shownReview() const
+{
+    if (m_diffSource != CommitDiff && m_diffSource != PatchSetDiff)
+        return nullptr;
+    const auto it = m_reviews.bySha.constFind(m_diffCommit);
+    return it != m_reviews.bySha.cend() && it->number > 0 ? &*it : nullptr;
+}
+
+QVariantMap Repository::commitReview() const
+{
+    const ReviewInfo *review = shownReview();
+    if (!review)
+        return {};
+    // The patch sets the diff on display shows, whose comments it marks.
+    const int oldSide = diffPatchSet();
+    const int newSide = review->localPatchSet;
+
+    QVariantList messages;
+    for (const GerritMessage &message : review->messages) {
+        messages.append(QVariantMap{{QStringLiteral("author"), message.author},
+                                    {QStringLiteral("date"), message.date},
+                                    {QStringLiteral("text"), message.text}});
+    }
+    QVariantList patchSets;
+    QVariantList comments;
+    for (auto set = review->patchSets.crbegin(); set != review->patchSets.crend(); ++set) {
+        patchSets.append(QVariantMap{
+            {QStringLiteral("number"), set->number},
+            {QStringLiteral("revision"), set->revision},
+            {QStringLiteral("uploader"), set->uploader},
+            {QStringLiteral("date"), set->created},
+            {QStringLiteral("kind"), set->kind},
+            {QStringLiteral("kindText"), patchSetKindText(set->kind)},
+            {QStringLiteral("comments"), int(set->comments.size())},
+            {QStringLiteral("current"), set->number == review->patchSet},
+            {QStringLiteral("local"), set->number == review->localPatchSet},
+        });
+        for (const GerritComment &comment : set->comments) {
+            const bool marked = comment.line > 0 && (set->number == oldSide || set->number == newSide);
+            comments.append(QVariantMap{{QStringLiteral("patchSet"), comment.patchSet},
+                                        {QStringLiteral("file"), comment.file},
+                                        {QStringLiteral("line"), comment.line},
+                                        {QStringLiteral("author"), comment.author},
+                                        {QStringLiteral("text"), comment.text},
+                                        {QStringLiteral("marked"), marked}});
+        }
+    }
+    return {
+        {QStringLiteral("number"), review->number},
+        {QStringLiteral("url"), review->url},
+        {QStringLiteral("patchSet"), review->patchSet},
+        {QStringLiteral("localPatchSet"), review->localPatchSet},
+        {QStringLiteral("unresolved"), review->unresolved ? QVariant(*review->unresolved) : QVariant()},
+        {QStringLiteral("messages"), messages},
+        {QStringLiteral("comments"), comments},
+        {QStringLiteral("patchSets"), patchSets},
+    };
+}
+
+QVariantMap Repository::diffComments() const
+{
+    const ReviewInfo *review = shownReview();
+    if (!review)
+        return {};
+    const auto sideOf = [review](int number) {
+        QVariantMap byLine;
+        const GerritPatchSet *set = number > 0 ? review->findPatchSet(number) : nullptr;
+        if (!set)
+            return byLine;
+        for (const GerritComment &comment : set->comments) {
+            if (comment.line <= 0)
+                continue;
+            const QString key = comment.file + QLatin1Char(':') + QString::number(comment.line);
+            QVariantList list = byLine.value(key).toList();
+            list.append(QVariantMap{{QStringLiteral("author"), comment.author},
+                                    {QStringLiteral("text"), comment.text}});
+            byLine.insert(key, list);
+        }
+        return byLine;
+    };
+    return {{QStringLiteral("oldSide"), sideOf(diffPatchSet())},
+            {QStringLiteral("newSide"), sideOf(review->localPatchSet)}};
 }
 
 bool Repository::pushNeeded() const

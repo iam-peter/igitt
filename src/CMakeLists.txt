@@ -54,6 +54,7 @@ qt_add_qml_module(igitt_ui
         qml/WipRow.qml
         qml/Tag.qml
         qml/ReviewOptionsPopup.qml
+        qml/ReviewPanel.qml
         qml/CommitBox.qml
         qml/SettingsDialog.qml
         qml/AppSettings.qml
@@ -94,11 +95,13 @@ qt_add_qml_module(igitt_ui
         icons/folder.svg
         icons/git-branch.svg
         icons/git-commit-horizontal.svg
+        icons/git-compare.svg
         icons/git-merge.svg
         icons/git-pull-request.svg
         icons/grip-vertical.svg
         icons/history.svg
         icons/list-checks.svg
+        icons/message-square.svg
         icons/pause.svg
         icons/play.svg
         icons/plus.svg

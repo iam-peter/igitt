@@ -2,6 +2,7 @@
 
 #include "GitRunner.h"
 
+#include <QDateTime>
 #include <QHash>
 #include <QList>
 #include <QString>
@@ -32,8 +33,40 @@ struct GerritVote
     QString by;
 };
 
-// A change as `gerrit query --format=JSON --current-patch-set --comments`
-// reports it.
+// A message on a change, written by a reviewer, a bot or Gerrit itself on
+// an upload or a vote; "Patch Set 2: Code-Review+1\n\n(1 comment)" and so on.
+struct GerritMessage
+{
+    QDateTime date;
+    QString author;
+    QString text;
+};
+
+// An inline comment on a patch set's file; line 0 is on the file as a
+// whole. Gerrit's JSON tells neither the side of the diff it is on (it is
+// taken as the patch set's own, the new side) nor whether it is resolved.
+struct GerritComment
+{
+    int patchSet = 0;
+    QString file;
+    int line = 0;
+    QString author;
+    QString text;
+};
+
+struct GerritPatchSet
+{
+    int number = 0;
+    QString revision;
+    QString ref; // refs/changes/NN/NNNN/P
+    QString uploader;
+    QDateTime created;
+    QString kind; // REWORK, TRIVIAL_REBASE, NO_CODE_CHANGE, ...
+    QList<GerritComment> comments;
+};
+
+// A change as `gerrit query --format=JSON --current-patch-set --patch-sets
+// --comments` reports it.
 struct GerritChange
 {
     QString changeId;
@@ -45,8 +78,10 @@ struct GerritChange
     bool wip = false;
     QString topic;
     QStringList hashtags;
-    QList<GerritVote> votes; // on the current patch set
-    int comments = 0;        // inline comments on the current patch set
+    QList<GerritVote> votes;        // on the current patch set
+    QList<GerritComment> comments;  // inline, on the current patch set
+    QList<GerritMessage> messages;  // oldest first
+    QList<GerritPatchSet> patchSets; // oldest first
 };
 
 QHash<QString, GerritChange> parseGerritQuery(const QByteArray &output);
@@ -69,9 +104,15 @@ struct ReviewInfo
     QString topic;
     QStringList hashtags;
     QList<GerritVote> votes;
-    int comments = 0;
+    QList<GerritComment> comments; // on the current patch set
+    QList<GerritMessage> messages;
+    QList<GerritPatchSet> patchSets;
+    // The patch set that is this very commit, 0 if none is.
+    int localPatchSet = 0;
     // Gerrit's has:unresolved; unknown if that second query failed.
     std::optional<bool> unresolved;
+
+    const GerritPatchSet *findPatchSet(int number) const;
 
     // The lowest and highest vote on `label`, 0 for none.
     std::pair<int, int> voteRange(const QString &label) const;
@@ -96,3 +137,8 @@ struct ReviewQuery
 // batch mode, honoring GIT_SSH_COMMAND and core.sshCommand.
 ReviewQuery queryReviews(const GitRunner &git, const QString &remote, const QString &upstream,
                          const QString &branch);
+
+// "Trivial rebase" for TRIVIAL_REBASE and so on; unknown kinds as they are.
+QString patchSetKindText(const QString &kind);
+// The ref Gerrit keeps a patch set under: refs/changes/01/101/2.
+QString patchSetRef(int change, int patchSet);

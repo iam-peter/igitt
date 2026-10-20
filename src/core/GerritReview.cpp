@@ -57,6 +57,39 @@ bool runGerrit(const GitRunner &git, const GerritRemote &gerrit, const QStringLi
     return true;
 }
 
+// Who an account is, as far as Gerrit tells.
+QString accountName(const QJsonValue &value)
+{
+    const QJsonObject account = value.toObject();
+    for (const char *key : {"name", "username", "email"}) {
+        if (const QString name = account.value(QLatin1StringView(key)).toString(); !name.isEmpty())
+            return name;
+    }
+    return {};
+}
+
+// Seconds since the epoch, as Gerrit gives dates.
+QDateTime gerritDate(const QJsonValue &value)
+{
+    return value.isDouble() ? QDateTime::fromSecsSinceEpoch(qint64(value.toDouble())) : QDateTime();
+}
+
+QList<GerritComment> parseComments(const QJsonObject &patchSet, int number)
+{
+    QList<GerritComment> comments;
+    for (const QJsonValue &value : patchSet.value(QLatin1StringView("comments")).toArray()) {
+        const QJsonObject object = value.toObject();
+        GerritComment comment;
+        comment.patchSet = number;
+        comment.file = object.value(QLatin1StringView("file")).toString();
+        comment.line = object.value(QLatin1StringView("line")).toInt();
+        comment.author = accountName(object.value(QLatin1StringView("reviewer")));
+        comment.text = object.value(QLatin1StringView("message")).toString();
+        comments.append(comment);
+    }
+    return comments;
+}
+
 // `query` scoped to the project and branch and limited to `changeIds`.
 QStringList queryWords(const GerritRemote &gerrit, const QString &branch, QStringList changeIds,
                        const QStringList &options)
@@ -147,9 +180,45 @@ QString ReviewInfo::details() const
 
     if (unresolved.has_value())
         lines << (*unresolved ? tr("Has unresolved comments") : tr("No unresolved comments"));
-    if (comments > 0)
-        lines << tr("Inline comments on patch set %1: %2").arg(patchSet).arg(comments);
+    if (!comments.isEmpty())
+        lines << tr("Inline comments on patch set %1: %2").arg(patchSet).arg(comments.size());
+    if (localPatchSet > 0 && localPatchSet != patchSet)
+        lines << tr("This commit is patch set %1 of %2").arg(localPatchSet).arg(patchSet);
     return lines.join(QLatin1Char('\n'));
+}
+
+const GerritPatchSet *ReviewInfo::findPatchSet(int number) const
+{
+    for (const GerritPatchSet &set : patchSets) {
+        if (set.number == number)
+            return &set;
+    }
+    return nullptr;
+}
+
+QString patchSetKindText(const QString &kind)
+{
+    static const std::pair<const char *, const char *> names[] = {
+        {"REWORK", QT_TRANSLATE_NOOP("GerritReview", "Rework")},
+        {"TRIVIAL_REBASE", QT_TRANSLATE_NOOP("GerritReview", "Trivial rebase")},
+        {"TRIVIAL_REBASE_WITH_MESSAGE_UPDATE", QT_TRANSLATE_NOOP("GerritReview", "Trivial rebase, new message")},
+        {"MERGE_FIRST_PARENT_UPDATE", QT_TRANSLATE_NOOP("GerritReview", "First parent update")},
+        {"NO_CODE_CHANGE", QT_TRANSLATE_NOOP("GerritReview", "No code change")},
+        {"NO_CHANGE", QT_TRANSLATE_NOOP("GerritReview", "No change")},
+    };
+    for (const auto &[key, name] : names) {
+        if (kind == QLatin1StringView(key))
+            return tr(name);
+    }
+    return kind;
+}
+
+QString patchSetRef(int change, int patchSet)
+{
+    return QStringLiteral("refs/changes/%1/%2/%3")
+        .arg(change % 100, 2, 10, QLatin1Char('0'))
+        .arg(change)
+        .arg(patchSet);
 }
 
 GerritRemote parseGerritRemote(const QString &url)
@@ -188,19 +257,37 @@ QHash<QString, GerritChange> parseGerritQuery(const QByteArray &output)
             change.hashtags.append(tag.toString());
         for (const QJsonValue &value : patchSet.value(QLatin1StringView("approvals")).toArray()) {
             const QJsonObject approval = value.toObject();
-            const QJsonObject by = approval.value(QLatin1StringView("by")).toObject();
             GerritVote vote;
             vote.label = approval.value(QLatin1StringView("type")).toString();
             // A string such as "-1" or "2".
             vote.value = approval.value(QLatin1StringView("value")).toVariant().toInt();
-            for (const char *key : {"name", "username", "email"}) {
-                if (vote.by.isEmpty())
-                    vote.by = by.value(QLatin1StringView(key)).toString();
-            }
+            vote.by = accountName(approval.value(QLatin1StringView("by")));
             if (!vote.label.isEmpty())
                 change.votes.append(vote);
         }
-        change.comments = int(patchSet.value(QLatin1StringView("comments")).toArray().size());
+        change.comments = parseComments(patchSet, change.patchSet);
+        for (const QJsonValue &value : object.value(QLatin1StringView("comments")).toArray()) {
+            const QJsonObject message = value.toObject();
+            change.messages.append({gerritDate(message.value(QLatin1StringView("timestamp"))),
+                                    accountName(message.value(QLatin1StringView("reviewer"))),
+                                    message.value(QLatin1StringView("message")).toString()});
+        }
+        for (const QJsonValue &value : object.value(QLatin1StringView("patchSets")).toArray()) {
+            const QJsonObject entry = value.toObject();
+            GerritPatchSet set;
+            set.number = entry.value(QLatin1StringView("number")).toVariant().toInt();
+            set.revision = entry.value(QLatin1StringView("revision")).toString();
+            set.ref = entry.value(QLatin1StringView("ref")).toString();
+            if (set.ref.isEmpty())
+                set.ref = patchSetRef(change.number, set.number);
+            set.uploader = accountName(entry.value(QLatin1StringView("uploader")));
+            set.created = gerritDate(entry.value(QLatin1StringView("createdOn")));
+            set.kind = entry.value(QLatin1StringView("kind")).toString();
+            set.comments = parseComments(entry, set.number);
+            change.patchSets.append(set);
+        }
+        std::sort(change.patchSets.begin(), change.patchSets.end(),
+                  [](const GerritPatchSet &a, const GerritPatchSet &b) { return a.number < b.number; });
         if (!change.changeId.isEmpty())
             changes.insert(change.changeId, change);
     }
@@ -248,7 +335,8 @@ ReviewQuery queryReviews(const GitRunner &git, const QString &remote, const QStr
     QByteArray out;
     if (!runGerrit(git, gerrit,
                    queryWords(gerrit, branch, shaByChangeId.keys(),
-                              {QStringLiteral("--current-patch-set"), QStringLiteral("--comments")}),
+                              {QStringLiteral("--current-patch-set"), QStringLiteral("--patch-sets"),
+                               QStringLiteral("--comments")}),
                    &out, &query.error)) {
         query.ok = false;
         return query;
@@ -267,6 +355,12 @@ ReviewQuery queryReviews(const GitRunner &git, const QString &remote, const QStr
         info.hashtags = change->hashtags;
         info.votes = change->votes;
         info.comments = change->comments;
+        info.messages = change->messages;
+        info.patchSets = change->patchSets;
+        for (const GerritPatchSet &set : std::as_const(info.patchSets)) {
+            if (set.revision == it.value())
+                info.localPatchSet = set.number;
+        }
         if (change->status == QLatin1StringView("MERGED") || change->status == QLatin1StringView("ABANDONED"))
             info.state = ReviewInfo::Closed;
         else

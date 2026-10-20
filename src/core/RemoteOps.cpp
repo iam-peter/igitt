@@ -231,6 +231,18 @@ NetworkResult fetchFrom(const GitRunner &git, const QString &remote)
     return result;
 }
 
+NetworkResult fetchObjects(const GitRunner &git, const QString &remote, const QString &ref)
+{
+    NetworkResult result;
+    const GitResult r = git.run({QStringLiteral("fetch"), QStringLiteral("--no-write-fetch-head"),
+                                 QStringLiteral("--no-tags"), remote, ref},
+                                {}, networkEnvironment(git));
+    result.ok = r.ok();
+    if (!result.ok)
+        result.message = explainNetworkFailure(r.errorText());
+    return result;
+}
+
 QStringList remoteLinks(const QString &stderrText)
 {
     static const QRegularExpression url(QStringLiteral("^remote:\\s+(https?://\\S+)"),

@@ -429,6 +429,129 @@ private slots:
         QVERIFY(warnings.isEmpty());
     }
 
+    // The Review section of a commit pushed for review, against a Gerrit
+    // made of a bare repository and an ssh stand-in that answers queries.
+    void showsGerritReviews()
+    {
+        QTemporaryDir root;
+        const QString remote = root.filePath(u"remote.git"_s);
+        const QString url = u"ssh://ada@review.example:29418/demo"_s;
+        QStringList failures;
+        const auto run = [&failures](const QString &dir, const QStringList &args) {
+            const GitResult result = GitRunner(dir).run(args);
+            if (!result.ok())
+                failures << result.errorText();
+            return result.out.trimmed();
+        };
+        const auto writeFile = [](const QString &path, const QByteArray &content) {
+            QFile file(path);
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            file.write(content);
+        };
+        const QString work = root.filePath(u"work"_s);
+        const QString other = root.filePath(u"other"_s);
+        const QString source = u"/parser.cpp"_s;
+        const QByteArray base = "int parse(const char *text)\n{\n    return 0;\n}\n";
+        const QByteArray changeId = "\n\nChange-Id: I0123456789abcdef0123456789abcdef01234567\n";
+        run(root.path(), {"init", "-q", "--bare", "-b", "main", remote});
+        run(root.path(), {"init", "-q", "-b", "main", work});
+        writeFile(work + source, base);
+        run(work, {"add", "."});
+        run(work, {"commit", "-q", "-m", "Add a parser"});
+        run(work, {"remote", "add", "origin", remote});
+        run(work, {"push", "-q", "-u", "origin", "main"});
+        run(work, {"remote", "set-url", "origin", url});
+        run(work, {"config", "url." + remote + ".insteadOf", url});
+        // Patch set 1 was uploaded from another clone.
+        run(root.path(), {"clone", "-q", remote, other});
+        writeFile(other + source, "int parse(const char *text)\n{\n    if (!text)\n        return -1;\n"
+                                  "    return 0;\n}\n");
+        run(other, {"commit", "-q", "-a", "-m", "Parse nothing gracefully" + changeId});
+        run(other, {"push", "-q", "origin", "HEAD:refs/changes/42/1042/1"});
+        const QByteArray firstTry = run(other, {"rev-parse", "HEAD"});
+        writeFile(work + source, "int parse(const char *text)\n{\n    if (!text || !*text)\n"
+                                 "        return -1; // nothing to parse\n    return 0;\n}\n");
+        run(work, {"commit", "-q", "-a", "-m", "Parse nothing gracefully" + changeId});
+        const QByteArray head = run(work, {"rev-parse", "HEAD"});
+        QVERIFY2(failures.isEmpty(), qPrintable(failures.join(u'\n')));
+
+        QTemporaryDir bin;
+        writeFile(bin.filePath(u"ssh"_s), "#!/bin/sh\ncase \"$*\" in *has:unresolved*) cat \"$FAKE_GERRIT_JSON.unresolved\";;\n"
+                                          "*) cat \"$FAKE_GERRIT_JSON\";; esac\n");
+        QVERIFY(QFile::setPermissions(bin.filePath(u"ssh"_s), QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+        const QString json = bin.filePath(u"answer.json"_s);
+        writeFile(json, R"json({"id":"I0123456789abcdef0123456789abcdef01234567","number":1042,)json"
+                        R"json("url":"https://review.example/c/demo/+/1042","status":"NEW",)json"
+                        R"json("comments":[{"timestamp":1760000000,"reviewer":{"name":"Ada Lovelace"},"message":"Uploaded patch set 1."},)json"
+                        R"json({"timestamp":1760003600,"reviewer":{"name":"Charles Babbage"},)json"
+                        R"json("message":"Patch Set 1: Code-Review-1\n\n(2 comments)\n\nAn empty string is nothing to parse either."},)json"
+                        R"json({"timestamp":1760090000,"reviewer":{"name":"Ada Lovelace"},"message":"Uploaded patch set 2."},)json"
+                        R"json({"timestamp":1760093600,"reviewer":{"name":"Qt CI Bot"},"message":"Patch Set 2: Verified+1\n\nBuild passed."}],)json"
+                        R"json("currentPatchSet":{"number":2,"revision":")json" + head + R"json(",)json"
+                        R"json("approvals":[{"type":"Verified","value":"1","by":{"name":"Qt CI Bot"}}],)json"
+                        R"json("comments":[{"file":"parser.cpp","line":4,"reviewer":{"name":"Charles Babbage"},)json"
+                        R"json("message":"Say what -1 means in the header, please."}]},)json"
+                        R"json("patchSets":[{"number":1,"revision":")json" + firstTry + R"json(","ref":"refs/changes/42/1042/1",)json"
+                        R"json("uploader":{"name":"Ada Lovelace"},"createdOn":1760000000,"kind":"REWORK","comments":[)json"
+                        R"json({"file":"parser.cpp","line":3,"reviewer":{"name":"Charles Babbage"},"message":"What about an empty string?"},)json"
+                        R"json({"file":"parser.cpp","reviewer":{"name":"Charles Babbage"},"message":"Needs a test."}]},)json"
+                        R"json({"number":2,"revision":")json" + head + R"json(","ref":"refs/changes/42/1042/2",)json"
+                        R"json("uploader":{"name":"Ada Lovelace"},"createdOn":1760090000,"kind":"REWORK","comments":[)json"
+                        R"json({"file":"parser.cpp","line":4,"reviewer":{"name":"Charles Babbage"},)json"
+                        R"json("message":"Say what -1 means in the header, please."}]}]})json"
+                        "\n" R"json({"type":"stats","rowCount":1})json" "\n");
+        writeFile(json + u".unresolved"_s, R"json({"id":"I0123456789abcdef0123456789abcdef01234567","number":1042})json" "\n");
+        const QByteArray path = qgetenv("PATH");
+        qputenv("PATH", bin.path().toUtf8() + ':' + path);
+        qputenv("FAKE_GERRIT_JSON", json.toUtf8());
+
+        QQmlApplicationEngine engine;
+        QList<QQmlError> warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &w) { warnings += w; });
+        engine.setInitialProperties({{u"initialPath"_s, work}});
+        engine.loadFromModule("Igitt", "Main");
+        QCOMPARE(engine.rootObjects().size(), 1);
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(repo && settle(*repo));
+        QTRY_COMPARE(repo->commits()->data(repo->commits()->index(0), CommitModel::ReviewRole).toMap()
+                         .value(u"number"_s).toInt(), 1042);
+
+        repo->showCommit(QString::fromLatin1(head));
+        QVERIFY(settle(*repo));
+        auto *panel = window->findChild<QQuickItem *>(u"reviewPanel"_s);
+        QTRY_VERIFY(panel && panel->isVisible());
+        QTest::qWait(50);
+        screenshot(window, u"review"_s);
+
+        click(window, u"messagesTab"_s);
+        QTest::qWait(50);
+        screenshot(window, u"review-messages"_s);
+        click(window, u"patchSetsTab"_s);
+        QTest::qWait(50);
+        screenshot(window, u"review-patch-sets"_s);
+        QQuickItem *compare = nullptr;
+        QTRY_VERIFY((compare = findItem(window->contentItem(), u"comparePatchSet1"_s)));
+        QVERIFY(!findItem(window->contentItem(), u"comparePatchSet2"_s)->isEnabled()); // this commit
+        clickItem(window, compare);
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->diffSource(), Repository::PatchSetDiff);
+        QCOMPARE(repo->diffPatchSet(), 1);
+        QVERIFY(repo->diff()->rowCount() > 0);
+        QTest::qWait(50);
+        screenshot(window, u"review-compare"_s);
+        click(window, u"showCommitButton"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->diffSource(), Repository::CommitDiff);
+
+        qputenv("PATH", path);
+        for (const QQmlError &w : std::as_const(warnings))
+            qWarning().noquote() << w.toString();
+        QVERIFY(warnings.isEmpty());
+    }
+
 private:
     // Drags the fold handle of the diff view onto a row of the history.
     void dragSelectionOntoCommit(QQuickWindow *window, int row)

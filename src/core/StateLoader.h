@@ -27,13 +27,17 @@ struct StateSource
     QString baselineHead; // simulated: commits it does not reach are planned
 };
 
-enum class DiffKind { None, Unstaged, Staged, Commit, Content };
+// Range: from `base` to `commit`, such as from a Gerrit patch set to the
+// local commit.
+enum class DiffKind { None, Unstaged, Staged, Commit, Content, Range };
 
 struct DiffRequest
 {
     DiffKind kind = DiffKind::None;
     QString path;   // Unstaged, Staged, Content
-    QString commit; // Commit
+    QString commit; // Commit, Range
+    QString base;   // Range
+    QString baseName; // Range: what `base` is, e.g. "patch set 2"
     int generation = 0; // lets the UI drop results for a view it has left
 };
 
@@ -42,7 +46,7 @@ struct DiffState
     DiffRequest request;
     QList<FileDiff> files;
     QString message; // shown instead of a diff, e.g. for a conflicted file
-    QString details; // commit header and message
+    QString details; // commit header and message; Range: what is compared
     bool conflicted = false; // the file has unresolved merge conflicts
     QStringList content;     // Content: the file's lines
     bool truncated = false;  // Content: only the first lines

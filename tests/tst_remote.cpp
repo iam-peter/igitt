@@ -221,7 +221,7 @@ private slots:
         QCOMPARE(voted.votes.size(), 4);
         QCOMPARE(voted.votes[1].value, -1);
         QCOMPARE(voted.votes[1].by, u"bob"_s);
-        QCOMPARE(voted.comments, 2);
+        QCOMPARE(voted.comments.size(), 2);
 
         ReviewInfo info;
         info.patchSet = voted.patchSet;
@@ -244,6 +244,32 @@ private slots:
         QVERIFY(details.contains("unresolved"_L1));
         QVERIFY(details.contains("Inline comments on patch set 4: 2"_L1));
         QVERIFY(ReviewInfo{}.badges().isEmpty());
+
+        // Messages and patch sets, from --comments and --patch-sets.
+        const GerritChange history = parseGerritQuery(
+            R"({"id":"I3","number":5,"status":"NEW","currentPatchSet":{"number":2,"revision":"r2"},)"
+            R"("comments":[{"timestamp":1760000000,"reviewer":{"name":"Alice"},"message":"Patch Set 1: Code-Review-1"}],)"
+            R"("patchSets":[{"number":2,"revision":"r2","uploader":{"username":"me"},"createdOn":1760003600,)"
+            R"("kind":"TRIVIAL_REBASE"},)"
+            R"({"number":1,"revision":"r1","ref":"refs/changes/05/5/1","kind":"REWORK",)"
+            R"("comments":[{"file":"a.cpp","line":4,"reviewer":{"name":"Alice"},"message":"Why?"},)"
+            R"({"file":"a.cpp","reviewer":{"name":"Alice"},"message":"On the file"}]}]})"_ba)
+            .value(u"I3"_s);
+        QCOMPARE(history.messages.size(), 1);
+        QCOMPARE(history.messages[0].author, u"Alice"_s);
+        QCOMPARE(history.messages[0].date, QDateTime::fromSecsSinceEpoch(1760000000));
+        QCOMPARE(history.patchSets.size(), 2);
+        QCOMPARE(history.patchSets[0].number, 1); // sorted
+        QCOMPARE(history.patchSets[0].comments.size(), 2);
+        QCOMPARE(history.patchSets[0].comments[0].line, 4);
+        QCOMPARE(history.patchSets[0].comments[0].patchSet, 1);
+        QCOMPARE(history.patchSets[0].comments[1].line, 0);
+        QCOMPARE(history.patchSets[1].uploader, u"me"_s);
+        QCOMPARE(history.patchSets[1].created, QDateTime::fromSecsSinceEpoch(1760003600));
+        QCOMPARE(history.patchSets[1].ref, u"refs/changes/05/5/2"_s); // worked out when missing
+        QCOMPARE(patchSetKindText(history.patchSets[1].kind), u"Trivial rebase"_s);
+        QCOMPARE(patchSetKindText(u"SOMETHING_NEW"_s), u"SOMETHING_NEW"_s);
+        QCOMPARE(patchSetRef(123456, 7), u"refs/changes/56/123456/7"_s);
     }
 
     void buildsGerritPushOptions()
@@ -339,28 +365,53 @@ private slots:
         qputenv("FAKE_SSH_ARGS", args.toUtf8());
         qputenv("FAKE_GERRIT_JSON", json.toUtf8());
 
+        // Gerrit's URL for queries, the bare repository for git.
         work({"remote", "set-url", "origin", "ssh://tester@review.example:29418/proj/sub"});
+        work({"config", "url." + m_remote + ".insteadOf", "ssh://tester@review.example:29418/proj/sub"});
         commitWithChangeId("first", "I1111111111111111111111111111111111111111");
+        // Patch set 1 of the second change, uploaded from elsewhere: only
+        // the remote has it, under refs/changes/.
+        work({"push", "-q", "origin", "HEAD:refs/changes/01/101/2"});
+        m_other.run({"fetch", "-q", "origin", "refs/changes/01/101/2"});
+        m_other.run({"checkout", "-q", "FETCH_HEAD"});
+        commitIn(m_other, "second, first try");
+        m_other.run({"push", "-q", "origin", "HEAD:refs/changes/02/102/1"});
+        const QString firstTry = rev(m_other, u"HEAD"_s);
         commitWithChangeId("second", "I2222222222222222222222222222222222222222");
         const auto answer = [&](const QString &secondRevision) {
             QFile file(json);
             QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
-            const auto line = [](const char *id, int number, const QString &revision, const char *extra,
-                                 const char *approvals) {
+            const auto line = [](const char *id, int number, const QString &revision, const QString &extra,
+                                 const char *approvals, const char *comments) {
                 return QStringLiteral(R"({"id":"%1","number":%2,"url":"https://review.example/c/proj/+/%2",)"
                                       R"("status":"NEW",%4"currentPatchSet":{"number":2,"revision":"%3",)"
-                                      R"("approvals":[%5],"comments":[{"file":"file.txt","line":1}]}})")
-                    .arg(QLatin1StringView(id)).arg(number).arg(revision, QLatin1StringView(extra),
-                                                                 QLatin1StringView(approvals))
+                                      R"("approvals":[%5],"comments":[%6]}})")
+                    .arg(QLatin1StringView(id)).arg(number).arg(revision, extra, QLatin1StringView(approvals),
+                                                                 QLatin1StringView(comments))
                     .toUtf8() + '\n';
             };
-            file.write(line("I1111111111111111111111111111111111111111", 101, rev(m_work, u"HEAD~1"_s), "",
+            const char *secondComments = R"({"file":"file.txt","line":5,"reviewer":{"name":"Alice"},"message":"Say why."})";
+            file.write(line("I1111111111111111111111111111111111111111", 101, rev(m_work, u"HEAD~1"_s), {},
                             R"({"type":"Code-Review","value":"2","by":{"name":"Alice"}},)"
-                            R"({"type":"Verified","value":"1","by":{"name":"Qt CI Bot"}})"));
+                            R"({"type":"Verified","value":"1","by":{"name":"Qt CI Bot"}})",
+                            R"({"file":"file.txt","line":1})"));
+            const QString history =
+                QStringLiteral(
+                    R"("comments":[{"timestamp":1760000000,"reviewer":{"name":"Tester"},"message":"Uploaded patch set 1."},)"
+                    R"json({"timestamp":1760003600,"reviewer":{"name":"Alice"},"message":"Patch Set 1: Code-Review-1\n\n(1 comment)"},)json"
+                    R"({"timestamp":1760007200,"reviewer":{"name":"Tester"},"message":"Uploaded patch set 2."}],)"
+                    R"("patchSets":[{"number":1,"revision":"%1","ref":"refs/changes/02/102/1","uploader":{"name":"Tester"},)"
+                    R"("createdOn":1760000000,"kind":"REWORK","comments":[)"
+                    R"({"file":"file.txt","line":5,"reviewer":{"username":"bob"},"message":"Typo?"},)"
+                    R"({"file":"file.txt","reviewer":{"name":"Bob"},"message":"Split this file?"}]},)"
+                    R"({"number":2,"revision":"%2","ref":"refs/changes/02/102/2","uploader":{"name":"Tester"},)"
+                    R"("createdOn":1760007200,"kind":"REWORK","comments":[%3]}],)")
+                    .arg(firstTry, secondRevision, QLatin1StringView(secondComments));
             file.write(line("I2222222222222222222222222222222222222222", 102, secondRevision,
-                            R"("wip":true,"topic":"speedup",)",
+                            uR"("wip":true,"topic":"speedup",)"_s + history,
                             R"({"type":"Code-Review","value":"1","by":{"name":"Alice"}},)"
-                            R"({"type":"Verified","value":"-1","by":{"name":"Qt CI Bot"}})"));
+                            R"({"type":"Verified","value":"-1","by":{"name":"Qt CI Bot"}})",
+                            secondComments));
             file.write(R"({"type":"stats","rowCount":2})" "\n");
             QFile unresolved(json + u".unresolved"_s);
             QVERIFY(unresolved.open(QIODevice::WriteOnly | QIODevice::Truncate));
@@ -383,7 +434,7 @@ private slots:
         QVERIFY(query.contains("tester@review.example"));
         QVERIFY(query.contains("project:proj/sub\nbranch:main"));
         QVERIFY(query.contains("change:I2222222222222222222222222222222222222222"));
-        QVERIFY(query.contains("--current-patch-set\n--comments"));
+        QVERIFY(query.contains("--current-patch-set\n--patch-sets\n--comments"));
         QVERIFY(!query.contains("has:unresolved"));
 
         // Votes, work in progress and unresolved comments, for the row's tag.
@@ -405,12 +456,92 @@ private slots:
         QVERIFY(unresolvedQuery.contains("change:I1111111111111111111111111111111111111111\nOR\n"
                                          "change:I2222222222222222222222222222222222222222\n)\nhas:unresolved"));
 
+        // The review of the commit on display: its messages, comments and
+        // patch sets.
+        const QString head = rev(m_work, u"HEAD"_s);
+        m_repo->showCommit(head);
+        QVERIFY(settle());
+        const QVariantMap shown = m_repo->commitReview();
+        QCOMPARE(shown.value(u"number"_s).toInt(), 102);
+        QCOMPARE(shown.value(u"localPatchSet"_s).toInt(), 2);
+        QCOMPARE(shown.value(u"unresolved"_s), QVariant(true));
+        const QVariantList messages = shown.value(u"messages"_s).toList();
+        QCOMPARE(messages.size(), 3);
+        QCOMPARE(messages[1].toMap().value(u"author"_s).toString(), u"Alice"_s);
+        QCOMPARE(messages[1].toMap().value(u"text"_s).toString(), u"Patch Set 1: Code-Review-1\n\n(1 comment)"_s);
+        QCOMPARE(messages[1].toMap().value(u"date"_s).toDateTime(), QDateTime::fromSecsSinceEpoch(1760003600));
+        const QVariantList patchSets = shown.value(u"patchSets"_s).toList();
+        QCOMPARE(patchSets.size(), 2);
+        QCOMPARE(patchSets[0].toMap().value(u"number"_s).toInt(), 2); // newest first
+        QVERIFY(patchSets[0].toMap().value(u"local"_s).toBool());
+        QVERIFY(patchSets[0].toMap().value(u"current"_s).toBool());
+        QCOMPARE(patchSets[1].toMap().value(u"revision"_s).toString(), firstTry);
+        QVERIFY(!patchSets[1].toMap().value(u"local"_s).toBool());
+        QCOMPARE(patchSets[1].toMap().value(u"kindText"_s).toString(), u"Rework"_s);
+        QCOMPARE(patchSets[1].toMap().value(u"uploader"_s).toString(), u"Tester"_s);
+        QCOMPARE(patchSets[1].toMap().value(u"comments"_s).toInt(), 2);
+        const auto comment = [&](int i) { return m_repo->commitReview().value(u"comments"_s).toList().value(i).toMap(); };
+        QCOMPARE(shown.value(u"comments"_s).toList().size(), 3);
+        QCOMPARE(comment(0).value(u"patchSet"_s).toInt(), 2);
+        QCOMPARE(comment(0).value(u"file"_s).toString(), u"file.txt"_s);
+        QCOMPARE(comment(0).value(u"line"_s).toInt(), 5);
+        QCOMPARE(comment(0).value(u"text"_s).toString(), u"Say why."_s);
+        QVERIFY(comment(0).value(u"marked"_s).toBool()); // this commit is patch set 2
+        QCOMPARE(comment(1).value(u"author"_s).toString(), u"bob"_s);
+        QVERIFY(!comment(1).value(u"marked"_s).toBool()); // patch set 1 is not in this diff
+        QCOMPARE(comment(2).value(u"line"_s).toInt(), 0);
+        QVERIFY(!comment(2).value(u"marked"_s).toBool());
+        QVariantMap marks = m_repo->diffComments();
+        QCOMPARE(marks.value(u"newSide"_s).toMap().value(u"file.txt:5"_s).toList().value(0).toMap()
+                     .value(u"text"_s).toString(), u"Say why."_s);
+        QVERIFY(marks.value(u"oldSide"_s).toMap().isEmpty());
+        // Line 5 is what the commit added.
+        QVERIFY(diffRows().contains(u"5 +second"_s));
+
+        // Compared with patch set 1, which is fetched for it.
+        QVERIFY(!m_work.run({"cat-file", "-e", firstTry}).ok());
+        m_repo->comparePatchSet(1);
+        QVERIFY(settle());
+        QCOMPARE(m_repo->diffSource(), Repository::PatchSetDiff);
+        QCOMPARE(m_repo->diffPatchSet(), 1);
+        QCOMPARE(m_repo->diffCommit(), head);
+        QVERIFY(m_work.run({"cat-file", "-e", firstTry}).ok());
+        QVERIFY(work({"for-each-ref", "refs/changes"}).isEmpty()); // no ref kept
+        QVERIFY(!m_repo->lastFetch().isValid());                   // nor FETCH_HEAD
+        QVERIFY2(m_repo->commitDetails().contains("patch set 1"_L1), qPrintable(m_repo->commitDetails()));
+        QVERIFY(!m_repo->commitDetails().contains("different parents"_L1));
+        const QStringList rows = diffRows();
+        QVERIFY2(rows.contains(u"5 -second, first try"_s), qPrintable(rows.join(u'\n')));
+        QVERIFY(rows.contains(u"5 +second"_s));
+        // Both sides are patch sets now, and show their comments.
+        marks = m_repo->diffComments();
+        QCOMPARE(marks.value(u"oldSide"_s).toMap().value(u"file.txt:5"_s).toList().value(0).toMap()
+                     .value(u"text"_s).toString(), u"Typo?"_s);
+        QCOMPARE(marks.value(u"newSide"_s).toMap().size(), 1);
+        QVERIFY(comment(0).value(u"marked"_s).toBool());
+        QVERIFY(comment(1).value(u"marked"_s).toBool());
+        QVERIFY(!comment(2).value(u"marked"_s).toBool()); // on the file, not a line
+        // Back to the commit on its own.
+        m_repo->showCommit(head);
+        QVERIFY(settle());
+        QCOMPARE(m_repo->diffPatchSet(), 0);
+        QVERIFY(m_repo->diffComments().value(u"oldSide"_s).toMap().isEmpty());
+
         // The newest commit changed since its upload: pushing makes sense again.
         answer(u"0123456789abcdef0123456789abcdef01234567"_s);
         m_repo->refresh();
         QTRY_VERIFY(m_repo->pushNeeded());
         QCOMPARE(m_repo->commits()->data(m_repo->commits()->index(0), CommitModel::ReviewRole).toMap()
                      .value(u"state"_s).toString(), u"outdated"_s);
+        // No patch set is this commit, so no comment is on its lines.
+        QCOMPARE(m_repo->commitReview().value(u"localPatchSet"_s).toInt(), 0);
+        QVERIFY(m_repo->diffComments().value(u"newSide"_s).toMap().isEmpty());
+        QVERIFY(!comment(0).value(u"marked"_s).toBool());
+        // A patch set the remote does not have cannot be compared with.
+        m_repo->comparePatchSet(2);
+        QVERIFY(settle());
+        QVERIFY2(diffRows().value(0).contains("Fetching refs/changes/02/102/2 from origin failed"_L1),
+                 qPrintable(diffRows().value(0)));
 
         // Gerrit out of reach: leave pushing to the user.
         qputenv("FAKE_SSH_FAIL", "1");
@@ -447,6 +578,29 @@ private:
     }
 
     QByteArray work(const QStringList &args) { return m_work.run(args).out; }
+
+    // The diff on display, a row each: "<new line> +text" for added
+    // lines, "<old line> -text" for removed ones.
+    QStringList diffRows() const
+    {
+        QStringList rows;
+        const DiffModel *diff = m_repo->diff();
+        for (int i = 0; i < diff->rowCount(); ++i) {
+            const QModelIndex index = diff->index(i);
+            const QString text = diff->data(index, DiffModel::TextRole).toString();
+            switch (diff->data(index, DiffModel::KindRole).toInt()) {
+            case DiffModel::Added:
+                rows << u"%1 +%2"_s.arg(diff->data(index, DiffModel::NewLineRole).toInt()).arg(text);
+                break;
+            case DiffModel::Removed:
+                rows << u"%1 -%2"_s.arg(diff->data(index, DiffModel::OldLineRole).toInt()).arg(text);
+                break;
+            default:
+                rows << text;
+            }
+        }
+        return rows;
+    }
 
     static QString rev(const GitRunner &git, const QString &r)
     {
