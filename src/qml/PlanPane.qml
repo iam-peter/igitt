@@ -55,6 +55,7 @@ Pane {
             spacing: 1
             model: pane.repo.plan
             boundsBehavior: Flickable.StopAtBounds
+            boundsMovement: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar {}
 
             delegate: Rectangle {
@@ -85,8 +86,8 @@ Pane {
                     RowLayout {
                         Layout.fillWidth: true
 
-                        ToolButton {
-                            text: entry.expanded ? "▾" : "▸"
+                        IconButton {
+                            iconName: entry.expanded ? "chevron-down" : "chevron-right"
                             onClicked: entry.expanded = !entry.expanded
                         }
                         Label {
@@ -98,8 +99,8 @@ Pane {
                                 onTapped: entry.expanded = !entry.expanded
                             }
                         }
-                        ToolButton {
-                            text: "✕"
+                        IconButton {
+                            iconName: "x"
                             enabled: !pane.repo.writing
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Remove from the plan")
@@ -159,6 +160,10 @@ Pane {
                 Layout.fillWidth: true
 
                 Button {
+                    icon.source: Icons.source("x")
+                    icon.color: palette.buttonText
+                    icon.width: 16
+                    icon.height: 16
                     text: qsTr("Discard")
                     enabled: !pane.repo.writing
                     onClicked: pane.discardRequested()
@@ -167,6 +172,10 @@ Pane {
                     Layout.fillWidth: true
                 }
                 Button {
+                    icon.source: Icons.source("check")
+                    icon.color: palette.buttonText
+                    icon.width: 16
+                    icon.height: 16
                     objectName: "executePlanButton"
                     text: qsTr("Execute")
                     highlighted: true

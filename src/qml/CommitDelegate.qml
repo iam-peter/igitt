@@ -233,7 +233,7 @@ Control {
             Layout.preferredWidth: delegate.columns.shaWidth
             leftPadding: 6
             text: delegate.shortSha
-            font.family: "monospace"
+            font.family: AppSettings.fonts.codeFamily
             elide: Text.ElideRight
         }
     }

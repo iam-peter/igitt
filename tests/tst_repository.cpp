@@ -459,6 +459,16 @@ private slots:
                     .value(u"remotes"_s).toStringList().isEmpty());
     }
 
+    void listsTrackedFiles()
+    {
+        writeFile(m_dir->filePath("untracked.txt"), "x\n");
+        open(m_dir->path());
+        repo().loadFiles();
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().files()->fileCount(), 2);
+        QCOMPARE(repo().files()->match(u"g"_s), QStringList{u"g.txt"_s});
+    }
+
     void undoIsForgottenWhenHeadMoves()
     {
         writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");

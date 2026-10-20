@@ -7,6 +7,7 @@
 #include "models/CommitModel.h"
 #include "models/DiffModel.h"
 #include "models/FileListModel.h"
+#include "models/FileTreeModel.h"
 #include "models/PlanModel.h"
 
 #include <QDateTime>
@@ -49,6 +50,8 @@ class Repository : public QObject
     Q_PROPERTY(FileListModel *unstaged READ unstaged CONSTANT)
     Q_PROPERTY(FileListModel *staged READ staged CONSTANT)
     Q_PROPERTY(DiffModel *diff READ diff CONSTANT)
+    // Tracked files, as a tree; filled by loadFiles().
+    Q_PROPERTY(FileTreeModel *files READ files CONSTANT)
     Q_PROPERTY(DiffSource diffSource READ diffSource NOTIFY diffChanged)
     Q_PROPERTY(QString diffPath READ diffPath NOTIFY diffChanged)
     Q_PROPERTY(QString diffCommit READ diffCommit NOTIFY diffChanged)
@@ -107,6 +110,7 @@ public:
     FileListModel *unstaged() { return &m_unstaged; }
     FileListModel *staged() { return &m_staged; }
     DiffModel *diff() { return &m_diff; }
+    FileTreeModel *files() { return &m_files; }
     DiffSource diffSource() const { return m_diffSource; }
     QString diffPath() const { return m_diffPath; }
     QString diffCommit() const { return m_diffCommit; }
@@ -149,6 +153,8 @@ public:
     Q_INVOKABLE void showFile(const QString &path, bool staged);
     // Shows the first changed file, unstaged ones first.
     Q_INVOKABLE void showWorkingTree();
+    // Lists the tracked files (as the index has them) into `files`.
+    Q_INVOKABLE void loadFiles();
     // Asks for the files and lines a commit changes; they arrive in the
     // commit model's stats role. Requests are batched.
     Q_INVOKABLE void requestStats(const QString &sha);
@@ -243,6 +249,8 @@ private:
         QString gitDir;
         QString pushRejected; // why the remote refused a push
         QHash<QString, CommitStats> stats;
+        std::optional<QStringList> trackedFiles;
+        std::shared_ptr<FileTreeNode> fileTree;
         QString notice;
         QString error;
     };
@@ -295,6 +303,7 @@ private:
     FileListModel m_unstaged{false};
     FileListModel m_staged{true};
     DiffModel m_diff;
+    FileTreeModel m_files;
     DiffSource m_diffSource = NoDiff;
     QString m_diffPath;
     QString m_diffCommit;

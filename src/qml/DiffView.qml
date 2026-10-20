@@ -38,6 +38,8 @@ Pane {
 
         MenuItem {
             text: qsTr("Time-lapse View")
+            icon.source: Icons.source("history")
+            icon.color: palette.windowText
             onTriggered: view.timelapseRequested(fileMenu.path)
         }
     }
@@ -129,10 +131,18 @@ Pane {
                     color: foldDrag.active ? view.palette.midlight : view.palette.button
                     border.color: view.palette.mid
 
-                    Label {
+                    Row {
                         id: handleLabel
                         anchors.centerIn: parent
-                        text: qsTr("⠿ Drag onto a commit to fold")
+                        spacing: 4
+
+                        Icon {
+                            name: "grip-vertical"
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        Label {
+                            text: qsTr("Drag onto a commit to fold")
+                        }
                     }
 
                     HoverHandler {
@@ -175,7 +185,26 @@ Pane {
                         }
                     }
                 }
-                ToolButton {
+                IconButton {
+                    objectName: "collapseAllButton"
+                    iconName: "chevrons-down-up"
+                    visible: view.repo.diff.fileCount > 1
+                    enabled: view.repo.diff.collapsedCount < view.repo.diff.fileCount
+                    onClicked: view.repo.diff.setAllCollapsed(true)
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Collapse all files")
+                }
+                IconButton {
+                    objectName: "expandAllButton"
+                    iconName: "chevrons-up-down"
+                    visible: view.repo.diff.fileCount > 1
+                    enabled: view.repo.diff.collapsedCount > 0
+                    onClicked: view.repo.diff.setAllCollapsed(false)
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Expand all files")
+                }
+                IconButton {
+                    iconName: "fold-vertical"
                     objectName: "foldSuggestedButton"
                     visible: view.hasSelection && view.repo.suggestedFoldTarget !== ""
                     text: qsTr("Fold into suggested")
@@ -192,7 +221,8 @@ Pane {
                     elide: Text.ElideRight
                     opacity: 0.6
                 }
-                ToolButton {
+                IconButton {
+                    iconName: view.stagedDiff ? "undo-2" : "plus"
                     visible: view.workingDiff
                     enabled: view.repo.diff.selectedCount > 0 && !view.repo.writing
                     text: view.stagedDiff ? qsTr("Unstage %n line(s)", "", view.repo.diff.selectedCount)
@@ -202,7 +232,7 @@ Pane {
             }
         }
 
-        ScrollView {
+        BoundedScrollView {
             Layout.fillWidth: true
             Layout.preferredHeight: Math.min(details.implicitHeight + 12, view.height * 0.35)
             visible: view.repo.diffSource === Repository.CommitDiff
@@ -230,6 +260,7 @@ Pane {
             clip: true
             model: view.repo.diff
             boundsBehavior: Flickable.StopAtBounds
+            boundsMovement: Flickable.StopAtBounds
             flickableDirection: Flickable.AutoFlickIfNeeded
             contentWidth: Math.max(width, gutterWidth + view.repo.diff.maxLineLength
                                           * metrics.averageCharacterWidth + 24)
@@ -247,6 +278,9 @@ Pane {
                 required property bool selectable
                 required property bool selected
                 required property string path
+                required property bool collapsed
+                required property int added
+                required property int removed
 
                 readonly property bool header: kind === DiffModel.FileHeader
 
@@ -275,9 +309,17 @@ Pane {
                           + (row.newLine > 0 ? String(row.newLine).padStart(5) : "     ")
                 }
 
+                Icon {
+                    visible: row.header
+                    x: 6
+                    anchors.verticalCenter: parent.verticalCenter
+                    name: row.collapsed ? "chevron-right" : "chevron-down"
+                }
+
                 Text {
+                    id: lineText
                     anchors.left: parent.left
-                    anchors.leftMargin: row.header ? 6 : lines.gutterWidth
+                    anchors.leftMargin: row.header ? 28 : lines.gutterWidth
                     anchors.verticalCenter: parent.verticalCenter
                     font.family: view.monoFont.family
                     font.pointSize: view.monoFont.pointSize
@@ -294,6 +336,37 @@ Pane {
                         default: return row.text
                         }
                     }
+                }
+
+                // Lines added and removed in the file.
+                Row {
+                    visible: row.header && (row.added > 0 || row.removed > 0)
+                    anchors.left: lineText.right
+                    anchors.leftMargin: 12
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 6
+
+                    Label {
+                        visible: row.added > 0
+                        text: `+${row.added}`
+                        color: "#3c8c3c"
+                        font.bold: true
+                    }
+                    Label {
+                        visible: row.removed > 0
+                        text: `−${row.removed}`
+                        color: "#c0392b"
+                        font.bold: true
+                    }
+                }
+
+                TapHandler {
+                    enabled: row.header
+                    onTapped: view.repo.diff.toggleFile(row.index)
+                }
+                HoverHandler {
+                    enabled: row.header
+                    cursorShape: Qt.PointingHandCursor
                 }
 
                 TapHandler {

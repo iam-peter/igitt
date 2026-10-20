@@ -93,6 +93,8 @@ void Repository::finish(JobKind kind, Outcome outcome)
     // Results for a repository that has been replaced meanwhile, or read
     // in or out of plan mode before it was switched, are of no use.
     if (outcome.workDir == m_git.workDir() && outcome.planGeneration == m_planGeneration) {
+        if (outcome.trackedFiles)
+            m_files.setFiles(*outcome.trackedFiles, outcome.fileTree);
         if (outcome.fold) {
             m_lastFold = *outcome.fold;
             emit canUndoFoldChanged();
@@ -251,6 +253,24 @@ void Repository::showWorkingTree()
         showFile(m_unstaged.data(m_unstaged.index(0), FileListModel::PathRole).toString(), false);
     else if (m_staged.count() > 0)
         showFile(m_staged.data(m_staged.index(0), FileListModel::PathRole).toString(), true);
+}
+
+void Repository::loadFiles()
+{
+    if (!valid())
+        return;
+    enqueue(JobKind::Read, [plan = m_plan](const GitRunner &git) {
+        Outcome outcome;
+        const GitResult result = sourceFor(git, plan).git.run({QStringLiteral("ls-files"), QStringLiteral("-z")});
+        QStringList paths;
+        for (const QByteArray &path : result.out.split('\0')) {
+            if (!path.isEmpty())
+                paths.append(QString::fromUtf8(path));
+        }
+        outcome.fileTree = buildFileTree(paths);
+        outcome.trackedFiles = paths;
+        return outcome;
+    });
 }
 
 void Repository::requestStats(const QString &sha)

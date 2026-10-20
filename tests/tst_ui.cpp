@@ -3,6 +3,7 @@
 
 #include "Repository.h"
 #include "models/ConflictResolver.h"
+#include "ui/Fonts.h"
 #include "models/Timelapse.h"
 
 #include <QDir>
@@ -54,6 +55,7 @@ private slots:
         QSettings().clear();
         QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
         QQuickStyle::setStyle(u"Fusion"_s);
+        Fonts::registerBundled();
         createDemoRepository();
     }
 
@@ -66,7 +68,6 @@ private slots:
 
         engine.setInitialProperties({
             {u"initialPath"_s, m_dir.path()},
-            {u"monoFont"_s, QFontDatabase::systemFont(QFontDatabase::FixedFont)},
         });
         engine.loadFromModule("Igitt", "Main");
         QCOMPARE(engine.rootObjects().size(), 1);
@@ -77,6 +78,9 @@ private slots:
         auto *repo = window->findChild<Repository *>();
         QVERIFY(repo);
         QVERIFY(settle(*repo));
+        // The bundled fonts are in use.
+        QCOMPARE(window->property("font").value<QFont>().family(), u"Inter"_s);
+        QCOMPARE(window->property("monoFont").value<QFont>().family(), u"JetBrains Mono"_s);
         QCOMPARE(repo->commits()->rowCount(), 9);
         QCOMPARE(repo->unstaged()->count(), 2);
         QCOMPARE(repo->staged()->count(), 1);
@@ -130,6 +134,45 @@ private slots:
         QVERIFY(settle(*repo));
         QTest::qWait(50);
         screenshot(window, u"commit"_s);
+
+        // A commit's files collapse and expand, all at once or one by one.
+        QCOMPARE(repo->diff()->fileCount(), 2);
+        click(window, u"collapseAllButton"_s);
+        QTRY_COMPARE(repo->diff()->rowCount(), 2);
+        screenshot(window, u"collapsed"_s);
+        click(window, u"expandAllButton"_s);
+        QTRY_VERIFY(repo->diff()->rowCount() > 2);
+        repo->diff()->toggleFile(0);
+        QCOMPARE(repo->diff()->collapsedCount(), 1);
+        repo->diff()->setAllCollapsed(false);
+
+        // Every file of the project, for the time-lapse view.
+        click(window, u"filesTab"_s);
+        QVERIFY(settle(*repo));
+        QTRY_VERIFY(repo->files()->fileCount() >= 3);
+        auto *tree = findItem(window->contentItem(), u"fileTree"_s);
+        QVERIFY(tree);
+        screenshot(window, u"files"_s);
+        findItem(window->contentItem(), u"fileFilter"_s)->setProperty("text", u"feature"_s);
+        auto *matches = findItem(window->contentItem(), u"fileMatches"_s);
+        QTRY_VERIFY(matches && matches->property("count").toInt() == 1);
+        QQuickItem *match = nullptr;
+        QTRY_VERIFY(QMetaObject::invokeMethod(matches, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, match), Q_ARG(int, 0))
+                    && match);
+        QTest::mouseDClick(window, Qt::LeftButton, {}, match->mapToScene({match->width() / 2, match->height() / 2}).toPoint());
+        QQuickWindow *featureLapse = nullptr;
+        QTRY_VERIFY((featureLapse = timelapseWindow()));
+        QVERIFY(featureLapse->title().contains("feature.txt"_L1));
+        featureLapse->close();
+        QTRY_VERIFY(!timelapseWindow());
+        findItem(window->contentItem(), u"fileFilter"_s)->setProperty("text", QString());
+        QVERIFY(QMetaObject::invokeMethod(window, "showChanges"));
+
+        // Settings dim the window behind them.
+        QVERIFY(QMetaObject::invokeMethod(window, "openSettings"));
+        QTest::qWait(100);
+        screenshot(window, u"settings"_s);
+        QVERIFY(QMetaObject::invokeMethod(window, "closeSettings"));
 
         // Time-lapse of app.txt, opened as from a file's context menu.
         QVERIFY(QMetaObject::invokeMethod(window, "openTimelapse", Q_ARG(QString, u"app.txt"_s)));

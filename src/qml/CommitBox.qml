@@ -110,7 +110,7 @@ ColumnLayout {
         }
     }
 
-    ScrollView {
+    BoundedScrollView {
         Layout.fillWidth: true
         Layout.fillHeight: true
         Layout.minimumHeight: 50
@@ -194,8 +194,8 @@ ColumnLayout {
                 selectByMouse: true
                 onTextChanged: trailers.setProperty(trailerRow.index, "value", text)
             }
-            ToolButton {
-                text: "✕"
+            IconButton {
+                iconName: "x"
                 onClicked: trailers.remove(trailerRow.index)
             }
         }
@@ -216,9 +216,10 @@ ColumnLayout {
                     box.load(box.repo.headMessage)
             }
         }
-        ToolButton {
+        IconButton {
+            iconName: "plus"
             objectName: "addTrailerButton"
-            text: qsTr("+ Trailer")
+            text: qsTr("Trailer")
             onClicked: trailerMenu.popup(this, 0, height)
 
             Menu {

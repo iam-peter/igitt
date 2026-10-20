@@ -57,8 +57,9 @@ the current branch.
 
 ## Time-lapse view
 
-Right-click a file in the file lists, or a file header in any diff, for
-its Time-lapse View, after Perforce's: a slider through every revision
+Open a file's Time-lapse View from the **Files** tab (double-click a file
+of the project tree, or filter it by name first), or right-click a file
+in the change lists or a file header in any diff. It is modelled on Perforce's: a slider through every revision
 of the file (following renames), and the file as it was at that revision
 with each line blamed to the revision that last changed it, shaded by
 age. The lines the revision changed are highlighted, the ones it deleted
@@ -170,3 +171,16 @@ other branches that point into the rewritten range (like `rebase
 ## Ideas
 
 - Split an ambiguous selection and fold each part into its own commit.
+
+## Appearance
+
+The interface uses Inter and code JetBrains Mono, both bundled; Settings
+can change either and their sizes. Files in a diff collapse and expand by
+clicking their header, or all at once from the diff's toolbar.
+
+## Third-party assets
+
+- Icons: [Lucide](https://lucide.dev), ISC license (`src/icons/LICENSE.txt`).
+- Fonts: [Inter](https://rsms.me/inter/) and
+  [JetBrains Mono](https://www.jetbrains.com/lp/mono/), SIL Open Font
+  License 1.1 (`src/fonts/`).

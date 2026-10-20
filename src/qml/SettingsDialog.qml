@@ -5,7 +5,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Igitt
 
-Dialog {
+ModalDialog {
     id: dialog
 
     readonly property var commit: AppSettings.commit
@@ -16,10 +16,9 @@ Dialog {
     }
 
     title: qsTr("Settings")
-    modal: true
     standardButtons: Dialog.Close
 
-    contentItem: ScrollView {
+    contentItem: BoundedScrollView {
         implicitWidth: 520
         implicitHeight: Math.min(form.implicitHeight, 560)
         contentWidth: availableWidth
@@ -31,6 +30,56 @@ Dialog {
             spacing: 8
 
             Label {
+                text: qsTr("Appearance")
+                font.bold: true
+            }
+            GridLayout {
+                columns: 3
+                Label {
+                    text: qsTr("Interface font")
+                }
+                ComboBox {
+                    objectName: "uiFontSetting"
+                    Layout.fillWidth: true
+                    model: Qt.fontFamilies()
+                    currentIndex: Math.max(0, model.indexOf(AppSettings.fonts.uiFamily))
+                    onActivated: index => AppSettings.fonts.uiFamily = model[index]
+                }
+                SpinBox {
+                    from: 6
+                    to: 30
+                    value: AppSettings.fonts.uiSize
+                    onValueModified: AppSettings.fonts.uiSize = value
+                }
+                Label {
+                    text: qsTr("Code font")
+                }
+                ComboBox {
+                    objectName: "codeFontSetting"
+                    Layout.fillWidth: true
+                    model: Qt.fontFamilies()
+                    currentIndex: Math.max(0, model.indexOf(AppSettings.fonts.codeFamily))
+                    onActivated: index => AppSettings.fonts.codeFamily = model[index]
+                }
+                SpinBox {
+                    from: 6
+                    to: 30
+                    value: AppSettings.fonts.codeSize
+                    onValueModified: AppSettings.fonts.codeSize = value
+                }
+            }
+            Button {
+                text: qsTr("Defaults: Inter and JetBrains Mono")
+                onClicked: {
+                    AppSettings.fonts.uiFamily = "Inter"
+                    AppSettings.fonts.uiSize = 10
+                    AppSettings.fonts.codeFamily = "JetBrains Mono"
+                    AppSettings.fonts.codeSize = 10
+                }
+            }
+
+            Label {
+                Layout.topMargin: 12
                 text: qsTr("Commit messages")
                 font.bold: true
             }
@@ -91,8 +140,8 @@ Dialog {
                             dialog.setKeys(keys.filter(key => key !== ""))
                         }
                     }
-                    ToolButton {
-                        text: "▲"
+                    IconButton {
+                        iconName: "chevron-up"
                         enabled: keyRow.index > 0
                         onClicked: {
                             const keys = Array.from(dialog.commit.trailerKeys)
@@ -100,8 +149,8 @@ Dialog {
                             dialog.setKeys(keys)
                         }
                     }
-                    ToolButton {
-                        text: "✕"
+                    IconButton {
+                        iconName: "x"
                         onClicked: {
                             const keys = Array.from(dialog.commit.trailerKeys)
                             keys.splice(keyRow.index, 1)

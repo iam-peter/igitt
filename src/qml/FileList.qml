@@ -55,6 +55,8 @@ Item {
         MenuSeparator {}
         MenuItem {
             text: qsTr("Time-lapse View")
+            icon.source: Icons.source("history")
+            icon.color: palette.windowText
             onTriggered: fileList.timelapseRequested(fileMenu.path)
         }
     }
@@ -76,7 +78,8 @@ Item {
                     font.bold: true
                     elide: Text.ElideRight
                 }
-                ToolButton {
+                IconButton {
+                    iconName: fileList.staged ? "undo-2" : "plus"
                     text: fileList.staged ? qsTr("Unstage all") : qsTr("Stage all")
                     enabled: fileList.files.count > 0
                     onClicked: fileList.staged ? fileList.repo.unstageAll() : fileList.repo.stageAll()
@@ -91,6 +94,7 @@ Item {
             clip: true
             model: fileList.files
             boundsBehavior: Flickable.StopAtBounds
+            boundsMovement: Flickable.StopAtBounds
             // Dragging with the mouse moves files, not the list; the wheel
             // and the scroll bar still scroll.
             acceptedButtons: Qt.NoButton

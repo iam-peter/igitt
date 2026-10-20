@@ -39,24 +39,27 @@ void DiffModel::setFiles(const QList<FileDiff> &files)
 {
     beginResetModel();
     m_files = files;
-    m_rows.clear();
+    m_bodies.clear();
+    m_collapsed = QList<bool>(files.size(), false);
+    m_added = QList<int>(files.size(), 0);
+    m_removed = QList<int>(files.size(), 0);
     m_selection.clear();
     m_selectedCount = 0;
     m_maxLineLength = 0;
 
     for (int f = 0; f < files.size(); ++f) {
         const FileDiff &file = files[f];
-        m_rows.append({FileHeader, f, -1, -1, fileTitle(file)});
+        QList<Row> body;
 
         LineSelection selection;
         if (file.isBinary)
-            m_rows.append({Message, f, -1, -1, tr("Binary file")});
+            body.append({Message, f, -1, -1, tr("Binary file")});
         else if (file.hunks.isEmpty())
-            m_rows.append({Message, f, -1, -1, tr("No content changes (mode or rename only)")});
+            body.append({Message, f, -1, -1, tr("No content changes (mode or rename only)")});
 
         for (int h = 0; h < file.hunks.size(); ++h) {
             const DiffHunk &hunk = file.hunks[h];
-            m_rows.append({HunkHeader, f, h, -1, QString::fromUtf8(hunk.header())});
+            body.append({HunkHeader, f, h, -1, QString::fromUtf8(hunk.header())});
             selection.append(QList<bool>(hunk.lines.size(), false));
             for (int l = 0; l < hunk.lines.size(); ++l) {
                 const DiffLine &line = hunk.lines[l];
@@ -69,20 +72,78 @@ void DiffModel::setFiles(const QList<FileDiff> &files)
                 }
                 Row row{kind, f, h, l, displayText(line.content), line.oldLine, line.newLine};
                 m_maxLineLength = std::max(m_maxLineLength, int(row.text.size()));
-                m_rows.append(row);
+                m_added[f] += kind == Added ? 1 : 0;
+                m_removed[f] += kind == Removed ? 1 : 0;
+                body.append(row);
             }
         }
+        m_bodies.append(body);
         m_selection.append(selection);
     }
+    rebuildRows();
     endResetModel();
     emit contentChanged();
+    emit collapsedChanged();
     emit selectionChanged();
+}
+
+void DiffModel::rebuildRows()
+{
+    m_rows.clear();
+    for (int f = 0; f < m_files.size(); ++f) {
+        m_rows.append({FileHeader, f, -1, -1, fileTitle(m_files[f])});
+        if (!m_collapsed[f])
+            m_rows += m_bodies[f];
+    }
+}
+
+void DiffModel::toggleFile(int row)
+{
+    if (row < 0 || row >= m_rows.size() || m_rows[row].file < 0)
+        return;
+    const int file = m_rows[row].file;
+    int header = row;
+    while (m_rows[header].kind != FileHeader)
+        --header;
+    const int lines = int(m_bodies[file].size());
+    if (lines > 0) {
+        // Insert or remove just this file's rows, so the view keeps its place.
+        if (m_collapsed[file]) {
+            beginInsertRows({}, header + 1, header + lines);
+            m_collapsed[file] = false;
+            for (int i = 0; i < lines; ++i)
+                m_rows.insert(header + 1 + i, m_bodies[file][i]);
+            endInsertRows();
+        } else {
+            beginRemoveRows({}, header + 1, header + lines);
+            m_collapsed[file] = true;
+            m_rows.remove(header + 1, lines);
+            endRemoveRows();
+        }
+    } else {
+        m_collapsed[file] = !m_collapsed[file];
+    }
+    emit dataChanged(index(header), index(header), {CollapsedRole});
+    emit collapsedChanged();
+}
+
+void DiffModel::setAllCollapsed(bool collapsed)
+{
+    beginResetModel();
+    std::fill(m_collapsed.begin(), m_collapsed.end(), collapsed);
+    rebuildRows();
+    endResetModel();
+    emit collapsedChanged();
 }
 
 void DiffModel::setMessage(const QString &message)
 {
     beginResetModel();
     m_files.clear();
+    m_bodies.clear();
+    m_collapsed.clear();
+    m_added.clear();
+    m_removed.clear();
     m_selection.clear();
     m_rows = {Row{Message, -1, -1, -1, message}};
     m_selectedCount = 0;
@@ -115,6 +176,9 @@ QVariant DiffModel::data(const QModelIndex &index, int role) const
     case SelectableRole: return row.selectable();
     case SelectedRole: return isSelected(row);
     case PathRole: return row.file >= 0 ? m_files[row.file].path() : QString();
+    case CollapsedRole: return row.file >= 0 && m_collapsed[row.file];
+    case AddedRole: return row.file >= 0 ? m_added[row.file] : 0;
+    case RemovedRole: return row.file >= 0 ? m_removed[row.file] : 0;
     }
     return {};
 }
@@ -129,6 +193,9 @@ QHash<int, QByteArray> DiffModel::roleNames() const
         {SelectableRole, "selectable"},
         {SelectedRole, "selected"},
         {PathRole, "path"},
+        {CollapsedRole, "collapsed"},
+        {AddedRole, "added"},
+        {RemovedRole, "removed"},
     };
 }
 

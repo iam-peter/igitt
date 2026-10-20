@@ -22,6 +22,7 @@ qt_add_qml_module(igitt_core
         models/PlanModel.h models/PlanModel.cpp
         models/Timelapse.h models/Timelapse.cpp
         models/ConflictResolver.h models/ConflictResolver.cpp
+        models/FileTreeModel.h models/FileTreeModel.cpp
         models/CommitModel.h models/CommitModel.cpp
         models/FileListModel.h models/FileListModel.cpp
         models/DiffModel.h models/DiffModel.cpp
@@ -35,7 +36,7 @@ target_include_directories(igitt_core
 target_link_libraries(igitt_core PUBLIC Qt6::Core Qt6::Qml)
 
 # UI: QML and the custom items, as a library so the UI smoke test can load it.
-set_source_files_properties(qml/AppSettings.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/AppSettings.qml qml/Icons.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 qt_add_library(igitt_ui STATIC)
 qt_add_qml_module(igitt_ui
     URI Igitt
@@ -56,12 +57,68 @@ qt_add_qml_module(igitt_ui
         qml/AppSettings.qml
         qml/TimelapseWindow.qml
         qml/ConflictView.qml
+        qml/Icons.qml
+        qml/IconButton.qml
+        qml/Icon.qml
+        qml/ModalDialog.qml
+        qml/FilesPane.qml
+        qml/BoundedScrollView.qml
     SOURCES
         ui/CommitGraph.h ui/CommitGraph.cpp
         ui/Clipboard.h
         ui/ActivityMinimap.h ui/ActivityMinimap.cpp
+        ui/Fonts.h ui/Fonts.cpp
+    RESOURCES
+        icons/case-sensitive.svg
+        icons/check.svg
+        icons/chevron-down.svg
+        icons/chevron-right.svg
+        icons/chevron-up.svg
+        icons/chevrons-down-up.svg
+        icons/chevrons-up-down.svg
+        icons/circle-alert.svg
+        icons/circle-check.svg
+        icons/cloud-download.svg
+        icons/cloud-upload.svg
+        icons/columns-3.svg
+        icons/copy.svg
+        icons/file.svg
+        icons/files.svg
+        icons/fold-vertical.svg
+        icons/folder-open.svg
+        icons/folder-tree.svg
+        icons/folder.svg
+        icons/git-branch.svg
+        icons/git-commit-horizontal.svg
+        icons/git-merge.svg
+        icons/git-pull-request.svg
+        icons/grip-vertical.svg
+        icons/history.svg
+        icons/list-checks.svg
+        icons/pause.svg
+        icons/play.svg
+        icons/plus.svg
+        icons/refresh-cw.svg
+        icons/regex.svg
+        icons/search.svg
+        icons/settings.svg
+        icons/skip-back.svg
+        icons/skip-forward.svg
+        icons/step-back.svg
+        icons/step-forward.svg
+        icons/tag.svg
+        icons/undo-2.svg
+        icons/x.svg
+        fonts/Inter-Bold.ttf
+        fonts/Inter-Italic.ttf
+        fonts/Inter-Medium.ttf
+        fonts/Inter-Regular.ttf
+        fonts/Inter-SemiBold.ttf
+        fonts/JetBrainsMono-Bold.ttf
+        fonts/JetBrainsMono-Italic.ttf
+        fonts/JetBrainsMono-Regular.ttf
 )
-target_include_directories(igitt_ui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ui)
+target_include_directories(igitt_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/ui)
 target_link_libraries(igitt_ui PUBLIC
     igitt_core
     igitt_coreplugin

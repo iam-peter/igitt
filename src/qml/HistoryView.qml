@@ -73,15 +73,21 @@ Pane {
                   ? qsTr("Fold %n selected line(s) into this commit", "", view.repo.diff.selectedCount)
                   : qsTr("Can't fold: %1").arg(commitMenu.blocker)
             enabled: commitMenu.blocker === ""
+            icon.source: Icons.source("fold-vertical")
+            icon.color: palette.windowText
             onTriggered: view.foldRequested(commitMenu.sha)
         }
         MenuSeparator {}
         MenuItem {
             text: qsTr("Copy Commit SHA")
+            icon.source: Icons.source("copy")
+            icon.color: palette.windowText
             onTriggered: Clipboard.setText(commitMenu.sha)
         }
         MenuItem {
             text: qsTr("Copy Subject")
+            icon.source: Icons.source("copy")
+            icon.color: palette.windowText
             onTriggered: Clipboard.setText(commitMenu.subject)
         }
     }
@@ -142,17 +148,17 @@ Pane {
                     ToolTip.text: qsTr("Terms must all match. author:, message: and sha: limit a term to "
                                        + "that field; quotes keep a phrase together.")
                 }
-                ToolButton {
+                IconButton {
+                    iconName: "case-sensitive"
                     id: matchCase
-                    text: "Aa"
                     checkable: true
                     onToggled: view.updateSearch()
                     ToolTip.visible: hovered
                     ToolTip.text: qsTr("Match case")
                 }
-                ToolButton {
+                IconButton {
+                    iconName: "regex"
                     id: regex
-                    text: ".*"
                     checkable: true
                     onToggled: view.updateSearch()
                     ToolTip.visible: hovered
@@ -166,15 +172,15 @@ Pane {
                     color: view.repo.commits.searchError !== "" ? "#d62728" : view.palette.text
                     opacity: 0.8
                 }
-                ToolButton {
-                    text: "▲"
+                IconButton {
+                    iconName: "chevron-up"
                     enabled: view.repo.commits.matchCount > 0
                     onClicked: view.findMatch(false)
                     ToolTip.visible: hovered
                     ToolTip.text: qsTr("Previous match (Shift+Enter)")
                 }
-                ToolButton {
-                    text: "▼"
+                IconButton {
+                    iconName: "chevron-down"
                     enabled: view.repo.commits.matchCount > 0
                     onClicked: view.findMatch(true)
                     ToolTip.visible: hovered
@@ -183,8 +189,9 @@ Pane {
                 Item {
                     Layout.fillWidth: true
                 }
-                ToolButton {
-                    text: qsTr("View ▾")
+                IconButton {
+                    iconName: "columns-3"
+                    text: qsTr("View")
                     onClicked: viewMenu.popup(this, 0, height)
                 }
             }
@@ -352,6 +359,7 @@ Pane {
             model: view.repo.commits
             currentIndex: -1
             boundsBehavior: Flickable.StopAtBounds
+            boundsMovement: Flickable.StopAtBounds
             highlightMoveDuration: 0
             keyNavigationEnabled: false
             ScrollBar.vertical: ScrollBar {}

@@ -21,6 +21,15 @@ QtObject {
         property var trailerKeys: Array.from(root.defaultTrailerKeys)
     }
 
+    readonly property Settings fonts: Settings {
+        category: "fonts"
+
+        property string uiFamily: "Inter"
+        property real uiSize: 10
+        property string codeFamily: "JetBrains Mono"
+        property real codeSize: 10
+    }
+
     readonly property Settings remote: Settings {
         category: "remote"
 

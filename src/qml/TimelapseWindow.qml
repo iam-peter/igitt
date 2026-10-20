@@ -69,22 +69,22 @@ ApplicationWindow {
             anchors.leftMargin: 6
             anchors.rightMargin: 6
 
-            ToolButton {
-                text: "⏮"
+            IconButton {
+                iconName: "skip-back"
                 enabled: lapse.revision > 0
                 onClicked: lapse.revision = 0
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("First revision (Home)")
             }
-            ToolButton {
-                text: "◀"
+            IconButton {
+                iconName: "step-back"
                 enabled: lapse.revision > 0
                 onClicked: window.step(-1)
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("Previous revision (Left)")
             }
-            ToolButton {
-                text: player.running ? "⏸" : "▶"
+            IconButton {
+                iconName: player.running ? "pause" : "play"
                 enabled: lapse.revisionCount > 1
                 onClicked: {
                     if (player.running) {
@@ -98,15 +98,15 @@ ApplicationWindow {
                 ToolTip.visible: hovered
                 ToolTip.text: player.running ? qsTr("Pause") : qsTr("Play through the revisions")
             }
-            ToolButton {
-                text: "▶|"
+            IconButton {
+                iconName: "step-forward"
                 enabled: lapse.revision < lapse.revisionCount - 1
                 onClicked: window.step(1)
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("Next revision (Right)")
             }
-            ToolButton {
-                text: "⏭"
+            IconButton {
+                iconName: "skip-forward"
                 enabled: lapse.revision < lapse.revisionCount - 1
                 onClicked: lapse.revision = lapse.revisionCount - 1
                 ToolTip.visible: hovered
@@ -243,6 +243,7 @@ ApplicationWindow {
             clip: true
             model: lapse
             boundsBehavior: Flickable.StopAtBounds
+            boundsMovement: Flickable.StopAtBounds
             flickableDirection: Flickable.AutoFlickIfNeeded
             contentWidth: Math.max(width, 1600)
             ScrollBar.vertical: ScrollBar {}

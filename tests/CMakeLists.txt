@@ -15,6 +15,10 @@ igitt_add_test(tst_messageformat)
 igitt_add_test(tst_timelapse)
 igitt_add_test(tst_conflict)
 igitt_add_test(tst_remote)
+igitt_add_test(tst_models)
+# QAbstractItemModelTester also checks GUI roles, which need QtGui.
+target_link_libraries(tst_models PRIVATE Qt6::Gui)
+set_tests_properties(tst_models PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 qt_add_executable(tst_ui tst_ui.cpp)
 target_link_libraries(tst_ui PRIVATE igitt_ui igitt_uiplugin Qt6::Test)

@@ -60,10 +60,8 @@ Pane {
         }
     }
 
-    Dialog {
+    ModalDialog {
         id: confirmMarkers
-        anchors.centerIn: parent
-        modal: true
         title: qsTr("Conflict markers left")
         standardButtons: Dialog.Save | Dialog.Cancel
         onAccepted: view.repo.resolveConflict(view.path, outputArea.text)
@@ -107,6 +105,7 @@ Pane {
             clip: true
             model: resolver.chunks
             boundsBehavior: Flickable.StopAtBounds
+            boundsMovement: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar {}
 
             delegate: Rectangle {
@@ -186,13 +185,13 @@ Pane {
                                                           : qsTr(" · all picked"))
                     opacity: 0.8
                 }
-                ToolButton {
-                    text: "▲"
+                IconButton {
+                    iconName: "chevron-up"
                     enabled: resolver.conflictCount > 1
                     onClicked: view.goTo(view.currentConflict - 1)
                 }
-                ToolButton {
-                    text: "▼"
+                IconButton {
+                    iconName: "chevron-down"
                     enabled: resolver.conflictCount > 1
                     onClicked: view.goTo(view.currentConflict + 1)
                 }
@@ -210,6 +209,10 @@ Pane {
                     onClicked: resolver.takeAll(true)
                 }
                 Button {
+                    icon.source: Icons.source("check")
+                    icon.color: palette.buttonText
+                    icon.width: 16
+                    icon.height: 16
                     objectName: "saveResolution"
                     visible: resolver.error === ""
                     text: qsTr("Save and Mark Resolved")
@@ -289,7 +292,7 @@ Pane {
                         elide: Text.ElideRight
                     }
                 }
-                ScrollView {
+                BoundedScrollView {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
 

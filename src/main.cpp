@@ -1,10 +1,11 @@
 #include <QCommandLineParser>
 #include <QDir>
-#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QtQml/qqmlextensionplugin.h>
+
+#include "Fonts.h"
 
 Q_IMPORT_QML_PLUGIN(Igitt_CorePlugin)
 Q_IMPORT_QML_PLUGIN(IgittPlugin)
@@ -17,6 +18,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setOrganizationDomain(QStringLiteral("igitt.local"));
     QGuiApplication::setApplicationVersion(QStringLiteral(PROJECT_VERSION));
     QQuickStyle::setStyle(QStringLiteral("Fusion"));
+    Fonts::registerBundled();
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("History browser and commit tool for git"));
@@ -33,7 +35,6 @@ int main(int argc, char *argv[])
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     engine.setInitialProperties({
         {QStringLiteral("initialPath"), path},
-        {QStringLiteral("monoFont"), QFontDatabase::systemFont(QFontDatabase::FixedFont)},
     });
     engine.loadFromModule("Igitt", "Main");
     return app.exec();

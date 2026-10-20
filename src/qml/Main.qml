@@ -10,7 +10,10 @@ ApplicationWindow {
     id: root
 
     required property string initialPath
-    required property font monoFont
+    readonly property font uiFont: Qt.font({family: AppSettings.fonts.uiFamily,
+                                            pointSize: AppSettings.fonts.uiSize})
+    readonly property font monoFont: Qt.font({family: AppSettings.fonts.codeFamily,
+                                              pointSize: AppSettings.fonts.codeSize})
 
     width: 1400
     height: 900
@@ -58,7 +61,8 @@ ApplicationWindow {
     }
 
     function openTimelapse(path: string) {
-        timelapseWindow.createObject(null, {workDir: repo.path, path: path, monoFont: root.monoFont})
+        timelapseWindow.createObject(null, {workDir: repo.path, path: path, monoFont: root.monoFont,
+                                            font: root.uiFont})
     }
 
     Component {
@@ -66,6 +70,16 @@ ApplicationWindow {
         TimelapseWindow {
             onClosing: destroy()
         }
+    }
+
+    function openSettings() {
+        settingsDialog.open()
+    }
+    function closeSettings() {
+        settingsDialog.close()
+    }
+    function showChanges() {
+        leftTabs.currentIndex = 0
     }
 
     function setPlanning(on: bool) {
@@ -100,15 +114,13 @@ ApplicationWindow {
         onTriggered: root.clock++
     }
 
-    Dialog {
+    ModalDialog {
         id: forcePushDialog
 
         property string reason
         property string target
 
-        anchors.centerIn: parent
         width: Math.min(520, root.width - 40)
-        modal: true
         title: qsTr("Push rejected")
         standardButtons: Dialog.Cancel
 
@@ -155,12 +167,10 @@ ApplicationWindow {
         anchors.centerIn: parent
     }
 
-    Dialog {
+    ModalDialog {
         id: discardDialog
 
-        anchors.centerIn: parent
         width: Math.min(420, root.width - 40)
-        modal: true
         title: qsTr("Discard the plan?")
         standardButtons: Dialog.Discard | Dialog.Cancel
         onDiscarded: {
@@ -176,14 +186,12 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    ModalDialog {
         id: publishedDialog
 
         property string sha
 
-        anchors.centerIn: parent
         width: Math.min(480, root.width - 40)
-        modal: true
         title: qsTr("Rewrite a published commit?")
         standardButtons: Dialog.Ok | Dialog.Cancel
         onAccepted: repo.foldSelection(sha)
@@ -196,7 +204,13 @@ ApplicationWindow {
         }
     }
 
-    Component.onCompleted: repo.open(root.initialPath)
+    font: uiFont
+    // Plain Text items and painted items use the application font.
+    onUiFontChanged: Fonts.setApplicationFont(uiFont)
+    Component.onCompleted: {
+        Fonts.setApplicationFont(uiFont)
+        repo.open(root.initialPath)
+    }
 
     // Pick up changes made in a terminal or editor when the window is
     // activated again.
@@ -229,20 +243,24 @@ ApplicationWindow {
             anchors.leftMargin: 6
             anchors.rightMargin: 6
 
-            ToolButton {
+            IconButton {
+                iconName: "folder-open"
                 text: qsTr("Open…")
                 onClicked: openDialog.open()
             }
-            ToolButton {
+            IconButton {
+                iconName: "refresh-cw"
                 text: qsTr("Refresh")
                 onClicked: repo.refresh()
             }
-            ToolButton {
+            IconButton {
+                iconName: "settings"
                 text: qsTr("Settings…")
                 onClicked: settingsDialog.open()
             }
-            ToolButton {
+            IconButton {
                 objectName: "planButton"
+                iconName: "list-checks"
                 text: qsTr("Plan")
                 checkable: true
                 checked: repo.planning
@@ -253,18 +271,20 @@ ApplicationWindow {
                 ToolTip.text: qsTr("Collect actions in a plan, review the commands, and execute them together")
             }
             ToolSeparator {}
-            ToolButton {
+            IconButton {
                 objectName: "fetchButton"
-                text: qsTr("⇣ Fetch (%1)").arg((root.clock, root.ago(repo.lastFetch)))
+                iconName: "cloud-download"
+                text: qsTr("Fetch (%1)").arg((root.clock, root.ago(repo.lastFetch)))
                 enabled: repo.valid && !repo.writing && !repo.planning
                 onClicked: repo.fetch()
                 ToolTip.visible: hovered
                 ToolTip.text: repo.planning ? qsTr("Off while planning")
                                             : qsTr("Fetch the upstream's remote and prune deleted branches")
             }
-            ToolButton {
+            IconButton {
                 objectName: "pushButton"
-                text: (repo.pushForReview ? qsTr("⇡ Push for Review") : qsTr("⇡ Push"))
+                iconName: repo.pushForReview ? "git-pull-request" : "cloud-upload"
+                text: (repo.pushForReview ? qsTr("Push for Review") : qsTr("Push"))
                       + (repo.ahead > 0 ? `  ↑${repo.ahead}` : "")
                 enabled: repo.valid && repo.canPush && !repo.writing && !repo.planning && repo.operation === ""
                 onClicked: repo.push()
@@ -280,6 +300,10 @@ ApplicationWindow {
                 padding: 2
                 running: root.showBusy
                 visible: running
+            }
+            Icon {
+                name: "git-branch"
+                visible: repo.valid
             }
             Label {
                 Layout.fillWidth: true
@@ -341,12 +365,47 @@ ApplicationWindow {
                 SplitView.fillHeight: true
                 orientation: Qt.Horizontal
 
-                ChangesPane {
-                    repo: repo
-                    monoFont: root.monoFont
-                    onTimelapseRequested: path => root.openTimelapse(path)
+                // Changes to stage and commit, or every file of the project.
+                ColumnLayout {
                     SplitView.preferredWidth: 360
                     SplitView.minimumWidth: 220
+                    spacing: 0
+
+                    TabBar {
+                        id: leftTabs
+                        Layout.fillWidth: true
+
+                        TabButton {
+                            text: qsTr("Changes")
+                            icon.source: Icons.source("files")
+                            icon.color: palette.buttonText
+                            icon.width: 16
+                            icon.height: 16
+                        }
+                        TabButton {
+                            objectName: "filesTab"
+                            text: qsTr("Files")
+                            icon.source: Icons.source("folder-tree")
+                            icon.color: palette.buttonText
+                            icon.width: 16
+                            icon.height: 16
+                        }
+                    }
+                    StackLayout {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        currentIndex: leftTabs.currentIndex
+
+                        ChangesPane {
+                            repo: repo
+                            monoFont: root.monoFont
+                            onTimelapseRequested: path => root.openTimelapse(path)
+                        }
+                        FilesPane {
+                            repo: repo
+                            onTimelapseRequested: path => root.openTimelapse(path)
+                        }
+                    }
                 }
                 DiffView {
                     repo: repo
@@ -396,12 +455,16 @@ ApplicationWindow {
                 textFormat: Text.PlainText
             }
             Button {
+                icon.source: Icons.source("undo-2")
+                icon.color: palette.buttonText
+                icon.width: 16
+                icon.height: 16
                 text: qsTr("Undo")
                 visible: !messageBar.isError && repo.canUndoFold
                 onClicked: repo.undoFold()
             }
-            ToolButton {
-                text: "✕"
+            IconButton {
+                iconName: "x"
                 onClicked: messageBar.visible = false
             }
         }
