@@ -47,6 +47,8 @@ public:
 
     void setFiles(const QList<FileDiff> &files);
     void setMessage(const QString &message);
+    // A whole file rather than a diff: its lines, numbered, under a header.
+    void setContent(const QString &path, const QStringList &lines, bool truncated);
     void clear();
 
     const QList<FileDiff> &files() const { return m_files; }

@@ -469,6 +469,32 @@ private slots:
         QCOMPARE(repo().files()->match(u"g"_s), QStringList{u"g.txt"_s});
     }
 
+    void showsFileContent()
+    {
+        writeFile(file(), "one\ntwo\nthree\nfour\nfive\nsix\n"); // unstaged edit
+        open(m_dir->path());
+        repo().showFileContent(u"f.txt"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().diffSource(), Repository::FileContent);
+        DiffModel *diff = repo().diff();
+        QCOMPARE(diff->rowCount(), 7); // header and six lines, as on disk
+        QCOMPARE(diff->data(diff->index(0), DiffModel::PathRole).toString(), u"f.txt"_s);
+        QCOMPARE(diff->data(diff->index(6), DiffModel::TextRole).toString(), u"six"_s);
+        QCOMPARE(diff->data(diff->index(6), DiffModel::NewLineRole).toInt(), 6);
+        QVERIFY(!diff->data(diff->index(6), DiffModel::SelectableRole).toBool());
+
+        // Deleted from disk: the staged version.
+        QFile::remove(file());
+        repo().showFileContent(u"f.txt"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(diff->rowCount(), 6);
+
+        writeFile(m_dir->filePath("blob.bin"), QByteArray("\0\1\2", 3));
+        repo().showFileContent(u"blob.bin"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(diff->data(diff->index(0), DiffModel::TextRole).toString(), u"Binary file"_s);
+    }
+
     void undoIsForgottenWhenHeadMoves()
     {
         writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");

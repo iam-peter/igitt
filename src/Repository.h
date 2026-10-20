@@ -90,7 +90,7 @@ class Repository : public QObject
     Q_PROPERTY(PlanModel *plan READ plan CONSTANT)
 
 public:
-    enum DiffSource { NoDiff, UnstagedDiff, StagedDiff, CommitDiff };
+    enum DiffSource { NoDiff, UnstagedDiff, StagedDiff, CommitDiff, FileContent };
     Q_ENUM(DiffSource)
 
     explicit Repository(QObject *parent = nullptr);
@@ -151,6 +151,8 @@ public:
 
     Q_INVOKABLE void showCommit(const QString &sha);
     Q_INVOKABLE void showFile(const QString &path, bool staged);
+    // Shows a file's content as it is in the working tree.
+    Q_INVOKABLE void showFileContent(const QString &path);
     // Shows the first changed file, unstaged ones first.
     Q_INVOKABLE void showWorkingTree();
     // Lists the tracked files (as the index has them) into `files`.

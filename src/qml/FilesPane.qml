@@ -6,8 +6,8 @@ import QtQuick.Layouts
 import Igitt
 import Igitt.Core
 
-// The repository's tracked files, to open any of them in the time-lapse
-// view: double-click, or right-click for the menu.
+// The repository's tracked files: click one to see its content, double-click
+// (or right-click) for its time-lapse view.
 Pane {
     id: pane
 
@@ -106,6 +106,8 @@ Pane {
                 required property string fileName
 
                 implicitWidth: tree.width
+                highlighted: !entry.isDir && pane.repo.diffSource === Repository.FileContent
+                             && pane.repo.diffPath === entry.path
                 contentItem: RowLayout {
                     spacing: 6
 
@@ -122,7 +124,12 @@ Pane {
                 }
 
                 TapHandler {
-                    onTapped: if (entry.isDir) tree.toggleExpanded(entry.row)
+                    onTapped: {
+                        if (entry.isDir)
+                            tree.toggleExpanded(entry.row)
+                        else
+                            pane.repo.showFileContent(entry.path)
+                    }
                     onDoubleTapped: if (!entry.isDir) pane.timelapseRequested(entry.path)
                 }
                 TapHandler {
@@ -157,6 +164,8 @@ Pane {
 
                 width: ListView.view.width
                 height: 26
+                highlighted: pane.repo.diffSource === Repository.FileContent && pane.repo.diffPath === modelData
+                onClicked: pane.repo.showFileContent(modelData)
                 onDoubleClicked: pane.timelapseRequested(modelData)
 
                 contentItem: RowLayout {

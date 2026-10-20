@@ -27,12 +27,12 @@ struct StateSource
     QString baselineHead; // simulated: commits it does not reach are planned
 };
 
-enum class DiffKind { None, Unstaged, Staged, Commit };
+enum class DiffKind { None, Unstaged, Staged, Commit, Content };
 
 struct DiffRequest
 {
     DiffKind kind = DiffKind::None;
-    QString path;   // Unstaged, Staged
+    QString path;   // Unstaged, Staged, Content
     QString commit; // Commit
     int generation = 0; // lets the UI drop results for a view it has left
 };
@@ -44,6 +44,8 @@ struct DiffState
     QString message; // shown instead of a diff, e.g. for a conflicted file
     QString details; // commit header and message
     bool conflicted = false; // the file has unresolved merge conflicts
+    QStringList content;     // Content: the file's lines
+    bool truncated = false;  // Content: only the first lines
     FoldSuggester suggester;
     QString error;
 };

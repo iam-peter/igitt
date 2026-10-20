@@ -16,6 +16,7 @@ DiffKind diffKind(Repository::DiffSource source)
     case Repository::UnstagedDiff: return DiffKind::Unstaged;
     case Repository::StagedDiff: return DiffKind::Staged;
     case Repository::CommitDiff: return DiffKind::Commit;
+    case Repository::FileContent: return DiffKind::Content;
     case Repository::NoDiff: break;
     }
     return DiffKind::None;
@@ -151,6 +152,8 @@ void Repository::applyState(const RepositoryState &state)
         m_diffConflicted = diff.conflicted;
         if (!diff.message.isEmpty())
             m_diff.setMessage(diff.message);
+        else if (diff.request.kind == DiffKind::Content)
+            m_diff.setContent(diff.request.path, diff.content, diff.truncated);
         else
             m_diff.setFiles(diff.files);
         if (!diff.error.isEmpty())
@@ -243,6 +246,20 @@ void Repository::showFile(const QString &path, bool staged)
         Outcome outcome;
         if (request.generation == *current)
             outcome.state = loadState(sourceFor(git, plan), request, history);
+        return outcome;
+    });
+}
+
+void Repository::showFileContent(const QString &path)
+{
+    if (!valid())
+        return;
+    setDiffView(FileContent, path, {});
+    enqueue(JobKind::Read, [request = diffRequest(), current = m_diffGeneration,
+                            plan = m_plan](const GitRunner &git) {
+        Outcome outcome;
+        if (request.generation == *current)
+            outcome.state.diff = loadDiff(sourceFor(git, plan), request, {});
         return outcome;
     });
 }

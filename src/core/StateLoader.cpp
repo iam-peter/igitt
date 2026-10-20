@@ -1,12 +1,15 @@
 #include "StateLoader.h"
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QFile>
 #include <QMap>
 
 namespace {
 
 constexpr int MaxHistory = 20000;
 constexpr int MaxFoldTargets = 1000;
+constexpr qsizetype MaxContentBytes = 8 * 1024 * 1024;
 
 QString tr(const char *text)
 {
@@ -225,6 +228,32 @@ DiffState loadDiff(const StateSource &source, const DiffRequest &request, const 
             diff.files = parseDiff(result.out);
         else
             diff.error = tr("Showing commit %1 failed: %2").arg(request.commit.left(10), result.errorText());
+        return diff;
+    }
+    if (request.kind == DiffKind::Content) {
+        // The file as it is on disk; if it is gone from there, as staged.
+        QByteArray data;
+        QFile file(QDir(git.workDir()).filePath(request.path));
+        if (file.open(QIODevice::ReadOnly)) {
+            data = file.read(MaxContentBytes + 1);
+        } else {
+            const GitResult staged = git.run({QStringLiteral("show"), QLatin1Char(':') + request.path});
+            if (!staged.ok()) {
+                diff.error = tr("Reading %1 failed: %2").arg(request.path, staged.errorText());
+                return diff;
+            }
+            data = staged.out.left(MaxContentBytes + 1);
+        }
+        if (data.left(8000).contains('\0')) {
+            diff.message = tr("Binary file");
+            return diff;
+        }
+        diff.truncated = data.size() > MaxContentBytes;
+        if (diff.truncated)
+            data.truncate(data.lastIndexOf('\n', MaxContentBytes) + 1);
+        if (data.endsWith('\n'))
+            data.chop(1);
+        diff.content = QString::fromUtf8(data).split(QLatin1Char('\n'));
         return diff;
     }
     if (request.kind != DiffKind::Unstaged && request.kind != DiffKind::Staged)

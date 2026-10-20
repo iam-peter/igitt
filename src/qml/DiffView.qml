@@ -109,6 +109,7 @@ Pane {
                         case Repository.UnstagedDiff: return qsTr("Unstaged: %1").arg(view.repo.diffPath)
                         case Repository.StagedDiff: return qsTr("Staged: %1").arg(view.repo.diffPath)
                         case Repository.CommitDiff: return qsTr("Commit %1").arg(view.repo.diffCommit.substring(0, 10))
+                        case Repository.FileContent: return qsTr("File: %1").arg(view.repo.diffPath)
                         default: return ""
                         }
                     }
@@ -331,7 +332,8 @@ Pane {
                         switch (row.kind) {
                         case DiffModel.Added: return "+" + row.text
                         case DiffModel.Removed: return "-" + row.text
-                        case DiffModel.Context: return " " + row.text
+                        case DiffModel.Context:
+                            return (view.repo.diffSource === Repository.FileContent ? "" : " ") + row.text
                         case DiffModel.NoNewline: return "\\" + row.text
                         default: return row.text
                         }

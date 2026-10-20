@@ -153,6 +153,36 @@ void DiffModel::setMessage(const QString &message)
     emit selectionChanged();
 }
 
+void DiffModel::setContent(const QString &path, const QStringList &lines, bool truncated)
+{
+    beginResetModel();
+    FileDiff file;
+    file.oldPath = file.newPath = path;
+    m_files = {file};
+    m_collapsed = {false};
+    m_added = {0};
+    m_removed = {0};
+    m_selection = {LineSelection()};
+    m_selectedCount = 0;
+    m_maxLineLength = 0;
+
+    QList<Row> body;
+    body.reserve(lines.size() + 1);
+    for (int i = 0; i < lines.size(); ++i) {
+        Row row{Context, 0, -1, -1, displayText(lines[i].toUtf8()), -1, i + 1};
+        m_maxLineLength = std::max(m_maxLineLength, int(row.text.size()));
+        body.append(row);
+    }
+    if (truncated)
+        body.append({Message, 0, -1, -1, tr("The file is too large to show in full.")});
+    m_bodies = {body};
+    rebuildRows();
+    endResetModel();
+    emit contentChanged();
+    emit collapsedChanged();
+    emit selectionChanged();
+}
+
 void DiffModel::clear()
 {
     setFiles({});

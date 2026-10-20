@@ -161,6 +161,13 @@ private slots:
         QQuickItem *match = nullptr;
         QTRY_VERIFY(QMetaObject::invokeMethod(matches, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, match), Q_ARG(int, 0))
                     && match);
+        // A click shows the file.
+        clickItem(window, match);
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->diffSource(), Repository::FileContent);
+        QCOMPARE(repo->diffPath(), u"feature.txt"_s);
+        QCOMPARE(repo->diff()->data(repo->diff()->index(1), DiffModel::TextRole).toString(), u"feature"_s);
+        screenshot(window, u"file-content"_s);
         QTest::mouseDClick(window, Qt::LeftButton, {}, match->mapToScene({match->width() / 2, match->height() / 2}).toPoint());
         QQuickWindow *featureLapse = nullptr;
         QTRY_VERIFY((featureLapse = timelapseWindow()));
