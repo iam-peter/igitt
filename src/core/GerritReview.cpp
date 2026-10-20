@@ -1,10 +1,13 @@
 #include "GerritReview.h"
 
 #include <QCoreApplication>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QProcess>
 #include <QRegularExpression>
+
+#include <algorithm>
 
 namespace {
 
@@ -19,7 +22,135 @@ QString config(const GitRunner &git, const QString &key)
     return r.ok() ? QString::fromUtf8(r.out).trimmed() : QString();
 }
 
+QString signedVote(int value)
+{
+    return value > 0 ? QStringLiteral("+%1").arg(value) : QString::number(value);
+}
+
+// Runs `gerrit <words>` on `gerrit` with ssh as git would run it, without
+// prompts; false and `error` if that failed.
+bool runGerrit(const GitRunner &git, const GerritRemote &gerrit, const QStringList &words, QByteArray *out,
+               QString *error)
+{
+    QString sshCommand = QProcessEnvironment::systemEnvironment().value(QStringLiteral("GIT_SSH_COMMAND"));
+    if (sshCommand.isEmpty())
+        sshCommand = config(git, QStringLiteral("core.sshCommand"));
+    QStringList command = QProcess::splitCommand(sshCommand.isEmpty() ? QStringLiteral("ssh") : sshCommand);
+    const QString program = command.takeFirst();
+    command += {QStringLiteral("-o"), QStringLiteral("BatchMode=yes"), QStringLiteral("-o"),
+                QStringLiteral("ConnectTimeout=15"), QStringLiteral("-p"), QString::number(gerrit.port),
+                gerrit.user.isEmpty() ? gerrit.host : gerrit.user + QLatin1Char('@') + gerrit.host,
+                QStringLiteral("gerrit")};
+
+    QProcess ssh;
+    ssh.setWorkingDirectory(git.workDir());
+    ssh.start(program, command + words);
+    if (!ssh.waitForStarted() || !ssh.waitForFinished(60000) || ssh.exitStatus() != QProcess::NormalExit
+        || ssh.exitCode() != 0) {
+        ssh.kill();
+        *error = tr("Asking Gerrit failed: %1")
+                     .arg(QString::fromUtf8(ssh.readAllStandardError()).trimmed()
+                          + (ssh.error() == QProcess::UnknownError ? QString() : ssh.errorString()));
+        return false;
+    }
+    *out = ssh.readAllStandardOutput();
+    return true;
+}
+
+// `query` scoped to the project and branch and limited to `changeIds`.
+QStringList queryWords(const GerritRemote &gerrit, const QString &branch, QStringList changeIds,
+                       const QStringList &options)
+{
+    changeIds.sort();
+    QStringList words{QStringLiteral("query"), QStringLiteral("--format=JSON")};
+    words += options;
+    words += {QStringLiteral("project:") + gerrit.project, QStringLiteral("branch:") + branch, QStringLiteral("(")};
+    for (qsizetype i = 0; i < changeIds.size(); ++i) {
+        if (i > 0)
+            words.append(QStringLiteral("OR"));
+        words.append(QStringLiteral("change:") + changeIds[i]);
+    }
+    words.append(QStringLiteral(")"));
+    return words;
+}
+
 } // namespace
+
+std::pair<int, int> ReviewInfo::voteRange(const QString &label) const
+{
+    std::pair<int, int> range{0, 0};
+    for (const GerritVote &vote : votes) {
+        if (vote.label == label) {
+            range.first = std::min(range.first, vote.value);
+            range.second = std::max(range.second, vote.value);
+        }
+    }
+    return range;
+}
+
+int ReviewInfo::shownVote(const QString &label) const
+{
+    const auto [min, max] = voteRange(label);
+    return min < 0 ? min : max;
+}
+
+QString ReviewInfo::badges() const
+{
+    QStringList parts;
+    if (wip)
+        parts << tr("WIP");
+    const std::pair<const char *, const char *> labels[] = {{"Code-Review", "CR"}, {"Verified", "V"}};
+    for (const auto &[label, shortName] : labels) {
+        if (const int vote = shownVote(QLatin1StringView(label)))
+            parts << QLatin1StringView(shortName) + signedVote(vote);
+    }
+    if (unresolved.value_or(false))
+        parts << tr("unresolved");
+    return parts.join(QStringLiteral(" · "));
+}
+
+QString ReviewInfo::details() const
+{
+    QStringList lines;
+    if (wip)
+        lines << tr("Work in progress");
+    if (!topic.isEmpty())
+        lines << tr("Topic: %1").arg(topic);
+    if (!hashtags.isEmpty())
+        lines << tr("Hashtags: %1").arg(hashtags.join(QStringLiteral(", ")));
+
+    // Code-Review and Verified first, the others as Gerrit sorts them.
+    QStringList labels{QStringLiteral("Code-Review"), QStringLiteral("Verified")};
+    for (const GerritVote &vote : votes) {
+        if (!labels.contains(vote.label))
+            labels.append(vote.label);
+    }
+    for (const QString &label : std::as_const(labels)) {
+        QList<GerritVote> cast;
+        for (const GerritVote &vote : votes) {
+            if (vote.label == label && vote.value != 0)
+                cast.append(vote);
+        }
+        if (cast.isEmpty())
+            continue;
+        std::stable_sort(cast.begin(), cast.end(), [](const GerritVote &a, const GerritVote &b) {
+            return a.value > b.value;
+        });
+        QStringList who;
+        for (const GerritVote &vote : std::as_const(cast))
+            who << QStringLiteral("%1 %2").arg(signedVote(vote.value), vote.by);
+        const auto [min, max] = voteRange(label);
+        const QString range = min < 0 && max > 0 ? signedVote(min) + QStringLiteral(" / ") + signedVote(max)
+                                                 : signedVote(min < 0 ? min : max);
+        lines << QStringLiteral("%1 %2: %3").arg(label, range, who.join(QStringLiteral(", ")));
+    }
+
+    if (unresolved.has_value())
+        lines << (*unresolved ? tr("Has unresolved comments") : tr("No unresolved comments"));
+    if (comments > 0)
+        lines << tr("Inline comments on patch set %1: %2").arg(patchSet).arg(comments);
+    return lines.join(QLatin1Char('\n'));
+}
 
 GerritRemote parseGerritRemote(const QString &url)
 {
@@ -51,6 +182,25 @@ QHash<QString, GerritChange> parseGerritQuery(const QByteArray &output)
         const QJsonObject patchSet = object.value(QLatin1StringView("currentPatchSet")).toObject();
         change.revision = patchSet.value(QLatin1StringView("revision")).toString();
         change.patchSet = patchSet.value(QLatin1StringView("number")).toVariant().toInt();
+        change.wip = object.value(QLatin1StringView("wip")).toBool();
+        change.topic = object.value(QLatin1StringView("topic")).toString();
+        for (const QJsonValue &tag : object.value(QLatin1StringView("hashtags")).toArray())
+            change.hashtags.append(tag.toString());
+        for (const QJsonValue &value : patchSet.value(QLatin1StringView("approvals")).toArray()) {
+            const QJsonObject approval = value.toObject();
+            const QJsonObject by = approval.value(QLatin1StringView("by")).toObject();
+            GerritVote vote;
+            vote.label = approval.value(QLatin1StringView("type")).toString();
+            // A string such as "-1" or "2".
+            vote.value = approval.value(QLatin1StringView("value")).toVariant().toInt();
+            for (const char *key : {"name", "username", "email"}) {
+                if (vote.by.isEmpty())
+                    vote.by = by.value(QLatin1StringView(key)).toString();
+            }
+            if (!vote.label.isEmpty())
+                change.votes.append(vote);
+        }
+        change.comments = int(patchSet.value(QLatin1StringView("comments")).toArray().size());
         if (!change.changeId.isEmpty())
             changes.insert(change.changeId, change);
     }
@@ -95,42 +245,15 @@ ReviewQuery queryReviews(const GitRunner &git, const QString &remote, const QStr
 
     // The same Change-Id lives on in cherry-picks to other branches, so ask
     // only about this project and branch.
-    QStringList ids = shaByChangeId.keys();
-    ids.sort();
-    QStringList words{QStringLiteral("gerrit"), QStringLiteral("query"), QStringLiteral("--format=JSON"),
-                      QStringLiteral("--current-patch-set"), QStringLiteral("project:") + gerrit.project,
-                      QStringLiteral("branch:") + branch, QStringLiteral("(")};
-    for (qsizetype i = 0; i < ids.size(); ++i) {
-        if (i > 0)
-            words.append(QStringLiteral("OR"));
-        words.append(QStringLiteral("change:") + ids[i]);
-    }
-    words.append(QStringLiteral(")"));
-
-    // ssh as git would run it, without prompts.
-    QString sshCommand = QProcessEnvironment::systemEnvironment().value(QStringLiteral("GIT_SSH_COMMAND"));
-    if (sshCommand.isEmpty())
-        sshCommand = config(git, QStringLiteral("core.sshCommand"));
-    QStringList command = QProcess::splitCommand(sshCommand.isEmpty() ? QStringLiteral("ssh") : sshCommand);
-    const QString program = command.takeFirst();
-    command += {QStringLiteral("-o"), QStringLiteral("BatchMode=yes"), QStringLiteral("-o"),
-                QStringLiteral("ConnectTimeout=15"), QStringLiteral("-p"), QString::number(gerrit.port),
-                gerrit.user.isEmpty() ? gerrit.host : gerrit.user + QLatin1Char('@') + gerrit.host};
-
-    QProcess ssh;
-    ssh.setWorkingDirectory(git.workDir());
-    ssh.start(program, command + words);
-    if (!ssh.waitForStarted() || !ssh.waitForFinished(60000) || ssh.exitStatus() != QProcess::NormalExit
-        || ssh.exitCode() != 0) {
-        ssh.kill();
+    QByteArray out;
+    if (!runGerrit(git, gerrit,
+                   queryWords(gerrit, branch, shaByChangeId.keys(),
+                              {QStringLiteral("--current-patch-set"), QStringLiteral("--comments")}),
+                   &out, &query.error)) {
         query.ok = false;
-        query.error = tr("Asking Gerrit failed: %1")
-                          .arg(QString::fromUtf8(ssh.readAllStandardError()).trimmed()
-                               + (ssh.error() == QProcess::UnknownError ? QString() : ssh.errorString()));
         return query;
     }
-
-    const QHash<QString, GerritChange> changes = parseGerritQuery(ssh.readAllStandardOutput());
+    const QHash<QString, GerritChange> changes = parseGerritQuery(out);
     for (auto it = shaByChangeId.cbegin(); it != shaByChangeId.cend(); ++it) {
         const auto change = changes.constFind(it.key());
         if (change == changes.cend())
@@ -139,11 +262,33 @@ ReviewQuery queryReviews(const GitRunner &git, const QString &remote, const QStr
         info.number = change->number;
         info.patchSet = change->patchSet;
         info.url = change->url;
+        info.wip = change->wip;
+        info.topic = change->topic;
+        info.hashtags = change->hashtags;
+        info.votes = change->votes;
+        info.comments = change->comments;
         if (change->status == QLatin1StringView("MERGED") || change->status == QLatin1StringView("ABANDONED"))
             info.state = ReviewInfo::Closed;
         else
             info.state = change->revision == it.value() ? ReviewInfo::UpToDate : ReviewInfo::Outdated;
         query.bySha.insert(it.value(), info);
     }
+
+    // The JSON has no word on comment threads, but the search operator
+    // does: a second round trip for the changes still open.
+    QStringList open;
+    for (auto it = shaByChangeId.cbegin(); it != shaByChangeId.cend(); ++it) {
+        if (query.bySha.value(it.value()).number > 0 && query.bySha.value(it.value()).state != ReviewInfo::Closed)
+            open.append(it.key());
+    }
+    QString unresolvedError;
+    if (open.isEmpty()
+        || !runGerrit(git, gerrit, queryWords(gerrit, branch, open, {}) << QStringLiteral("has:unresolved"),
+                      &out, &unresolvedError)) {
+        return query;
+    }
+    const QHash<QString, GerritChange> unresolved = parseGerritQuery(out);
+    for (const QString &changeId : std::as_const(open))
+        query.bySha[shaByChangeId.value(changeId)].unresolved = unresolved.contains(changeId);
     return query;
 }

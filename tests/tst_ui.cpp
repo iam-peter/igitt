@@ -395,6 +395,23 @@ private slots:
         QVERIFY(repo->lastFetch().isValid());
         screenshot(window, u"pushed"_s);
 
+        // Push for review with a topic, from the options popup.
+        git({"config", "--add", "remote.origin.push", "refs/heads/*:refs/for/*"});
+        git({"commit", "-q", "--allow-empty", "-m", "For review"});
+        repo->refresh();
+        QVERIFY(settle(*repo));
+        QVERIFY(repo->pushForReview());
+        click(window, u"reviewOptionsButton"_s);
+        auto *topic = window->findChild<QQuickItem *>(u"reviewTopicField"_s);
+        QTRY_VERIFY(topic && topic->isVisible());
+        topic->setProperty("text", u"speedup"_s);
+        screenshot(window, u"review-options"_s);
+        click(window, u"reviewPushButton"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(GitRunner(server.path()).run({"rev-parse", "refs/for/main%topic=speedup"}).out,
+                 gitOut({"rev-parse", "HEAD"}));
+        QCOMPARE(repo->reviewTopic(), u"speedup"_s);
+
         for (const QQmlError &w : std::as_const(warnings))
             qWarning().noquote() << w.toString();
         QVERIFY(warnings.isEmpty());

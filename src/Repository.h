@@ -83,6 +83,8 @@ class Repository : public QObject
     // "auto", "plain" or "gerrit"; and the branch Gerrit reviews go to.
     Q_PROPERTY(QString pushMode READ pushMode WRITE setPushMode NOTIFY pushSettingsChanged)
     Q_PROPERTY(QString gerritBranch READ gerritBranch WRITE setGerritBranch NOTIFY pushSettingsChanged)
+    // The topic the current branch was last pushed for review with.
+    Q_PROPERTY(QString reviewTopic READ reviewTopic NOTIFY headChanged)
     // When FETCH_HEAD was last written; invalid if never.
     Q_PROPERTY(QDateTime lastFetch READ lastFetch NOTIFY headChanged)
     // "Merging", "Rebasing", ... while git is stopped in such an operation.
@@ -141,6 +143,7 @@ public:
     void setPushMode(const QString &mode);
     QString gerritBranch() const { return m_pushSettings.gerritBranch; }
     void setGerritBranch(const QString &branch);
+    QString reviewTopic() const { return m_pushTarget.savedTopic; }
     QDateTime lastFetch() const;
     QString operation() const;
     bool hasWip() const { return m_historyWip; }
@@ -192,7 +195,12 @@ public:
     Q_INVOKABLE void fetch();
     // Pushes as pushDescription says. A rejected push emits pushRejected()
     // so the UI can offer `force`, which uses --force-with-lease.
-    Q_INVOKABLE void push(bool force = false);
+    // `review` holds Gerrit push options: {topic, state ("wip", "ready" or
+    // empty), reviewers, hashtags}, lists as comma-separated strings.
+    Q_INVOKABLE void push(bool force = false, const QVariantMap &review = {});
+    // The refspec a push for review with `review` would use, or why it
+    // cannot; {refspec, error}.
+    Q_INVOKABLE QVariantMap reviewRefspec(const QVariantMap &review) const;
 
     // Emits committed() on success.
     Q_INVOKABLE void commit(const QString &message, bool amend);
@@ -229,7 +237,8 @@ signals:
     void reviewsChanged();
     void committed();
     void errorOccurred(const QString &message);
-    void notice(const QString &message);
+    // `links` are URLs the remote printed, such as Gerrit's changes.
+    void notice(const QString &message, const QStringList &links);
 
 private:
     struct LastFold
@@ -263,6 +272,7 @@ private:
         std::optional<QStringList> trackedFiles;
         std::shared_ptr<FileTreeNode> fileTree;
         QString notice;
+        QStringList links;
         QString error;
     };
     using Job = std::function<Outcome(const GitRunner &)>;

@@ -202,6 +202,119 @@ private slots:
         QCOMPARE(changes[u"I1"_s].number, 101);
         QCOMPARE(changes[u"I1"_s].patchSet, 3);
         QCOMPARE(changes[u"I1"_s].revision, u"aaa"_s);
+        QVERIFY(!changes[u"I1"_s].wip);
+        QVERIFY(changes[u"I1"_s].votes.isEmpty());
+
+        // Votes, comments and the rest that --current-patch-set --comments adds.
+        const GerritChange voted = parseGerritQuery(
+            R"({"id":"I2","number":102,"status":"NEW","wip":true,"topic":"speedup","hashtags":["perf","6.9"],)"
+            R"("currentPatchSet":{"number":4,"revision":"bbb","approvals":[)"
+            R"({"type":"Code-Review","value":"2","by":{"name":"Alice","username":"alice"}},)"
+            R"({"type":"Code-Review","value":"-1","by":{"username":"bob"}},)"
+            R"({"type":"Verified","value":"1","by":{"name":"Qt CI Bot"}},)"
+            R"({"type":"Sanity-Review","value":"1","by":{"name":"Sanity Bot"}}],)"
+            R"("comments":[{"file":"a.cpp","line":3,"message":"x"},{"file":"b.cpp","line":7,"message":"y"}]}})"_ba)
+            .value(u"I2"_s);
+        QVERIFY(voted.wip);
+        QCOMPARE(voted.topic, u"speedup"_s);
+        QCOMPARE(voted.hashtags, (QStringList{u"perf"_s, u"6.9"_s}));
+        QCOMPARE(voted.votes.size(), 4);
+        QCOMPARE(voted.votes[1].value, -1);
+        QCOMPARE(voted.votes[1].by, u"bob"_s);
+        QCOMPARE(voted.comments, 2);
+
+        ReviewInfo info;
+        info.patchSet = voted.patchSet;
+        info.wip = voted.wip;
+        info.topic = voted.topic;
+        info.hashtags = voted.hashtags;
+        info.votes = voted.votes;
+        info.comments = voted.comments;
+        info.unresolved = true;
+        QCOMPARE(info.voteRange(u"Code-Review"_s), std::pair(-1, 2));
+        QCOMPARE(info.shownVote(u"Code-Review"_s), -1); // a veto shows
+        QCOMPARE(info.shownVote(u"Verified"_s), 1);
+        QCOMPARE(info.badges(), u"WIP · CR-1 · V+1 · unresolved"_s);
+        const QString details = info.details();
+        QVERIFY2(details.contains("Code-Review -1 / +2: +2 Alice, -1 bob"_L1), qPrintable(details));
+        QVERIFY(details.contains("Verified +1: +1 Qt CI Bot"_L1));
+        QVERIFY(details.contains("Sanity-Review +1"_L1));
+        QVERIFY(details.contains("Topic: speedup"_L1));
+        QVERIFY(details.contains("Hashtags: perf, 6.9"_L1));
+        QVERIFY(details.contains("unresolved"_L1));
+        QVERIFY(details.contains("Inline comments on patch set 4: 2"_L1));
+        QVERIFY(ReviewInfo{}.badges().isEmpty());
+    }
+
+    void buildsGerritPushOptions()
+    {
+        QString error;
+        QCOMPARE(reviewRefspecOptions({}, &error), QString());
+        ReviewOptions options;
+        options.topic = u" speedup "_s;
+        options.state = ReviewOptions::State::Wip;
+        options.reviewers = splitReviewList(u"a@example.org, b@example.org"_s);
+        options.hashtags = splitReviewList(u"perf 6.9"_s);
+        QCOMPARE(reviewRefspecOptions(options, &error), u"%topic=speedup,wip,r=a@example.org,r=b@example.org,t=perf,t=6.9"_s);
+        QVERIFY(error.isEmpty());
+        options = {};
+        options.state = ReviewOptions::State::Ready;
+        QCOMPARE(reviewRefspecOptions(options, &error), u"%ready"_s);
+
+        for (const QString &bad : {u"two words"_s, u"a,b"_s, u"x..y"_s, u"50%"_s, u"q?"_s}) {
+            options.topic = bad;
+            QVERIFY(reviewRefspecOptions(options, &error).isEmpty());
+            QVERIFY2(error.contains(bad), qPrintable(error));
+        }
+    }
+
+    void pushesForReviewWithOptions()
+    {
+        work({"config", "--add", "remote.origin.push", "refs/heads/*:refs/for/*"});
+        // The server prints a change link, as Gerrit does.
+        QFile hook(m_remote + u"/hooks/post-receive"_s);
+        QVERIFY(hook.open(QIODevice::WriteOnly));
+        hook.write("#!/bin/sh\necho\necho '  https://review.example/c/proj/+/101 for review [WIP]'\n");
+        hook.close();
+        QVERIFY(hook.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+        commitIn(m_work, "for review");
+        open();
+        QVERIFY(m_repo->reviewTopic().isEmpty());
+
+        const QVariantMap options{{u"topic"_s, u"speedup"_s}, {u"state"_s, u"wip"_s},
+                                  {u"reviewers"_s, u"a@example.org"_s}, {u"hashtags"_s, u"perf"_s}};
+        const QString refspec = u"refs/for/main%topic=speedup,wip,r=a@example.org,t=perf"_s;
+        QCOMPARE(m_repo->reviewRefspec(options).value(u"refspec"_s).toString(), u"HEAD:"_s + refspec);
+
+        QSignalSpy notices(m_repo.get(), &Repository::notice);
+        m_repo->push(false, options);
+        QVERIFY(settle());
+        QCOMPARE(remoteRev(refspec), rev(m_work, u"HEAD"_s));
+        QCOMPARE(notices.size(), 1);
+        QCOMPARE(notices.first().at(1).toStringList(), QStringList{u"https://review.example/c/proj/+/101"_s});
+        QVERIFY(!notices.first().at(0).toString().contains("https"_L1));
+        // The branch remembers its topic.
+        QCOMPARE(work({"config", "branch.main.igittTopic"}).trimmed(), "speedup"_ba);
+        QCOMPARE(m_repo->reviewTopic(), u"speedup"_s);
+
+        // A plain push leaves it, one without a topic forgets it.
+        m_repo->push();
+        QVERIFY(settle());
+        QCOMPARE(m_repo->reviewTopic(), u"speedup"_s);
+        m_repo->push(false, {{u"state"_s, u"ready"_s}});
+        QVERIFY(settle());
+        QCOMPARE(remoteRev(u"refs/for/main%ready"_s), rev(m_work, u"HEAD"_s));
+        QVERIFY(m_repo->reviewTopic().isEmpty());
+
+        // What a refspec cannot carry is refused before pushing.
+        const QVariantMap bad{{u"topic"_s, u"two words"_s}};
+        QVERIFY(m_repo->reviewRefspec(bad).value(u"error"_s).toString().contains("two words"_L1));
+        m_repo->push(false, bad);
+        QVERIFY(settle());
+        QCOMPARE(m_errors->size(), 1);
+        QVERIFY(m_errors->first().first().toString().contains("two words"_L1));
+        m_errors->clear();
+        QVERIFY(m_repo->reviewTopic().isEmpty());
     }
 
     void asksGerritWhetherThereIsAnythingToPush()
@@ -210,9 +323,13 @@ private slots:
         QTemporaryDir bin;
         QFile ssh(bin.filePath(u"ssh"_s));
         QVERIFY(ssh.open(QIODevice::WriteOnly));
-        ssh.write("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$FAKE_SSH_ARGS\"\n"
+        // It answers the has:unresolved query from a file of its own.
+        ssh.write("#!/bin/sh\n"
                   "[ -n \"$FAKE_SSH_FAIL\" ] && { echo 'Connection refused' >&2; exit 255; }\n"
-                  "cat \"$FAKE_GERRIT_JSON\"\n");
+                  "case \"$*\" in *has:unresolved*)\n"
+                  "  printf '%s\\n' \"$@\" > \"$FAKE_SSH_ARGS.unresolved\"; cat \"$FAKE_GERRIT_JSON.unresolved\";;\n"
+                  "*) printf '%s\\n' \"$@\" > \"$FAKE_SSH_ARGS\"; cat \"$FAKE_GERRIT_JSON\";;\n"
+                  "esac\n");
         ssh.close();
         QVERIFY(ssh.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
         const QByteArray path = qgetenv("PATH");
@@ -228,14 +345,27 @@ private slots:
         const auto answer = [&](const QString &secondRevision) {
             QFile file(json);
             QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
-            const auto line = [](const char *id, int number, const QString &revision) {
+            const auto line = [](const char *id, int number, const QString &revision, const char *extra,
+                                 const char *approvals) {
                 return QStringLiteral(R"({"id":"%1","number":%2,"url":"https://review.example/c/proj/+/%2",)"
-                                      R"("status":"NEW","currentPatchSet":{"number":2,"revision":"%3"}})")
-                    .arg(QLatin1StringView(id)).arg(number).arg(revision).toUtf8() + '\n';
+                                      R"("status":"NEW",%4"currentPatchSet":{"number":2,"revision":"%3",)"
+                                      R"("approvals":[%5],"comments":[{"file":"file.txt","line":1}]}})")
+                    .arg(QLatin1StringView(id)).arg(number).arg(revision, QLatin1StringView(extra),
+                                                                 QLatin1StringView(approvals))
+                    .toUtf8() + '\n';
             };
-            file.write(line("I1111111111111111111111111111111111111111", 101, rev(m_work, u"HEAD~1"_s)));
-            file.write(line("I2222222222222222222222222222222222222222", 102, secondRevision));
+            file.write(line("I1111111111111111111111111111111111111111", 101, rev(m_work, u"HEAD~1"_s), "",
+                            R"({"type":"Code-Review","value":"2","by":{"name":"Alice"}},)"
+                            R"({"type":"Verified","value":"1","by":{"name":"Qt CI Bot"}})"));
+            file.write(line("I2222222222222222222222222222222222222222", 102, secondRevision,
+                            R"("wip":true,"topic":"speedup",)",
+                            R"({"type":"Code-Review","value":"1","by":{"name":"Alice"}},)"
+                            R"({"type":"Verified","value":"-1","by":{"name":"Qt CI Bot"}})"));
             file.write(R"({"type":"stats","rowCount":2})" "\n");
+            QFile unresolved(json + u".unresolved"_s);
+            QVERIFY(unresolved.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            unresolved.write(R"({"id":"I2222222222222222222222222222222222222222","number":102,"status":"NEW"})" "\n"
+                             R"({"type":"stats","rowCount":1})" "\n");
         };
 
         // Both commits are the current patch sets: nothing to push.
@@ -253,6 +383,27 @@ private slots:
         QVERIFY(query.contains("tester@review.example"));
         QVERIFY(query.contains("project:proj/sub\nbranch:main"));
         QVERIFY(query.contains("change:I2222222222222222222222222222222222222222"));
+        QVERIFY(query.contains("--current-patch-set\n--comments"));
+        QVERIFY(!query.contains("has:unresolved"));
+
+        // Votes, work in progress and unresolved comments, for the row's tag.
+        QCOMPARE(review.value(u"codeReview"_s).toInt(), 1);
+        QCOMPARE(review.value(u"verified"_s).toInt(), -1);
+        QVERIFY(review.value(u"wip"_s).toBool());
+        QCOMPARE(review.value(u"topic"_s).toString(), u"speedup"_s);
+        QCOMPARE(review.value(u"comments"_s).toInt(), 1);
+        QCOMPARE(review.value(u"unresolved"_s), QVariant(true));
+        QCOMPARE(review.value(u"badges"_s).toString(), u"WIP · CR+1 · V-1 · unresolved"_s);
+        QVERIFY(review.value(u"details"_s).toString().contains("Verified -1: -1 Qt CI Bot"_L1));
+        const QVariantMap older = m_repo->commits()->data(m_repo->commits()->index(1), CommitModel::ReviewRole).toMap();
+        QCOMPARE(older.value(u"unresolved"_s), QVariant(false));
+        QCOMPARE(older.value(u"badges"_s).toString(), u"CR+2 · V+1"_s);
+        QFile askedUnresolved(args + u".unresolved"_s);
+        QVERIFY(askedUnresolved.open(QIODevice::ReadOnly));
+        const QByteArray unresolvedQuery = askedUnresolved.readAll();
+        QVERIFY(unresolvedQuery.contains("project:proj/sub\nbranch:main"));
+        QVERIFY(unresolvedQuery.contains("change:I1111111111111111111111111111111111111111\nOR\n"
+                                         "change:I2222222222222222222222222222222222222222\n)\nhas:unresolved"));
 
         // The newest commit changed since its upload: pushing makes sense again.
         answer(u"0123456789abcdef0123456789abcdef01234567"_s);

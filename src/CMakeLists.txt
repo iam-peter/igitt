@@ -53,6 +53,7 @@ qt_add_qml_module(igitt_ui
         qml/PlanPane.qml
         qml/WipRow.qml
         qml/Tag.qml
+        qml/ReviewOptionsPopup.qml
         qml/CommitBox.qml
         qml/SettingsDialog.qml
         qml/AppSettings.qml

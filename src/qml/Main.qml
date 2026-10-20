@@ -32,8 +32,8 @@ ApplicationWindow {
             forcePushDialog.target = target
             forcePushDialog.open()
         }
-        onErrorOccurred: message => messageBar.show(message, true)
-        onNotice: message => messageBar.show(message, false)
+        onErrorOccurred: message => messageBar.show(message, true, [])
+        onNotice: (message, links) => messageBar.show(message, false, links)
     }
 
     function requestFold(sha: string) {
@@ -296,6 +296,7 @@ ApplicationWindow {
                                             : qsTr("Fetch the upstream's remote and prune deleted branches")
             }
             IconButton {
+                id: pushButton
                 objectName: "pushButton"
                 iconName: repo.pushForReview ? "git-pull-request" : "cloud-upload"
                 text: (repo.pushForReview ? qsTr("Push for Review") : qsTr("Push"))
@@ -307,6 +308,22 @@ ApplicationWindow {
                 ToolTip.text: repo.planning ? qsTr("Off while planning")
                             : repo.operation !== "" ? qsTr("Finish the %1 first").arg(repo.operation.toLowerCase())
                             : [repo.pushDescription, repo.reviewSummary].filter(s => s !== "").join("\n")
+            }
+            IconButton {
+                id: reviewOptionsButton
+                objectName: "reviewOptionsButton"
+                iconName: "chevron-down"
+                visible: repo.pushForReview
+                enabled: pushButton.enabled
+                onClicked: reviewOptions.opened ? reviewOptions.close() : reviewOptions.open()
+                ToolTip.visible: hovered && !reviewOptions.opened
+                ToolTip.text: qsTr("Push for review with a topic, reviewers, hashtags or as work in progress")
+
+                ReviewOptionsPopup {
+                    id: reviewOptions
+                    repo: repo
+                    y: reviewOptionsButton.height
+                }
             }
             ToolSeparator {}
             BusyIndicator {
@@ -452,9 +469,12 @@ ApplicationWindow {
 
         property bool isError
 
-        function show(message: string, isError: bool) {
+        property list<string> links
+
+        function show(message: string, isError: bool, links: list<string>) {
             messageText.text = message
             messageBar.isError = isError
+            messageBar.links = links
             visible = true
         }
 
@@ -467,11 +487,33 @@ ApplicationWindow {
 
         RowLayout {
             anchors.fill: parent
-            Label {
-                id: messageText
+            ColumnLayout {
                 Layout.fillWidth: true
-                wrapMode: Text.Wrap
-                textFormat: Text.PlainText
+                spacing: 2
+
+                Label {
+                    id: messageText
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    textFormat: Text.PlainText
+                }
+                // What the remote linked to, such as Gerrit's changes.
+                Repeater {
+                    model: messageBar.links
+                    delegate: Label {
+                        required property string modelData
+
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        textFormat: Text.StyledText
+                        text: `<a href="${modelData.replace(/"/g, "%22")}">${modelData.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</a>`
+                        onLinkActivated: link => Qt.openUrlExternally(link)
+
+                        HoverHandler {
+                            cursorShape: Qt.PointingHandCursor
+                        }
+                    }
+                }
             }
             Button {
                 icon.source: Icons.source("undo-2")

@@ -116,7 +116,7 @@ void Repository::finish(JobKind kind, Outcome outcome)
         if (!outcome.pushRejected.isEmpty())
             emit pushRejected(outcome.pushRejected, m_pushTarget.description());
         if (!outcome.notice.isEmpty())
-            emit notice(outcome.notice);
+            emit notice(outcome.notice, outcome.links);
     }
     if (!outcome.error.isEmpty())
         emit errorOccurred(outcome.error);
@@ -816,6 +816,15 @@ void Repository::setReviews(const ReviewQuery &reviews)
             {QStringLiteral("number"), it->number},
             {QStringLiteral("patchSet"), it->patchSet},
             {QStringLiteral("url"), it->url},
+            {QStringLiteral("wip"), it->wip},
+            {QStringLiteral("topic"), it->topic},
+            {QStringLiteral("hashtags"), it->hashtags},
+            {QStringLiteral("codeReview"), it->shownVote(QStringLiteral("Code-Review"))},
+            {QStringLiteral("verified"), it->shownVote(QStringLiteral("Verified"))},
+            {QStringLiteral("comments"), it->comments},
+            {QStringLiteral("unresolved"), it->unresolved ? QVariant(*it->unresolved) : QVariant()},
+            {QStringLiteral("badges"), it->badges()},
+            {QStringLiteral("details"), it->details()},
         });
     }
     m_commits.setReviews(bySha);
@@ -927,7 +936,37 @@ void Repository::fetch()
     });
 }
 
-void Repository::push(bool force)
+namespace {
+
+std::optional<ReviewOptions> reviewOptions(const QVariantMap &map)
+{
+    if (map.isEmpty())
+        return std::nullopt;
+    ReviewOptions options;
+    options.topic = map.value(QStringLiteral("topic")).toString().trimmed();
+    const QString state = map.value(QStringLiteral("state")).toString();
+    options.state = state == QLatin1StringView("wip")     ? ReviewOptions::State::Wip
+                  : state == QLatin1StringView("ready") ? ReviewOptions::State::Ready
+                                                        : ReviewOptions::State::Unchanged;
+    options.reviewers = splitReviewList(map.value(QStringLiteral("reviewers")).toString());
+    options.hashtags = splitReviewList(map.value(QStringLiteral("hashtags")).toString());
+    return options;
+}
+
+} // namespace
+
+QVariantMap Repository::reviewRefspec(const QVariantMap &review) const
+{
+    QString error;
+    const QString options = reviewRefspecOptions(reviewOptions(review).value_or(ReviewOptions{}), &error);
+    if (error.isEmpty() && !m_pushTarget.error.isEmpty())
+        error = m_pushTarget.error;
+    return {{QStringLiteral("refspec"),
+             error.isEmpty() ? QStringLiteral("HEAD:refs/for/") + m_pushTarget.remoteBranch + options : QString()},
+            {QStringLiteral("error"), error}};
+}
+
+void Repository::push(bool force, const QVariantMap &review)
 {
     if (m_plan) {
         emit errorOccurred(tr("Pushing is off while planning; execute or discard the plan first."));
@@ -937,17 +976,16 @@ void Repository::push(bool force)
         emit errorOccurred(tr("git is in the middle of an operation (%1); finish or abort it first.").arg(op));
         return;
     }
-    enqueue(JobKind::Write, [force, settings = m_pushSettings, request = diffRequest(),
-                             history = historyRequest(true)](const GitRunner &git) {
+    enqueue(JobKind::Write, [force, settings = m_pushSettings, review = reviewOptions(review),
+                             request = diffRequest(), history = historyRequest(true)](const GitRunner &git) {
         Outcome outcome;
         // Resolved again: the branch or its configuration may have changed.
-        const PushTarget target = resolvePushTarget(git, settings);
+        const PushTarget target = resolvePushTarget(git, settings, review);
         const NetworkResult result = pushTo(git, target, force);
         if (result.ok) {
             outcome.notice = target.gerrit ? tr("Pushed for review to refs/for/%1.").arg(target.remoteBranch)
                                            : tr("Pushed to %1/%2.").arg(target.remote, target.remoteBranch);
-            if (!result.links.isEmpty())
-                outcome.notice += QLatin1Char(' ') + result.links.join(QStringLiteral(" "));
+            outcome.links = result.links;
         } else if (result.rejected && !target.gerrit && !force) {
             outcome.pushRejected = result.message;
         } else {

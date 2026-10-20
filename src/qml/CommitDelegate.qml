@@ -149,18 +149,24 @@ Control {
             // What Gerrit has for this commit, if it is pushed for review.
             Tag {
                 readonly property string state: delegate.review ? delegate.review.state : ""
+                readonly property string badges: delegate.review ? delegate.review.badges : ""
 
+                objectName: "reviewTag"
                 visible: state !== ""
-                text: delegate.review && delegate.review.number > 0
-                      ? `Gerrit ${delegate.review.number}/${delegate.review.patchSet}` : qsTr("not on Gerrit")
+                text: (delegate.review && delegate.review.number > 0
+                       ? `Gerrit ${delegate.review.number}/${delegate.review.patchSet}` : qsTr("not on Gerrit"))
+                      + (badges !== "" ? ` · ${badges}` : "")
                 tint: state === "upToDate" ? "#59a14f"
                     : state === "outdated" ? "#e08e2b"
                     : state === "closed" ? "#888888" : "#4e79a7"
                 ToolTip.visible: reviewHover.hovered
-                ToolTip.text: state === "upToDate" ? qsTr("Gerrit has this commit as the current patch set.")
-                            : state === "outdated" ? qsTr("Changed since the last upload; pushing adds a patch set.")
-                            : state === "closed" ? qsTr("The change is merged or abandoned.")
-                            : qsTr("Pushing for review creates a new change.")
+                ToolTip.text: [state === "upToDate" ? qsTr("Gerrit has this commit as the current patch set.")
+                               : state === "outdated" ? qsTr("Changed since the last upload; pushing adds a patch set.")
+                               : state === "closed" ? qsTr("The change is merged or abandoned.")
+                               : qsTr("Pushing for review creates a new change."),
+                               delegate.review ? delegate.review.details : "",
+                               delegate.review && delegate.review.url ? qsTr("Click to open it in the browser.") : ""]
+                              .filter(s => s !== "").join("\n")
 
                 HoverHandler {
                     id: reviewHover
