@@ -1,14 +1,26 @@
 #include "Repository.h"
 #include "core/GerritReview.h"
+#include "core/GitHubReview.h"
+#include "core/GitLabReview.h"
 #include "core/RemoteOps.h"
 
 #include <QDir>
 #include <QFile>
+#include <QJsonDocument>
+#include <QScopeGuard>
 #include <QSignalSpy>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTest>
 
 using namespace Qt::StringLiterals;
+
+// JSON written with single quotes, which moc tells apart from the ends of
+// string literals better than raw strings.
+static QByteArray operator""_json(const char *text, size_t size)
+{
+    return QByteArray(text, qsizetype(size)).replace('\'', '"');
+}
 
 class TestRemote : public QObject
 {
@@ -310,7 +322,7 @@ private slots:
         const QVariantMap options{{u"topic"_s, u"speedup"_s}, {u"state"_s, u"wip"_s},
                                   {u"reviewers"_s, u"a@example.org"_s}, {u"hashtags"_s, u"perf"_s}};
         const QString refspec = u"refs/for/main%topic=speedup,wip,r=a@example.org,t=perf"_s;
-        QCOMPARE(m_repo->reviewRefspec(options).value(u"refspec"_s).toString(), u"HEAD:"_s + refspec);
+        QCOMPARE(m_repo->pushPreview(options).value(u"text"_s).toString(), u"HEAD:"_s + refspec);
 
         QSignalSpy notices(m_repo.get(), &Repository::notice);
         m_repo->push(false, options);
@@ -334,7 +346,7 @@ private slots:
 
         // What a refspec cannot carry is refused before pushing.
         const QVariantMap bad{{u"topic"_s, u"two words"_s}};
-        QVERIFY(m_repo->reviewRefspec(bad).value(u"error"_s).toString().contains("two words"_L1));
+        QVERIFY(m_repo->pushPreview(bad).value(u"error"_s).toString().contains("two words"_L1));
         m_repo->push(false, bad);
         QVERIFY(settle());
         QCOMPARE(m_errors->size(), 1);
@@ -555,6 +567,379 @@ private slots:
         QVERIFY(settle());
     }
 
+    void detectsReviewHosts()
+    {
+        const RemoteUrl https = parseRemoteUrl(u"https://github.com/acme/widget.git"_s);
+        QCOMPARE(https.host, u"github.com"_s);
+        QCOMPARE(https.path, u"acme/widget"_s);
+        const RemoteUrl scp = parseRemoteUrl(u"git@gitlab.com:group/sub/proj.git"_s);
+        QCOMPARE(scp.user, u"git"_s);
+        QCOMPARE(scp.host, u"gitlab.com"_s);
+        QCOMPARE(scp.path, u"group/sub/proj"_s);
+        const RemoteUrl ssh = parseRemoteUrl(u"ssh://git@gitlab.example.org:2222/group/proj/"_s);
+        QCOMPARE(ssh.port, 2222);
+        QCOMPARE(ssh.path, u"group/proj"_s);
+        for (const QString &local : {u"/srv/repo.git"_s, u"../repo"_s, u"file:///srv/repo.git"_s, u"C:\\repo"_s})
+            QVERIFY2(!parseRemoteUrl(local).isValid(), qPrintable(local));
+
+        const GitRunner &git = m_work;
+        const auto detect = [&](const QString &url, const PushSettings &settings = {}) {
+            work({"remote", "set-url", "origin", url});
+            return detectReviewHost(git, u"origin"_s, settings);
+        };
+        QCOMPARE(detect(u"https://github.com/acme/widget.git"_s), ReviewHost::GitHub);
+        QCOMPARE(detect(u"git@github.example.com:acme/widget.git"_s), ReviewHost::GitHub);
+        QCOMPARE(detect(u"git@gitlab.com:group/proj.git"_s), ReviewHost::GitLab);
+        QCOMPARE(detect(u"ssh://git@gitlab.example.org:2222/group/proj"_s), ReviewHost::GitLab);
+        QCOMPARE(detect(m_remote), ReviewHost::None);
+        // Self-hosted servers by other names need to be listed.
+        QCOMPARE(detect(u"https://git.example.org/group/proj.git"_s), ReviewHost::None);
+        QCOMPARE(detect(u"https://git.example.org/group/proj.git"_s, {PushMode::Auto, {}, {}, {u"git.example.org"_s}}),
+                 ReviewHost::GitLab);
+        QCOMPARE(detect(u"https://git.example.org/group/proj.git"_s, {PushMode::Auto, {}, {u"https://GIT.example.org/"_s}, {}}),
+                 ReviewHost::GitHub);
+        // The setting decides, if it is not Auto.
+        QCOMPARE(detect(u"https://github.com/acme/widget.git"_s, {PushMode::Plain, {}}), ReviewHost::None);
+        QCOMPARE(detect(m_remote, {PushMode::GitLab, {}}), ReviewHost::GitLab);
+        // Gerrit wins, as before.
+        work({"config", "--add", "remote.origin.push", "refs/heads/*:refs/for/*"});
+        QCOMPARE(detect(u"https://github.com/acme/widget.git"_s), ReviewHost::Gerrit);
+    }
+
+    void parsesGitHubPullRequests()
+    {
+        QString error;
+        // Someone's fork with a branch of the same name, an older pull
+        // request of ours, and the open one, in the repository ours was
+        // forked from.
+        const QByteArray answer = "{'data':{'repository':{"
+            "'pullRequests':{'nodes':["
+              "{'number':3,'title':'Theirs','state':'OPEN','headRepositoryOwner':{'login':'someone'}},"
+              "{'number':5,'title':'Old','state':'CLOSED','headRepositoryOwner':{'login':'acme'}}]},"
+            "'parent':{'pullRequests':{'nodes':["
+              "{'number':12,'title':'Speed up','url':'https://github.com/up/widget/pull/12','state':'OPEN',"
+               "'isDraft':true,'mergeable':'CONFLICTING','headRefOid':'abc123456789','baseRefName':'main',"
+               "'reviewDecision':'CHANGES_REQUESTED','headRepositoryOwner':{'login':'ACME'},"
+               "'latestReviews':{'nodes':[{'state':'APPROVED','author':{'login':'alice'}},"
+                                         "{'state':'CHANGES_REQUESTED','author':{'login':'bob'}},"
+                                         "{'state':'COMMENTED','author':{'login':'carol'}}]},"
+               "'reviewThreads':{'nodes':[{'isResolved':true},{'isResolved':false}]},"
+               "'commits':{'nodes':[{'commit':{'statusCheckRollup':{'state':'FAILURE','contexts':{'nodes':["
+                 "{'__typename':'CheckRun','name':'build','status':'COMPLETED','conclusion':'SUCCESS'},"
+                 "{'__typename':'CheckRun','name':'lint','status':'COMPLETED','conclusion':'FAILURE'},"
+                 "{'__typename':'CheckRun','name':'docs','status':'IN_PROGRESS','conclusion':null},"
+                 "{'__typename':'StatusContext','context':'ci/legacy','state':'SUCCESS'}]}}}}]}}]}}"
+        "}}}"_json;
+        const std::optional<BranchReview> pr = parseGitHubPullRequests(answer, u"acme"_s, &error);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QVERIFY(pr);
+        QCOMPARE(pr->number, 12);
+        QCOMPARE(pr->label(), u"PR #12"_s);
+        QCOMPARE(pr->state, BranchReview::State::Open);
+        QVERIFY(pr->draft);
+        QVERIFY(pr->conflicts);
+        QCOMPARE(pr->decision, BranchReview::Decision::ChangesRequested);
+        QCOMPARE(pr->approvedBy, QStringList{u"alice"_s});
+        QCOMPARE(pr->changesRequestedBy, QStringList{u"bob"_s});
+        QCOMPARE(pr->checks, BranchReview::Checks::Failure);
+        QCOMPARE(pr->checkResults.size(), 4);
+        QCOMPARE(pr->unresolved, std::optional<int>(1));
+        QCOMPARE(pr->badges(), u"draft · changes requested · checks failed · conflicts · 1 unresolved"_s);
+        const QString details = pr->details(u"0123456789"_s);
+        QVERIFY2(details.contains("Pull request #12: Speed up"_L1), qPrintable(details));
+        QVERIFY(details.contains("Open, draft, into main"_L1));
+        QVERIFY(details.contains("Approved by alice"_L1));
+        QVERIFY(details.contains("Changes requested by bob"_L1));
+        QVERIFY(details.contains("Checks: 1 failed, 2 passed, 1 running"_L1));
+        QVERIFY(details.contains("failed: lint"_L1));
+        QVERIFY(details.contains("1 unresolved thread"_L1));
+        QVERIFY(details.contains("It has abc12345, not this commit"_L1));
+        QVERIFY(!pr->details(u"abc123456789"_s).contains("not this commit"_L1));
+        QVERIFY(pr->summary().startsWith("Pull request #12: open, draft"_L1));
+
+        // Only the closed one of ours: shown, as closed.
+        const QByteArray closed = "{'data':{'repository':{'pullRequests':{'nodes':["
+            "{'number':5,'state':'MERGED','headRepositoryOwner':{'login':'acme'}}]},'parent':null}}}"_json;
+        QCOMPARE(parseGitHubPullRequests(closed, u"acme"_s, &error)->state, BranchReview::State::Merged);
+        QCOMPARE(parseGitHubPullRequests(closed, u"acme"_s, &error)->badges(), u"merged"_s);
+        // None, and failures.
+        QVERIFY(!parseGitHubPullRequests("{'data':{'repository':{'pullRequests':{'nodes':[]}}}}"_json,
+                                         u"acme"_s, &error));
+        QVERIFY(error.isEmpty());
+        QVERIFY(!parseGitHubPullRequests("{'errors':[{'message':'Bad credentials'}]}"_json, u"acme"_s, &error));
+        QVERIFY(error.contains("Bad credentials"_L1));
+        QVERIFY(!parseGitHubPullRequests("{'data':{'repository':null}}"_json, u"acme"_s, &error));
+        QVERIFY(!error.isEmpty());
+    }
+
+    void parsesGitLabMergeRequests()
+    {
+        QString error;
+        const std::optional<BranchReview> mr = parseGitLabMergeRequests(
+            "[{'iid':3,'state':'closed','title':'Old'},"
+                "{'iid':7,'state':'opened','title':'Speed up','draft':true,'target_branch':'main','sha':'abc',"
+                 "'web_url':'https://gitlab.example.org/g/w/-/merge_requests/7'}]"_json, &error);
+        QVERIFY(error.isEmpty());
+        QVERIFY(mr);
+        BranchReview review = *mr;
+        QCOMPARE(review.number, 7);
+        QCOMPARE(review.label(), u"MR !7"_s);
+        QVERIFY(review.draft);
+        QCOMPARE(review.checks, BranchReview::Checks::None);
+
+        readGitLabMergeRequest(review, QJsonDocument::fromJson(
+            "{'iid':7,'state':'opened','title':'Speed up','work_in_progress':true,'has_conflicts':false,"
+                "'head_pipeline':{'status':'running'}}"_json).object());
+        QCOMPARE(review.checks, BranchReview::Checks::Pending);
+        readGitLabApprovals(review, "{'approvals_left':1,'approved_by':[{'user':{'name':'Alice A','username':'alice'}}]}"_json);
+        QCOMPARE(review.approvedBy, QStringList{u"alice"_s});
+        QCOMPARE(review.decision, BranchReview::Decision::ReviewRequired);
+        review.unresolved = countGitLabUnresolved(
+            "[{'notes':[{'resolvable':false}]},"
+                "{'notes':[{'resolvable':true,'resolved':true}]},"
+                "{'notes':[{'resolvable':true,'resolved':false},{'resolvable':true,'resolved':true}]}]"_json);
+        QCOMPARE(review.unresolved, std::optional<int>(1));
+        QCOMPARE(review.badges(), u"draft · 1 approval(s) left · pipeline running · 1 unresolved"_s);
+        QVERIFY(review.details({}).contains("Pipeline: 1 running"_L1));
+        QVERIFY(review.details({}).contains("1 more approval(s) required"_L1));
+        readGitLabApprovals(review, "{'approvals_left':0,'approved_by':[{'user':{'username':'alice'}}]}"_json);
+        QCOMPARE(review.decision, BranchReview::Decision::Approved);
+        QVERIFY(!countGitLabUnresolved("{'message':'404 Not found'}"_json));
+
+        QVERIFY(!parseGitLabMergeRequests("[]"_ba, &error));
+        QVERIFY(error.isEmpty());
+        QVERIFY(!parseGitLabMergeRequests("{'message':'401 Unauthorized'}"_json, &error));
+        QVERIFY(error.contains("401"_L1));
+
+        ReviewOptions options;
+        options.create = true;
+        options.target = u"main"_s;
+        options.title = u"Speed up"_s;
+        options.state = ReviewOptions::State::Wip;
+        options.labels = {u"perf"_s, u"needs review"_s};
+        options.removeSourceBranch = true;
+        QCOMPARE(gitLabPushOptions(options, &error),
+                 (QStringList{u"merge_request.create"_s, u"merge_request.target=main"_s,
+                              u"merge_request.title=Speed up"_s, u"merge_request.draft"_s,
+                              u"merge_request.label=perf"_s, u"merge_request.label=needs review"_s,
+                              u"merge_request.remove_source_branch"_s}));
+        QVERIFY(gitLabPushOptions({}, &error).isEmpty());
+        options.title = u"two\nlines"_s;
+        QVERIFY(gitLabPushOptions(options, &error).isEmpty());
+        QVERIFY(error.contains("line break"_L1));
+    }
+
+    void showsTheBranchPullRequestFromGitHub()
+    {
+        // A stand-in for gh that records how it was called.
+        QTemporaryDir bin;
+        const QString args = bin.filePath(u"args"_s);
+        const QString json = bin.filePath(u"answer.json"_s);
+        writeScript(bin.filePath(u"gh"_s),
+                    "#!/bin/sh\n"
+                    "printf '%s\\n' \"$@\" \"prompt=$GH_PROMPT_DISABLED\" -- >> \"" + args.toUtf8() + "\"\n"
+                    "[ -n \"$FAKE_GH_FAIL\" ] && { echo \"$FAKE_GH_FAIL\" >&2; exit 1; }\n"
+                    "case \"$1 $2\" in\n"
+                    "'pr create') echo 'https://github.com/acme/widget/pull/13';;\n"
+                    "*) cat \"" + json.toUtf8() + "\";;\n"
+                    "esac\n");
+        const QByteArray path = qgetenv("PATH");
+        qputenv("PATH", bin.path().toUtf8() + ':' + path);
+        // Nothing may ask the real one once the stand-in is gone.
+        const auto restore = qScopeGuard([this, path] {
+            m_repo->setPushMode(u"plain"_s);
+            QVERIFY(settle());
+            qputenv("PATH", path);
+        });
+
+        // A GitHub URL that git pushes to the local "server".
+        const QString url = u"https://github.com/acme/widget.git"_s;
+        work({"config", "url." + m_remote + ".insteadOf", url});
+        work({"remote", "set-url", "origin", url});
+        work({"checkout", "-q", "-b", "topic"});
+        commitIn(m_work, "topic work");
+        work({"push", "-q", "-u", "origin", "topic"});
+        commitIn(m_work, "more");
+        QFile answer(json);
+        QVERIFY(answer.open(QIODevice::WriteOnly));
+        answer.write("{'data':{'repository':{'pullRequests':{'nodes':["
+            "{'number':12,'title':'Speed up','url':'https://github.com/acme/widget/pull/12','state':'OPEN',"
+             "'isDraft':false,'headRefOid':'"_json + rev(m_work, u"HEAD~1"_s).toUtf8() + "','baseRefName':'main',"
+             "'reviewDecision':'APPROVED','headRepositoryOwner':{'login':'acme'},"
+             "'latestReviews':{'nodes':[{'state':'APPROVED','author':{'login':'alice'}}]},"
+             "'reviewThreads':{'nodes':[{'isResolved':false},{'isResolved':false}]},"
+             "'commits':{'nodes':[{'commit':{'statusCheckRollup':{'state':'SUCCESS','contexts':{'nodes':["
+               "{'__typename':'CheckRun','name':'build','status':'COMPLETED','conclusion':'SUCCESS'}]}}}}]}}]},"
+            "'parent':null}}}"_json);
+        answer.close();
+
+        open();
+        QCOMPARE(m_repo->reviewHost(), u"github"_s);
+        QVERIFY(!m_repo->pushForReview());
+        QTRY_VERIFY(!m_repo->branchReview().isEmpty());
+        const QVariantMap review = m_repo->commits()->data(m_repo->commits()->index(0), CommitModel::ReviewRole).toMap();
+        QCOMPARE(review.value(u"kind"_s).toString(), u"pullRequest"_s);
+        QCOMPARE(review.value(u"label"_s).toString(), u"PR #12"_s);
+        QCOMPARE(review.value(u"state"_s).toString(), u"open"_s);
+        QCOMPARE(review.value(u"decision"_s).toString(), u"approved"_s);
+        QCOMPARE(review.value(u"checks"_s).toString(), u"success"_s);
+        QCOMPARE(review.value(u"unresolved"_s).toInt(), 2);
+        QCOMPARE(review.value(u"url"_s).toString(), u"https://github.com/acme/widget/pull/12"_s);
+        QCOMPARE(review.value(u"badges"_s).toString(), u"approved · checks passed · 2 unresolved"_s);
+        // HEAD is one commit ahead of what the pull request has.
+        QVERIFY(review.value(u"details"_s).toString().contains("pushing updates it"_L1));
+        QVERIFY(m_repo->reviewSummary().contains("#12"_L1));
+        QVERIFY(m_repo->pushNeeded());
+        QVERIFY(!m_repo->commits()->data(m_repo->commits()->index(1), CommitModel::ReviewRole).isValid());
+        QByteArray asked = readAll(args);
+        QVERIFY2(asked.startsWith("api\ngraphql\n--hostname\ngithub.com\n-f\nquery="), asked.constData());
+        QVERIFY(asked.contains("\nowner=acme\n-f\nname=widget\n-f\nbranch=topic\nprompt=1\n"));
+
+        // Push and open a pull request.
+        const QVariantMap options{{u"create"_s, true}, {u"target"_s, u"main"_s}, {u"title"_s, u"Speed up"_s},
+                                  {u"state"_s, u"wip"_s}, {u"reviewers"_s, u"alice, bob"_s},
+                                  {u"labels"_s, u"perf, needs review"_s}};
+        QVERIFY(m_repo->pushPreview(options).value(u"text"_s).toString().contains(
+            "\ngh pr create --head topic --base main --title 'Speed up' --body '' --draft"_L1));
+        QFile::remove(args);
+        QSignalSpy notices(m_repo.get(), &Repository::notice);
+        m_repo->push(false, options);
+        QVERIFY(settle());
+        QVERIFY(m_errors->isEmpty());
+        QCOMPARE(remoteRev(u"refs/heads/topic"_s), rev(m_work, u"HEAD"_s));
+        QCOMPARE(notices.size(), 1);
+        QCOMPARE(notices.first().at(1).toStringList(), QStringList{u"https://github.com/acme/widget/pull/13"_s});
+        asked = readAll(args);
+        QVERIFY2(asked.startsWith("pr\ncreate\n--repo\ngithub.com/acme/widget\n--head\ntopic\n--base\nmain\n"
+                                  "--title\nSpeed up\n--body\n\n--draft\n--reviewer\nalice,bob\n"
+                                  "--label\nperf,needs review\nprompt=1\n--\n"),
+                 asked.constData());
+
+        // gh signed out: the summary says so, pushing is left to the user.
+        qputenv("FAKE_GH_FAIL", "To get started with GitHub CLI, please run:  gh auth login");
+        m_repo->refresh();
+        QTRY_VERIFY(m_repo->reviewSummary().contains("gh auth login"_L1));
+        QVERIFY(m_repo->branchReview().isEmpty());
+        QVERIFY(m_repo->pushNeeded());
+        qunsetenv("FAKE_GH_FAIL");
+
+        // gh not installed.
+        QTemporaryDir onlyGit;
+        QVERIFY(QFile::link(QStandardPaths::findExecutable(u"git"_s), onlyGit.filePath(u"git"_s)));
+        qputenv("PATH", onlyGit.path().toUtf8());
+        m_repo->refresh();
+        QTRY_VERIFY(m_repo->reviewSummary().contains("not installed"_L1));
+        QVERIFY(m_repo->reviewSummary().contains("gh auth login"_L1));
+        qputenv("PATH", bin.path().toUtf8() + ':' + path);
+    }
+
+    void showsTheBranchMergeRequestFromGitLab()
+    {
+        // A stand-in for glab answering `glab api --hostname <host> <endpoint>`.
+        QTemporaryDir bin;
+        const QString args = bin.filePath(u"args"_s);
+        const auto answer = [&](const char *name, const QByteArray &json) {
+            QFile file(bin.filePath(QString::fromLatin1(name)));
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            file.write(json);
+        };
+        const QByteArray dir = bin.path().toUtf8();
+        writeScript(bin.filePath(u"glab"_s),
+                    "#!/bin/sh\n"
+                    "printf '%s\\n' \"$@\" \"prompt=$NO_PROMPT\" -- >> \"" + args.toUtf8() + "\"\n"
+                    "case \"$4\" in\n"
+                    "*/approvals) cat \"" + dir + "/approvals.json\";;\n"
+                    "*/discussions*) cat \"" + dir + "/discussions.json\";;\n"
+                    "*merge_requests\\?*) cat \"" + dir + "/list.json\";;\n"
+                    "*) cat \"" + dir + "/mr.json\";;\n"
+                    "esac\n");
+        const QByteArray path = qgetenv("PATH");
+        qputenv("PATH", bin.path().toUtf8() + ':' + path);
+        // Nothing may ask the real one once the stand-in is gone.
+        const auto restore = qScopeGuard([this, path] {
+            m_repo->setPushMode(u"plain"_s);
+            QVERIFY(settle());
+            qputenv("PATH", path);
+        });
+
+        // A self-hosted GitLab by a name igitt only knows from the setting.
+        const QString url = u"git@git.example.org:group/sub/widget.git"_s;
+        work({"config", "url." + m_remote + ".insteadOf", url});
+        work({"remote", "set-url", "origin", url});
+        work({"checkout", "-q", "-b", "topic"});
+        commitIn(m_work, "topic work");
+        work({"push", "-q", "-u", "origin", "topic"});
+        answer("list.json", "[{'iid':7,'state':'opened','title':'Speed up','draft':true,'target_branch':'main',"
+                                 "'web_url':'https://git.example.org/group/sub/widget/-/merge_requests/7'}]"_json);
+        answer("mr.json", "{'iid':7,'state':'opened','title':'Speed up','draft':true,'target_branch':'main',"
+                              "'sha':'"_json + rev(m_work, u"HEAD"_s).toUtf8() + "',"
+                              "'web_url':'https://git.example.org/group/sub/widget/-/merge_requests/7',"
+                              "'head_pipeline':{'status':'failed'}}"_json);
+        answer("approvals.json", "{'approvals_left':1,'approved_by':[]}"_json);
+        answer("discussions.json", "[{'notes':[{'resolvable':true,'resolved':false}]},"
+                                       "{'notes':[{'resolvable':true,'resolved':false}]}]"_json);
+
+        m_repo->setGitlabHosts(u"git.example.org"_s);
+        open();
+        QCOMPARE(m_repo->reviewHost(), u"gitlab"_s);
+        QTRY_VERIFY(!m_repo->branchReview().isEmpty());
+        const QVariantMap review = m_repo->commits()->data(m_repo->commits()->index(0), CommitModel::ReviewRole).toMap();
+        QCOMPARE(review.value(u"kind"_s).toString(), u"mergeRequest"_s);
+        QCOMPARE(review.value(u"label"_s).toString(), u"MR !7"_s);
+        QCOMPARE(review.value(u"badges"_s).toString(), u"draft · 1 approval(s) left · pipeline failed · 2 unresolved"_s);
+        QCOMPARE(review.value(u"checks"_s).toString(), u"failure"_s);
+        QVERIFY(!review.value(u"details"_s).toString().contains("not this commit"_L1));
+        QVERIFY(m_repo->reviewSummary().startsWith("Merge request !7: open, draft"_L1));
+        const QByteArray asked = readAll(args);
+        QVERIFY2(asked.startsWith("api\n--hostname\ngit.example.org\n"
+                                  "projects/group%2Fsub%2Fwidget/merge_requests?source_branch=topic&state=all"),
+                 asked.constData());
+        QVERIFY(asked.contains("\nprojects/group%2Fsub%2Fwidget/merge_requests/7\nprompt=1\n"));
+        QVERIFY(asked.contains("\nprojects/group%2Fsub%2Fwidget/merge_requests/7/approvals\n"));
+        QVERIFY(asked.contains("\nprojects/group%2Fsub%2Fwidget/merge_requests/7/discussions?per_page=100\n"));
+
+        // No merge request for the branch yet.
+        answer("list.json", "[]");
+        m_repo->refresh();
+        QTRY_VERIFY(m_repo->reviewSummary().contains("No merge request for topic"_L1));
+        QVERIFY(m_repo->branchReview().isEmpty());
+
+        // Push options, as GitLab gets them; the "server" records them and
+        // links the merge request, as GitLab does.
+        GitRunner(m_root->path()).run({"--git-dir=" + m_remote, "config", "receive.advertisePushOptions", "true"});
+        const QString received = m_root->filePath(u"push-options"_s);
+        writeScript(m_remote + u"/hooks/post-receive"_s,
+                    "#!/bin/sh\n"
+                    "i=0\n"
+                    "while [ $i -lt \"${GIT_PUSH_OPTION_COUNT:-0}\" ]; do\n"
+                    "  eval \"echo \\\"\\$GIT_PUSH_OPTION_$i\\\"\"; i=$((i + 1))\n"
+                    "done > \"" + received.toUtf8() + "\"\n"
+                    "echo 'View it on GitLab:'\n"
+                    "echo '  https://git.example.org/group/sub/widget/-/merge_requests/8'\n");
+        commitIn(m_work, "more");
+        m_repo->refresh();
+        QVERIFY(settle());
+        const QVariantMap options{{u"create"_s, true}, {u"target"_s, u"main"_s}, {u"title"_s, u"Speed up"_s},
+                                  {u"state"_s, u"wip"_s}, {u"labels"_s, u"perf, needs review"_s},
+                                  {u"removeSourceBranch"_s, true}};
+        QCOMPARE(m_repo->pushPreview(options).value(u"text"_s).toString(),
+                 u"git push -o merge_request.create -o merge_request.target=main -o 'merge_request.title=Speed up' "
+                 "-o merge_request.draft -o merge_request.label=perf -o 'merge_request.label=needs review' "
+                 "-o merge_request.remove_source_branch origin HEAD:refs/heads/topic"_s);
+        QVERIFY(m_repo->pushPreview({{u"title"_s, u"a\nb"_s}}).value(u"error"_s).toString().contains("line break"_L1));
+        QSignalSpy notices(m_repo.get(), &Repository::notice);
+        m_repo->push(false, options);
+        QVERIFY(settle());
+        QVERIFY(m_errors->isEmpty());
+        QCOMPARE(remoteRev(u"refs/heads/topic"_s), rev(m_work, u"HEAD"_s));
+        QCOMPARE(readAll(received), "merge_request.create\nmerge_request.target=main\nmerge_request.title=Speed up\n"
+                                    "merge_request.draft\nmerge_request.label=perf\nmerge_request.label=needs review\n"
+                                    "merge_request.remove_source_branch\n"_ba);
+        QCOMPARE(notices.size(), 1);
+        QCOMPARE(notices.first().at(1).toStringList(),
+                 QStringList{u"https://git.example.org/group/sub/widget/-/merge_requests/8"_s});
+    }
+
     void explainsWhatItCannotDo()
     {
         QVERIFY(explainNetworkFailure(u"fatal: could not read Username for 'https://x': terminal prompts disabled"_s)
@@ -600,6 +985,21 @@ private:
             }
         }
         return rows;
+    }
+
+    static void writeScript(const QString &path, const QByteArray &script)
+    {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        file.write(script);
+        file.close();
+        QVERIFY(file.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+    }
+
+    static QByteArray readAll(const QString &path)
+    {
+        QFile file(path);
+        return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
     }
 
     static QString rev(const GitRunner &git, const QString &r)

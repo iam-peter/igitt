@@ -146,26 +146,35 @@ Control {
                 tint: "#8c5ad8"
                 filled: true
             }
-            // What Gerrit has for this commit, if it is pushed for review.
+            // What Gerrit has for this commit, if it is pushed for review;
+            // or on the branch's tip, its GitHub pull or GitLab merge request.
             Tag {
-                readonly property string state: delegate.review ? delegate.review.state : ""
-                readonly property string badges: delegate.review ? delegate.review.badges : ""
+                readonly property var review: delegate.review
+                readonly property bool change: !!review && review.kind === "change"
+                readonly property string state: review ? review.state : ""
+                readonly property string badges: review ? review.badges : ""
 
                 objectName: "reviewTag"
                 visible: state !== ""
-                text: (delegate.review && delegate.review.number > 0
-                       ? `Gerrit ${delegate.review.number}/${delegate.review.patchSet}` : qsTr("not on Gerrit"))
+                text: (!review ? ""
+                       : !change ? review.label
+                       : review.number > 0 ? `Gerrit ${review.number}/${review.patchSet}` : qsTr("not on Gerrit"))
                       + (badges !== "" ? ` · ${badges}` : "")
-                tint: state === "upToDate" ? "#59a14f"
-                    : state === "outdated" ? "#e08e2b"
-                    : state === "closed" ? "#888888" : "#4e79a7"
+                tint: change ? (state === "upToDate" ? "#59a14f"
+                                : state === "outdated" ? "#e08e2b"
+                                : state === "closed" ? "#888888" : "#4e79a7")
+                    : state === "merged" ? "#8c5ad8"
+                    : state === "closed" ? "#888888"
+                    : review && (review.checks === "failure" || review.decision === "changesRequested") ? "#e15759"
+                    : review && review.decision === "approved" ? "#59a14f" : "#4e79a7"
                 ToolTip.visible: reviewHover.hovered
-                ToolTip.text: [state === "upToDate" ? qsTr("Gerrit has this commit as the current patch set.")
+                ToolTip.text: [!change ? ""
+                               : state === "upToDate" ? qsTr("Gerrit has this commit as the current patch set.")
                                : state === "outdated" ? qsTr("Changed since the last upload; pushing adds a patch set.")
                                : state === "closed" ? qsTr("The change is merged or abandoned.")
                                : qsTr("Pushing for review creates a new change."),
-                               delegate.review ? delegate.review.details : "",
-                               delegate.review && delegate.review.url ? qsTr("Click to open it in the browser.") : ""]
+                               review ? review.details : "",
+                               review && review.url ? qsTr("Click to open it in the browser.") : ""]
                               .filter(s => s !== "").join("\n")
 
                 HoverHandler {

@@ -78,6 +78,16 @@ the review branch can be set too. Gerrit's change links are shown after
 pushing. A rejected push offers a force-push that uses
 `--force-with-lease`, so it only replaces what was last fetched.
 
+On GitHub and GitLab, recognized by the remote's host name (self-hosted
+servers by other names are listed in Settings), the current branch's pull
+or merge request shows on its tip: state, draft, review decision or
+approvals, checks or pipeline, and unresolved threads, with details in its
+tooltip and a click to open it. igitt asks with the `gh` and `glab`
+command line tools, so their `gh auth login` and `glab auth login` are all
+it takes; it keeps no tokens. The arrow next to Push sends GitLab's
+merge request push options, or opens a pull request with `gh pr create`
+after pushing to GitHub.
+
 igitt cannot answer password prompts: SSH runs in batch mode, so keys
 need to be in ssh-agent, and HTTPS needs a credential helper. Both
 buttons are off while planning, and Push during a merge or rebase.

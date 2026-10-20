@@ -33,8 +33,11 @@ QtObject {
     readonly property Settings remote: Settings {
         category: "remote"
 
-        property string pushMode: "auto" // auto, plain or gerrit
+        property string pushMode: "auto" // auto, plain, gerrit, github or gitlab
         property string gerritBranch: ""
+        // Self-hosted servers, comma-separated.
+        property string githubHosts: ""
+        property string gitlabHosts: ""
     }
 
     readonly property Settings graph: Settings {

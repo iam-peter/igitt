@@ -1,6 +1,7 @@
 #include "Repository.h"
 
 #include "core/FoldEngine.h"
+#include "core/GerritReview.h"
 #include "core/PatchBuilder.h"
 
 #include <QDir>
@@ -830,7 +831,9 @@ HistoryRequest Repository::historyRequest(bool force) const
 
 void Repository::scheduleReviewQuery()
 {
-    if (!m_pushTarget.gerrit || !m_pushTarget.error.isEmpty() || m_plan || m_status.headSha.isEmpty()) {
+    if (m_pushTarget.host == ReviewHost::None || !m_pushTarget.error.isEmpty() || m_plan
+        || m_status.headSha.isEmpty()) {
+        m_reviewTimer.stop();
         ++m_reviewGeneration;
         setReviews({});
         return;
@@ -840,19 +843,52 @@ void Repository::scheduleReviewQuery()
 
 void Repository::queryReviewsNow()
 {
+    const ReviewProvider *provider = reviewProvider(m_pushTarget.host);
+    if (!provider)
+        return;
     const int generation = ++m_reviewGeneration;
-    const QString upstream = !m_status.upstream.isEmpty()
+    ReviewContext context;
+    context.remote = m_pushTarget.remote;
+    context.upstream = !m_status.upstream.isEmpty()
         ? m_status.upstream
         : QStringLiteral("refs/remotes/%1/%2").arg(m_pushTarget.remote, m_pushTarget.remoteBranch);
-    m_reviewPool.start([this, generation, git = m_git, remote = m_pushTarget.remote, upstream,
-                        branch = m_pushTarget.remoteBranch] {
-        ReviewQuery reviews = queryReviews(git, remote, upstream, branch);
+    context.branch = m_pushTarget.remoteBranch;
+    context.head = m_status.headSha;
+    m_reviewPool.start([this, generation, git = m_git, provider, context] {
+        ReviewQuery reviews = provider->query(git, context);
+        reviews.head = context.head;
         QMetaObject::invokeMethod(this, [this, generation, reviews = std::move(reviews)] {
             if (generation == m_reviewGeneration)
                 setReviews(reviews);
         }, Qt::QueuedConnection);
     });
 }
+
+namespace {
+
+QVariantMap reviewMap(const BranchReview &review, const QString &head)
+{
+    static const char *const states[] = {"open", "merged", "closed"};
+    static const char *const decisions[] = {"", "approved", "changesRequested", "reviewRequired"};
+    static const char *const checks[] = {"", "pending", "success", "failure"};
+    return {
+        {QStringLiteral("kind"), review.host == ReviewHost::GitLab ? QStringLiteral("mergeRequest")
+                                                                   : QStringLiteral("pullRequest")},
+        {QStringLiteral("state"), QString::fromLatin1(states[int(review.state)])},
+        {QStringLiteral("number"), review.number},
+        {QStringLiteral("label"), review.label()},
+        {QStringLiteral("title"), review.title},
+        {QStringLiteral("url"), review.url},
+        {QStringLiteral("draft"), review.draft},
+        {QStringLiteral("decision"), QString::fromLatin1(decisions[int(review.decision)])},
+        {QStringLiteral("checks"), QString::fromLatin1(checks[int(review.checks)])},
+        {QStringLiteral("unresolved"), review.unresolved ? QVariant(*review.unresolved) : QVariant()},
+        {QStringLiteral("badges"), review.badges()},
+        {QStringLiteral("details"), review.details(head)},
+    };
+}
+
+} // namespace
 
 void Repository::setReviews(const ReviewQuery &reviews)
 {
@@ -861,6 +897,7 @@ void Repository::setReviews(const ReviewQuery &reviews)
     for (auto it = reviews.bySha.cbegin(); it != reviews.bySha.cend(); ++it) {
         static const char *const states[] = {"new", "upToDate", "outdated", "closed"};
         bySha.insert(it.key(), {
+            {QStringLiteral("kind"), QStringLiteral("change")},
             {QStringLiteral("state"), QString::fromLatin1(states[it->state])},
             {QStringLiteral("number"), it->number},
             {QStringLiteral("patchSet"), it->patchSet},
@@ -876,6 +913,9 @@ void Repository::setReviews(const ReviewQuery &reviews)
             {QStringLiteral("details"), it->details()},
         });
     }
+    // A pull or merge request belongs to the branch; it shows on its tip.
+    if (reviews.branchReview && !reviews.head.isEmpty())
+        bySha.insert(reviews.head, reviewMap(*reviews.branchReview, reviews.head));
     m_commits.setReviews(bySha);
     emit reviewsChanged();
     emit commitReviewChanged();
@@ -965,10 +1005,26 @@ QVariantMap Repository::diffComments() const
             {QStringLiteral("newSide"), sideOf(review->localPatchSet)}};
 }
 
+QString Repository::reviewHost() const
+{
+    switch (m_pushTarget.host) {
+    case ReviewHost::Gerrit: return QStringLiteral("gerrit");
+    case ReviewHost::GitHub: return QStringLiteral("github");
+    case ReviewHost::GitLab: return QStringLiteral("gitlab");
+    case ReviewHost::None: break;
+    }
+    return {};
+}
+
+QVariantMap Repository::branchReview() const
+{
+    return m_reviews.branchReview ? reviewMap(*m_reviews.branchReview, m_reviews.head) : QVariantMap();
+}
+
 bool Repository::pushNeeded() const
 {
     // Without an answer from Gerrit, leave it to the user.
-    if (!m_pushTarget.gerrit || !m_reviews.ok)
+    if (!m_pushTarget.forReview || !m_reviews.ok)
         return true;
     return std::any_of(m_reviews.bySha.cbegin(), m_reviews.bySha.cend(), [](const ReviewInfo &info) {
         return info.state == ReviewInfo::New || info.state == ReviewInfo::Outdated;
@@ -977,10 +1033,16 @@ bool Repository::pushNeeded() const
 
 QString Repository::reviewSummary() const
 {
-    if (!m_pushTarget.gerrit)
+    if (m_pushTarget.host == ReviewHost::None || m_reviews.host != m_pushTarget.host)
         return {};
     if (!m_reviews.ok)
         return m_reviews.error;
+    if (m_reviews.host != ReviewHost::Gerrit) {
+        if (m_reviews.branchReview)
+            return m_reviews.branchReview->summary();
+        return m_reviews.host == ReviewHost::GitLab ? tr("No merge request for %1 yet.").arg(m_reviews.branch)
+                                                    : tr("No pull request for %1 yet.").arg(m_reviews.branch);
+    }
     int counts[4] = {};
     for (const ReviewInfo &info : m_reviews.bySha)
         ++counts[info.state];
@@ -1003,6 +1065,8 @@ QString Repository::pushMode() const
     switch (m_pushSettings.mode) {
     case PushMode::Plain: return QStringLiteral("plain");
     case PushMode::Gerrit: return QStringLiteral("gerrit");
+    case PushMode::GitHub: return QStringLiteral("github");
+    case PushMode::GitLab: return QStringLiteral("gitlab");
     case PushMode::Auto: break;
     }
     return QStringLiteral("auto");
@@ -1012,6 +1076,8 @@ void Repository::setPushMode(const QString &mode)
 {
     const PushMode value = mode == QLatin1StringView("plain")    ? PushMode::Plain
                          : mode == QLatin1StringView("gerrit") ? PushMode::Gerrit
+                         : mode == QLatin1StringView("github") ? PushMode::GitHub
+                         : mode == QLatin1StringView("gitlab") ? PushMode::GitLab
                                                                : PushMode::Auto;
     if (m_pushSettings.mode == value)
         return;
@@ -1025,6 +1091,26 @@ void Repository::setGerritBranch(const QString &branch)
     if (m_pushSettings.gerritBranch == branch.trimmed())
         return;
     m_pushSettings.gerritBranch = branch.trimmed();
+    emit pushSettingsChanged();
+    refresh();
+}
+
+void Repository::setGithubHosts(const QString &hosts)
+{
+    const QStringList list = splitReviewList(hosts);
+    if (m_pushSettings.githubHosts == list)
+        return;
+    m_pushSettings.githubHosts = list;
+    emit pushSettingsChanged();
+    refresh();
+}
+
+void Repository::setGitlabHosts(const QString &hosts)
+{
+    const QStringList list = splitReviewList(hosts);
+    if (m_pushSettings.gitlabHosts == list)
+        return;
+    m_pushSettings.gitlabHosts = list;
     emit pushSettingsChanged();
     refresh();
 }
@@ -1084,20 +1170,33 @@ std::optional<ReviewOptions> reviewOptions(const QVariantMap &map)
                                                         : ReviewOptions::State::Unchanged;
     options.reviewers = splitReviewList(map.value(QStringLiteral("reviewers")).toString());
     options.hashtags = splitReviewList(map.value(QStringLiteral("hashtags")).toString());
+    options.create = map.value(QStringLiteral("create")).toBool();
+    options.target = map.value(QStringLiteral("target")).toString().trimmed();
+    options.title = map.value(QStringLiteral("title")).toString().trimmed();
+    // Labels may have spaces.
+    for (const QString &label : map.value(QStringLiteral("labels")).toString().split(QLatin1Char(','))) {
+        if (!label.trimmed().isEmpty())
+            options.labels.append(label.trimmed());
+    }
+    options.removeSourceBranch = map.value(QStringLiteral("removeSourceBranch")).toBool();
     return options;
 }
 
 } // namespace
 
-QVariantMap Repository::reviewRefspec(const QVariantMap &review) const
+QVariantMap Repository::pushPreview(const QVariantMap &review) const
 {
-    QString error;
-    const QString options = reviewRefspecOptions(reviewOptions(review).value_or(ReviewOptions{}), &error);
-    if (error.isEmpty() && !m_pushTarget.error.isEmpty())
-        error = m_pushTarget.error;
-    return {{QStringLiteral("refspec"),
-             error.isEmpty() ? QStringLiteral("HEAD:refs/for/") + m_pushTarget.remoteBranch + options : QString()},
-            {QStringLiteral("error"), error}};
+    const ReviewProvider *provider = reviewProvider(m_pushTarget.host);
+    if (!provider)
+        return {{QStringLiteral("text"), QString()}, {QStringLiteral("error"), m_pushTarget.error}};
+    // Options that cannot be sent are the first thing to fix.
+    PushTarget target = m_pushTarget;
+    target.error.clear();
+    provider->applyOptions(target, reviewOptions(review).value_or(ReviewOptions{}));
+    if (target.error.isEmpty())
+        target.error = m_pushTarget.error;
+    return {{QStringLiteral("text"), target.error.isEmpty() ? provider->preview(target) : QString()},
+            {QStringLiteral("error"), target.error}};
 }
 
 void Repository::push(bool force, const QVariantMap &review)
@@ -1117,10 +1216,11 @@ void Repository::push(bool force, const QVariantMap &review)
         const PushTarget target = resolvePushTarget(git, settings, review);
         const NetworkResult result = pushTo(git, target, force);
         if (result.ok) {
-            outcome.notice = target.gerrit ? tr("Pushed for review to refs/for/%1.").arg(target.remoteBranch)
-                                           : tr("Pushed to %1/%2.").arg(target.remote, target.remoteBranch);
+            outcome.notice = target.forReview ? tr("Pushed for review to refs/for/%1.").arg(target.remoteBranch)
+                                              : tr("Pushed to %1/%2.").arg(target.remote, target.remoteBranch);
             outcome.links = result.links;
-        } else if (result.rejected && !target.gerrit && !force) {
+            outcome.error = result.warning;
+        } else if (result.rejected && !target.forReview && !force) {
             outcome.pushRejected = result.message;
         } else {
             outcome.error = tr("Pushing failed: %1").arg(result.message);

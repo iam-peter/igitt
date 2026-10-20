@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core/FoldSuggester.h"
-#include "core/GerritReview.h"
+#include "core/ReviewProvider.h"
 #include "core/GitRunner.h"
 #include "core/PlanSession.h"
 #include "core/StateLoader.h"
@@ -90,15 +90,27 @@ class Repository : public QObject
     // Where Push goes, or why it can't; see resolvePushTarget().
     Q_PROPERTY(QString pushDescription READ pushDescription NOTIFY headChanged)
     Q_PROPERTY(bool canPush READ canPush NOTIFY headChanged)
+    // Gerrit: Push sends HEAD to refs/for/<branch>.
     Q_PROPERTY(bool pushForReview READ pushForReview NOTIFY headChanged)
+    // Where the remote's reviews happen: "gerrit", "github", "gitlab", or
+    // empty for none.
+    Q_PROPERTY(QString reviewHost READ reviewHost NOTIFY headChanged)
     // False when Gerrit already has every commit a push for review would
     // send, so it would only answer "no new changes".
     Q_PROPERTY(bool pushNeeded READ pushNeeded NOTIFY reviewsChanged)
-    // What Gerrit has for those commits, or why it could not be asked.
+    // What the review host has for those commits or the branch, or why it
+    // could not be asked.
     Q_PROPERTY(QString reviewSummary READ reviewSummary NOTIFY reviewsChanged)
-    // "auto", "plain" or "gerrit"; and the branch Gerrit reviews go to.
+    // GitHub, GitLab: the current branch's pull or merge request as the
+    // commit model's review role has it on HEAD; empty if there is none.
+    Q_PROPERTY(QVariantMap branchReview READ branchReview NOTIFY reviewsChanged)
+    // "auto", "plain", "gerrit", "github" or "gitlab"; and the branch
+    // Gerrit reviews go to.
     Q_PROPERTY(QString pushMode READ pushMode WRITE setPushMode NOTIFY pushSettingsChanged)
     Q_PROPERTY(QString gerritBranch READ gerritBranch WRITE setGerritBranch NOTIFY pushSettingsChanged)
+    // Self-hosted GitHub and GitLab servers, comma-separated, for "auto".
+    Q_PROPERTY(QString githubHosts READ githubHosts WRITE setGithubHosts NOTIFY pushSettingsChanged)
+    Q_PROPERTY(QString gitlabHosts READ gitlabHosts WRITE setGitlabHosts NOTIFY pushSettingsChanged)
     // The topic the current branch was last pushed for review with.
     Q_PROPERTY(QString reviewTopic READ reviewTopic NOTIFY headChanged)
     // When FETCH_HEAD was last written; invalid if never.
@@ -157,13 +169,19 @@ public:
     void setCurrentBranchOnly(bool only);
     QString pushDescription() const { return m_pushTarget.description(); }
     bool canPush() const { return m_pushTarget.error.isEmpty() && !m_pushTarget.args.isEmpty(); }
-    bool pushForReview() const { return m_pushTarget.gerrit; }
+    bool pushForReview() const { return m_pushTarget.forReview; }
+    QString reviewHost() const;
     bool pushNeeded() const;
     QString reviewSummary() const;
+    QVariantMap branchReview() const;
     QString pushMode() const;
     void setPushMode(const QString &mode);
     QString gerritBranch() const { return m_pushSettings.gerritBranch; }
     void setGerritBranch(const QString &branch);
+    QString githubHosts() const { return m_pushSettings.githubHosts.join(QStringLiteral(", ")); }
+    void setGithubHosts(const QString &hosts);
+    QString gitlabHosts() const { return m_pushSettings.gitlabHosts.join(QStringLiteral(", ")); }
+    void setGitlabHosts(const QString &hosts);
     QString reviewTopic() const { return m_pushTarget.savedTopic; }
     QDateTime lastFetch() const;
     QString operation() const;
@@ -219,12 +237,14 @@ public:
     Q_INVOKABLE void fetch();
     // Pushes as pushDescription says. A rejected push emits pushRejected()
     // so the UI can offer `force`, which uses --force-with-lease.
-    // `review` holds Gerrit push options: {topic, state ("wip", "ready" or
-    // empty), reviewers, hashtags}, lists as comma-separated strings.
+    // `review` holds options for the review host: {topic, state ("wip",
+    // "ready" or empty), reviewers, hashtags} for Gerrit; {create, target,
+    // title, state, reviewers, labels, removeSourceBranch} for GitHub and
+    // GitLab. Lists are comma-separated strings.
     Q_INVOKABLE void push(bool force = false, const QVariantMap &review = {});
-    // The refspec a push for review with `review` would use, or why it
-    // cannot; {refspec, error}.
-    Q_INVOKABLE QVariantMap reviewRefspec(const QVariantMap &review) const;
+    // What a push with `review` would send: Gerrit's refspec, or the
+    // commands for GitHub and GitLab; or why it cannot. {text, error}.
+    Q_INVOKABLE QVariantMap pushPreview(const QVariantMap &review) const;
 
     // Emits committed() on success.
     Q_INVOKABLE void commit(const QString &message, bool amend);
@@ -330,8 +350,8 @@ private:
 
     GitRunner m_git;
     QThreadPool m_pool;
-    // Asking Gerrit takes a network round trip; it gets a thread of its own
-    // so it never holds up the git queue.
+    // Asking the review host takes a network round trip or more; it gets a
+    // thread of its own so it never holds up the git queue.
     QThreadPool m_reviewPool;
     QTimer m_reviewTimer;
     int m_reviewGeneration = 0;
