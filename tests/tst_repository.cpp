@@ -178,6 +178,23 @@ private slots:
         QVERIFY(git({"diff", "--cached"}).isEmpty());
     }
 
+    void suggestsFoldTarget()
+    {
+        writeFile(m_dir->filePath("g.txt"), "G\n");
+        Repository repo;
+        QVERIFY(repo.open(m_dir->path()));
+        repo.showFile(u"g.txt"_s, false);
+        QVERIFY(repo.suggestedFoldTarget().isEmpty());
+
+        selectLinesContaining(repo, {u"g"_s, u"G"_s});
+        QCOMPARE(repo.suggestedFoldTarget(), repo.commits()->shaAt(0));
+        QVERIFY(repo.foldSuggestionText().contains("Second"_L1));
+
+        repo.diff()->clearSelection();
+        QVERIFY(repo.suggestedFoldTarget().isEmpty());
+        QVERIFY(repo.foldSuggestionText().isEmpty());
+    }
+
     void undoIsForgottenWhenHeadMoves()
     {
         writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");

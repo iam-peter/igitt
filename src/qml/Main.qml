@@ -144,6 +144,7 @@ ApplicationWindow {
                 monoFont: root.monoFont
                 onFoldDragMoved: pos => history.updateDrop(pos)
                 onFoldDragFinished: pos => history.finishDrop(pos)
+                onFoldRequested: sha => root.requestFold(sha)
                 SplitView.fillWidth: true
             }
         }

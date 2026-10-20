@@ -9,6 +9,7 @@ igitt_add_test(tst_parsers)
 igitt_add_test(tst_patchbuilder)
 igitt_add_test(tst_repository)
 igitt_add_test(tst_foldengine)
+igitt_add_test(tst_foldsuggester)
 
 qt_add_executable(tst_ui tst_ui.cpp)
 target_link_libraries(tst_ui PRIVATE igitt_ui igitt_uiplugin Qt6::Test)

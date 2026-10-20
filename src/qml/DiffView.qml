@@ -19,6 +19,9 @@ Pane {
     // towards the history, and once when they are dropped.
     signal foldDragMoved(point scenePos)
     signal foldDragFinished(point scenePos)
+    signal foldRequested(string sha)
+
+    readonly property bool hasSelection: workingDiff && repo.diff.selectedCount > 0
 
     padding: 0
 
@@ -62,7 +65,7 @@ Pane {
                     property point lastScenePos
 
                     objectName: "foldHandle"
-                    visible: view.workingDiff && view.repo.diff.selectedCount > 0
+                    visible: view.hasSelection
                     implicitWidth: handleLabel.implicitWidth + 16
                     implicitHeight: handleLabel.implicitHeight + 8
                     radius: 4
@@ -114,6 +117,23 @@ Pane {
                             radius: 3
                         }
                     }
+                }
+                ToolButton {
+                    objectName: "foldSuggestedButton"
+                    visible: view.hasSelection && view.repo.suggestedFoldTarget !== ""
+                    text: qsTr("Fold into suggested")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 300
+                    ToolTip.text: view.repo.foldSuggestionText
+                    onClicked: view.foldRequested(view.repo.suggestedFoldTarget)
+                }
+                Label {
+                    Layout.maximumWidth: 380
+                    visible: view.hasSelection && view.repo.suggestedFoldTarget === ""
+                             && view.repo.foldSuggestionText !== ""
+                    text: view.repo.foldSuggestionText
+                    elide: Text.ElideRight
+                    opacity: 0.6
                 }
                 ToolButton {
                     visible: view.workingDiff

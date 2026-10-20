@@ -22,6 +22,8 @@ Control {
     // they can be folded into it, otherwise why not.
     property bool dropTarget: false
     property string dropBlocker
+    // The selected lines most likely belong in this commit.
+    property bool suggested: false
 
     readonly property bool current: ListView.isCurrentItem
     readonly property color textColor: current ? palette.highlightedText : palette.text
@@ -67,6 +69,25 @@ Control {
                 name: modelData.name
                 kind: modelData.kind
                 current: modelData.current
+            }
+        }
+
+        Rectangle {
+            visible: delegate.suggested
+            implicitWidth: suggestedLabel.implicitWidth + 10
+            implicitHeight: suggestedLabel.implicitHeight + 2
+            radius: 3
+            color: "transparent"
+            border.color: "#59a14f"
+            border.width: 1.5
+
+            Label {
+                id: suggestedLabel
+                anchors.centerIn: parent
+                text: qsTr("fold here")
+                color: "#59a14f"
+                font.pixelSize: 11
+                font.bold: true
             }
         }
 

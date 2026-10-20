@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/FoldSuggester.h"
 #include "core/GitRunner.h"
 #include "models/CommitModel.h"
 #include "models/DiffModel.h"
@@ -30,6 +31,10 @@ class Repository : public QObject
     Q_PROPERTY(QString diffCommit READ diffCommit NOTIFY diffChanged)
     Q_PROPERTY(QString commitDetails READ commitDetails NOTIFY diffChanged)
     Q_PROPERTY(bool canUndoFold READ canUndoFold NOTIFY canUndoFoldChanged)
+    // The commit the selected lines most likely belong in (see
+    // FoldSuggester), and a sentence explaining it or why there is none.
+    Q_PROPERTY(QString suggestedFoldTarget READ suggestedFoldTarget NOTIFY foldSuggestionChanged)
+    Q_PROPERTY(QString foldSuggestionText READ foldSuggestionText NOTIFY foldSuggestionChanged)
 
 public:
     enum DiffSource { NoDiff, UnstagedDiff, StagedDiff, CommitDiff };
@@ -53,6 +58,8 @@ public:
     QString diffCommit() const { return m_diffCommit; }
     QString commitDetails() const { return m_commitDetails; }
     bool canUndoFold() const { return !m_lastFold.newHead.isEmpty(); }
+    QString suggestedFoldTarget() const { return m_suggestedFoldTarget; }
+    QString foldSuggestionText() const { return m_foldSuggestionText; }
 
     // Accepts a local path or a file:// URL anywhere inside a work tree.
     Q_INVOKABLE bool open(const QString &pathOrUrl);
@@ -94,6 +101,7 @@ signals:
     void headChanged();
     void diffChanged();
     void canUndoFoldChanged();
+    void foldSuggestionChanged();
     void errorOccurred(const QString &message);
     void notice(const QString &message);
 
@@ -105,6 +113,8 @@ private:
     QStringList diffArgs() const;
     QByteArray selectionPatch(PatchDirection direction) const;
     void forgetFold();
+    void updateFoldSuggestion();
+    QString commitLabel(const QString &sha) const;
 
     GitRunner m_git;
     StatusInfo m_status;
@@ -117,6 +127,9 @@ private:
     QString m_diffPath;
     QString m_diffCommit;
     QString m_commitDetails;
+    FoldSuggester m_suggester{m_git};
+    QString m_suggestedFoldTarget;
+    QString m_foldSuggestionText;
 
     struct LastFold
     {

@@ -82,6 +82,22 @@ private slots:
         QVERIFY(repo->undoFold());
         QVERIFY(gitOut({"diff"}).contains("+line 4 changed"));
 
+        // Line 16 borders line 15, last changed by "Document line 15".
+        diff->clearSelection();
+        for (int row = 0; row < diff->rowCount(); ++row) {
+            if (diff->data(diff->index(row), DiffModel::TextRole).toString().startsWith("line 16"_L1))
+                diff->toggleLine(row);
+        }
+        QCOMPARE(repo->suggestedFoldTarget(), repo->commits()->shaAt(1));
+        auto *suggestButton = window->findChild<QQuickItem *>(u"foldSuggestedButton"_s);
+        QVERIFY(suggestButton);
+        QTRY_VERIFY(suggestButton->isVisible());
+        screenshot(window, u"suggested"_s);
+        QTest::mouseClick(window, Qt::LeftButton, {},
+                          suggestButton->mapToScene({suggestButton->width() / 2, suggestButton->height() / 2}).toPoint());
+        QTRY_VERIFY(gitOut({"show", "HEAD~1", "--format="}).contains("+line 16 changed"));
+        QVERIFY(gitOut({"diff"}).contains("+line 4 changed"));
+
         repo->showCommit(repo->commits()->shaAt(3));
         QTest::qWait(50);
         screenshot(window, u"commit"_s);
@@ -182,6 +198,7 @@ private:
         git({"commit", "-q", "-a", "-m", "Polish line 28"});
 
         changes[4] = " changed";
+        changes[16] = " changed";
         changes[21] = " changed";
         write(u"app.txt"_s, appText(changes));
         write(u"notes.txt"_s, "untracked\n");

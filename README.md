@@ -53,11 +53,21 @@ remote branch ask for confirmation first. Undo restores the branch and the
 index as long as HEAD hasn't moved since; the reflog has every fold too
 ("igitt: fold into …").
 
+While lines are selected, igitt suggests the commit they belong in, the
+way `git absorb` does: `FoldSuggester` blames the lines each change modifies
+or borders and picks the newest local commit among them, since folding into
+an older one would conflict with it. Local commits are those after the
+merge base with the upstream branch and after the last merge commit. The
+suggested commit is tagged "fold here" in the history, and "Fold into
+suggested" folds into it. A selection spanning several commits, or touching
+lines that are only staged, gets no suggestion, with the reason shown
+instead.
+
 Not supported yet: merge commits between the target and HEAD, and moving
 other branches that point into the rewritten range (like `rebase
 --update-refs`).
 
 ## Ideas
 
-- Suggest the target commit per hunk from blame, as `git absorb` does.
+- Split an ambiguous selection and fold each part into its own commit.
 - Run git off the UI thread for large repositories.

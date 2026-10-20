@@ -98,6 +98,7 @@ Pane {
             width: ListView.view.width
             dropTarget: index === view.dropRow
             dropBlocker: dropTarget ? view.dropBlocker : ""
+            suggested: sha === view.repo.suggestedFoldTarget
             onContextMenuRequested: {
                 commitMenu.sha = sha
                 commitMenu.blocker = view.repo.foldBlocker(sha)

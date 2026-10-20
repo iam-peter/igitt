@@ -16,6 +16,7 @@ constexpr int MaxHistory = 20000;
 Repository::Repository(QObject *parent)
     : QObject(parent)
 {
+    connect(&m_diff, &DiffModel::selectionChanged, this, &Repository::updateFoldSuggestion);
 }
 
 bool Repository::open(const QString &pathOrUrl)
@@ -38,6 +39,7 @@ bool Repository::open(const QString &pathOrUrl)
     m_diffPath.clear();
     m_diffCommit.clear();
     m_commitDetails.clear();
+    m_suggester.clear();
     m_diff.clear();
     emit pathChanged();
     emit diffChanged();
@@ -84,6 +86,7 @@ void Repository::showCommit(const QString &sha)
     const GitResult diff = m_git.run(QStringList{QStringLiteral("show"), QStringLiteral("--format="),
                                                  QStringLiteral("--diff-merges=first-parent")}
                                      + diffArgs() + QStringList{sha, QStringLiteral("--")});
+    m_suggester.clear();
     if (check(diff, tr("Showing commit %1").arg(sha.left(10))))
         m_diff.setFiles(parseDiff(diff.out));
     else
@@ -273,6 +276,48 @@ void Repository::forgetFold()
     emit canUndoFoldChanged();
 }
 
+void Repository::updateFoldSuggestion()
+{
+    QString target;
+    QString text;
+    if ((m_diffSource == UnstagedDiff || m_diffSource == StagedDiff) && m_diff.selectedCount() > 0) {
+        QList<LineSelection> selection;
+        for (int f = 0; f < m_diff.files().size(); ++f)
+            selection.append(m_diff.selection(f));
+        const FoldSuggestion suggestion = m_suggester.suggest(selection);
+        switch (suggestion.status) {
+        case FoldSuggestion::Single:
+            target = suggestion.target;
+            text = tr("Belongs to %1").arg(commitLabel(target));
+            break;
+        case FoldSuggestion::Ambiguous: {
+            QStringList labels;
+            for (const QString &sha : suggestion.targets)
+                labels.append(commitLabel(sha));
+            text = tr("The selection belongs to %n commits: %1", "", int(labels.size()))
+                       .arg(labels.join(QStringLiteral(", ")));
+            break;
+        }
+        case FoldSuggestion::None:
+            text = suggestion.reason;
+            break;
+        }
+    }
+    if (target == m_suggestedFoldTarget && text == m_foldSuggestionText)
+        return;
+    m_suggestedFoldTarget = target;
+    m_foldSuggestionText = text;
+    emit foldSuggestionChanged();
+}
+
+QString Repository::commitLabel(const QString &sha) const
+{
+    const int row = m_commits.rowOf(sha);
+    if (row < 0)
+        return sha.left(10);
+    return QStringLiteral("\u201c%1\u201d").arg(m_commits.data(m_commits.index(row), CommitModel::SubjectRole).toString());
+}
+
 QByteArray Repository::selectionPatch(PatchDirection direction) const
 {
     QByteArray patch;
@@ -334,6 +379,7 @@ void Repository::reloadDiff()
 
     const bool staged = m_diffSource == StagedDiff;
     const StatusEntry *entry = (staged ? m_staged : m_unstaged).entry(m_diffPath);
+    m_suggester.clear();
     if (!entry) {
         m_diff.clear();
         return;
@@ -358,9 +404,13 @@ void Repository::reloadDiff()
 
     const GitResult result = m_git.run(args);
     // `git diff --no-index` exits with 1 when the files differ.
-    if (result.ok() || (entry->untracked && result.exitCode == 1))
-        m_diff.setFiles(parseDiff(result.out));
-    else
+    if (result.ok() || (entry->untracked && result.exitCode == 1)) {
+        // Analyze first: setFiles() resets the selection, which updates
+        // the suggestion.
+        const QList<FileDiff> files = parseDiff(result.out);
+        m_suggester.analyze(files, staged ? FoldBase::Head : FoldBase::Index);
+        m_diff.setFiles(files);
+    } else
         check(result, tr("Showing %1").arg(m_diffPath));
 }
 
