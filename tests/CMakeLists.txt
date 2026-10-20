@@ -1,0 +1,15 @@
+function(igitt_add_test name)
+    qt_add_executable(${name} ${name}.cpp)
+    target_link_libraries(${name} PRIVATE igitt_core Qt6::Test)
+    add_test(NAME ${name} COMMAND ${name})
+endfunction()
+
+igitt_add_test(tst_graphlayout)
+igitt_add_test(tst_parsers)
+igitt_add_test(tst_patchbuilder)
+igitt_add_test(tst_repository)
+
+qt_add_executable(tst_ui tst_ui.cpp)
+target_link_libraries(tst_ui PRIVATE igitt_ui igitt_uiplugin Qt6::Test)
+add_test(NAME tst_ui COMMAND tst_ui)
+set_tests_properties(tst_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

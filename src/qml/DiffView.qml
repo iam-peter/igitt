@@ -1,0 +1,181 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import Igitt.Core
+
+Pane {
+    id: view
+
+    required property Repository repo
+    required property font monoFont
+
+    readonly property bool workingDiff: repo.diffSource === Repository.UnstagedDiff
+                                        || repo.diffSource === Repository.StagedDiff
+    readonly property bool stagedDiff: repo.diffSource === Repository.StagedDiff
+
+    padding: 0
+
+    FontMetrics {
+        id: metrics
+        font: view.monoFont
+    }
+
+    ColumnLayout {
+        anchors.fill: parent
+        spacing: 0
+
+        ToolBar {
+            Layout.fillWidth: true
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 6
+
+                Label {
+                    Layout.fillWidth: true
+                    elide: Text.ElideMiddle
+                    font.bold: true
+                    text: {
+                        switch (view.repo.diffSource) {
+                        case Repository.UnstagedDiff: return qsTr("Unstaged: %1").arg(view.repo.diffPath)
+                        case Repository.StagedDiff: return qsTr("Staged: %1").arg(view.repo.diffPath)
+                        case Repository.CommitDiff: return qsTr("Commit %1").arg(view.repo.diffCommit.substring(0, 10))
+                        default: return ""
+                        }
+                    }
+                }
+                Label {
+                    visible: view.workingDiff
+                    text: qsTr("Click lines to select, Shift+click for a range")
+                    opacity: 0.6
+                }
+                ToolButton {
+                    visible: view.workingDiff
+                    enabled: view.repo.diff.selectedCount > 0
+                    text: view.stagedDiff ? qsTr("Unstage %n line(s)", "", view.repo.diff.selectedCount)
+                                          : qsTr("Stage %n line(s)", "", view.repo.diff.selectedCount)
+                    onClicked: view.repo.applySelection()
+                }
+            }
+        }
+
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(details.implicitHeight + 12, view.height * 0.35)
+            visible: view.repo.diffSource === Repository.CommitDiff
+
+            TextArea {
+                id: details
+                readOnly: true
+                selectByMouse: true
+                textFormat: TextEdit.PlainText
+                font: view.monoFont
+                text: view.repo.commitDetails
+            }
+        }
+
+        ListView {
+            id: lines
+
+            property int anchorRow: -1
+            readonly property real gutterWidth: metrics.averageCharacterWidth * 12 + 8
+
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
+            model: view.repo.diff
+            boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.AutoFlickIfNeeded
+            contentWidth: Math.max(width, gutterWidth + view.repo.diff.maxLineLength
+                                          * metrics.averageCharacterWidth + 24)
+            ScrollBar.vertical: ScrollBar {}
+            ScrollBar.horizontal: ScrollBar {}
+
+            delegate: Rectangle {
+                id: row
+
+                required property int index
+                required property int kind
+                required property string text
+                required property int oldLine
+                required property int newLine
+                required property bool selectable
+                required property bool selected
+
+                readonly property bool header: kind === DiffModel.FileHeader
+
+                width: lines.contentWidth
+                height: header ? metrics.height + 12 : metrics.height + 2
+                color: {
+                    if (selected)
+                        return Qt.alpha(view.palette.highlight, 0.55)
+                    switch (kind) {
+                    case DiffModel.FileHeader: return view.palette.button
+                    case DiffModel.HunkHeader: return Qt.rgba(0.3, 0.45, 0.8, 0.15)
+                    case DiffModel.Added: return Qt.rgba(0.2, 0.7, 0.3, 0.18)
+                    case DiffModel.Removed: return Qt.rgba(0.85, 0.25, 0.25, 0.18)
+                    default: return "transparent"
+                    }
+                }
+
+                Text {
+                    id: gutter
+                    visible: row.kind >= DiffModel.Context && row.kind <= DiffModel.Removed
+                    width: lines.gutterWidth
+                    anchors.verticalCenter: parent.verticalCenter
+                    font: view.monoFont
+                    color: view.palette.placeholderText
+                    text: (row.oldLine > 0 ? String(row.oldLine).padStart(5) : "     ") + " "
+                          + (row.newLine > 0 ? String(row.newLine).padStart(5) : "     ")
+                }
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: row.header ? 6 : lines.gutterWidth
+                    anchors.verticalCenter: parent.verticalCenter
+                    font.family: view.monoFont.family
+                    font.pointSize: view.monoFont.pointSize
+                    font.bold: row.header
+                    font.italic: row.kind === DiffModel.NoNewline || row.kind === DiffModel.Message
+                    textFormat: Text.PlainText
+                    color: row.kind === DiffModel.HunkHeader ? view.palette.link : view.palette.text
+                    text: {
+                        switch (row.kind) {
+                        case DiffModel.Added: return "+" + row.text
+                        case DiffModel.Removed: return "-" + row.text
+                        case DiffModel.Context: return " " + row.text
+                        case DiffModel.NoNewline: return "\\" + row.text
+                        default: return row.text
+                        }
+                    }
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: view.workingDiff
+                             && (row.selectable || row.kind === DiffModel.HunkHeader)
+                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    onClicked: mouse => {
+                        if (row.kind === DiffModel.HunkHeader) {
+                            view.repo.diff.toggleHunk(row.index)
+                        } else if ((mouse.modifiers & Qt.ShiftModifier) && lines.anchorRow >= 0) {
+                            view.repo.diff.selectRange(lines.anchorRow, row.index)
+                        } else {
+                            view.repo.diff.toggleLine(row.index)
+                            lines.anchorRow = row.index
+                        }
+                    }
+                }
+            }
+
+            Connections {
+                target: view.repo.diff
+                function onModelReset() {
+                    lines.anchorRow = -1
+                }
+            }
+        }
+    }
+}
