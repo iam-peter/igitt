@@ -5,6 +5,7 @@
 #include "GitRunner.h"
 #include "GraphLayout.h"
 #include "LogParser.h"
+#include "RemoteOps.h"
 #include "StatusParser.h"
 
 #include <QSet>
@@ -63,6 +64,7 @@ struct HistoryRequest
     QString knownHead;
     bool knownWip = false;
     HistoryFilter filter;
+    PushSettings push;
 };
 
 struct HistoryState
@@ -77,6 +79,7 @@ struct HistoryState
     QStringList foldTargets;    // commits a fold can rewrite, HEAD first
     QSet<QString> unpublished;  // commits on no remote-tracking branch
     QSet<QString> planned;      // simulated commits that don't exist for real yet
+    PushTarget pushTarget;
     QString error;
 };
 
@@ -96,7 +99,8 @@ QStringList diffFormatArgs();
 // `git status` cannot be pointed at another HEAD or index, so a simulation
 // assembles the same information from plumbing commands.
 StatusInfo loadSimulatedStatus(const StateSource &source);
-HistoryState loadHistory(const StateSource &source, const StatusInfo &status, const HistoryFilter &filter = {});
+HistoryState loadHistory(const StateSource &source, const StatusInfo &status, const HistoryFilter &filter = {},
+                         const PushSettings &push = {});
 DiffState loadDiff(const StateSource &source, const DiffRequest &request, const StatusInfo &status);
 
 // Status; history as `history` asks; the working tree diff `diff` asks

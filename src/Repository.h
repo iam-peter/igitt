@@ -9,6 +9,7 @@
 #include "models/FileListModel.h"
 #include "models/PlanModel.h"
 
+#include <QDateTime>
 #include <QObject>
 #include <QSet>
 #include <QThreadPool>
@@ -66,6 +67,17 @@ class Repository : public QObject
     Q_PROPERTY(bool showRemotes READ showRemotes WRITE setShowRemotes NOTIFY filterChanged)
     Q_PROPERTY(bool showTags READ showTags WRITE setShowTags NOTIFY filterChanged)
     Q_PROPERTY(bool currentBranchOnly READ currentBranchOnly WRITE setCurrentBranchOnly NOTIFY filterChanged)
+    // Where Push goes, or why it can't; see resolvePushTarget().
+    Q_PROPERTY(QString pushDescription READ pushDescription NOTIFY headChanged)
+    Q_PROPERTY(bool canPush READ canPush NOTIFY headChanged)
+    Q_PROPERTY(bool pushForReview READ pushForReview NOTIFY headChanged)
+    // "auto", "plain" or "gerrit"; and the branch Gerrit reviews go to.
+    Q_PROPERTY(QString pushMode READ pushMode WRITE setPushMode NOTIFY pushSettingsChanged)
+    Q_PROPERTY(QString gerritBranch READ gerritBranch WRITE setGerritBranch NOTIFY pushSettingsChanged)
+    // When FETCH_HEAD was last written; invalid if never.
+    Q_PROPERTY(QDateTime lastFetch READ lastFetch NOTIFY headChanged)
+    // "Merging", "Rebasing", ... while git is stopped in such an operation.
+    Q_PROPERTY(QString operation READ operation NOTIFY headChanged)
     // Uncommitted changes, drawn as a row on top of the history.
     Q_PROPERTY(bool hasWip READ hasWip NOTIFY headChanged)
     Q_PROPERTY(QVariant wipGraph READ wipGraph NOTIFY headChanged)
@@ -110,6 +122,15 @@ public:
     void setShowTags(bool show);
     bool currentBranchOnly() const { return m_filter.currentBranchOnly; }
     void setCurrentBranchOnly(bool only);
+    QString pushDescription() const { return m_pushTarget.description(); }
+    bool canPush() const { return m_pushTarget.error.isEmpty() && !m_pushTarget.args.isEmpty(); }
+    bool pushForReview() const { return m_pushTarget.gerrit; }
+    QString pushMode() const;
+    void setPushMode(const QString &mode);
+    QString gerritBranch() const { return m_pushSettings.gerritBranch; }
+    void setGerritBranch(const QString &branch);
+    QDateTime lastFetch() const;
+    QString operation() const;
     bool hasWip() const { return m_historyWip; }
     QVariant wipGraph() const { return QVariant::fromValue(m_wipGraph); }
     QString wipLaneColor() const { return laneColorName(m_wipGraph.color); }
@@ -151,6 +172,12 @@ public:
     // the file if that side deleted it.
     Q_INVOKABLE void resolveWithSide(const QString &path, bool theirs);
 
+    // Fetches the upstream's remote, or all remotes.
+    Q_INVOKABLE void fetch();
+    // Pushes as pushDescription says. A rejected push emits pushRejected()
+    // so the UI can offer `force`, which uses --force-with-lease.
+    Q_INVOKABLE void push(bool force = false);
+
     // Emits committed() on success.
     Q_INVOKABLE void commit(const QString &message, bool amend);
 
@@ -181,6 +208,8 @@ signals:
     void foldSuggestionChanged();
     void planningChanged();
     void filterChanged();
+    void pushSettingsChanged();
+    void pushRejected(const QString &reason, const QString &target);
     void committed();
     void errorOccurred(const QString &message);
     void notice(const QString &message);
@@ -211,6 +240,8 @@ private:
         RepositoryState state;
         std::optional<LastFold> fold;
         bool committed = false;
+        QString gitDir;
+        QString pushRejected; // why the remote refused a push
         QHash<QString, CommitStats> stats;
         QString notice;
         QString error;
@@ -251,6 +282,9 @@ private:
     bool m_historyWip = false;
     GraphRow m_wipGraph;
     HistoryFilter m_filter;
+    PushSettings m_pushSettings;
+    PushTarget m_pushTarget;
+    QString m_gitDir;
     QStringList m_statsWanted;
     QSet<QString> m_statsRequested;
     QTimer m_statsTimer;

@@ -21,6 +21,13 @@ QtObject {
         property var trailerKeys: Array.from(root.defaultTrailerKeys)
     }
 
+    readonly property Settings remote: Settings {
+        category: "remote"
+
+        property string pushMode: "auto" // auto, plain or gerrit
+        property string gerritBranch: ""
+    }
+
     readonly property Settings graph: Settings {
         category: "graph"
 

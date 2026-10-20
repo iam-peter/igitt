@@ -65,6 +65,22 @@ age. The lines the revision changed are highlighted, the ones it deleted
 shown struck through; clicking a line's revision jumps there. The arrow
 keys step through the revisions, and Play animates them.
 
+## Fetch and push
+
+**Fetch** fetches the current branch's remote (all remotes without an
+upstream) and prunes deleted branches; the button says when it last ran.
+**Push** updates the upstream branch, setting one on the first push. For
+Gerrit it becomes **Push for Review** and pushes `HEAD:refs/for/<branch>`:
+detected from a `refs/for/` push refspec on the remote, a commit-msg hook
+that adds Change-Id, or Gerrit's SSH port, or chosen in Settings, where
+the review branch can be set too. Gerrit's change links are shown after
+pushing. A rejected push offers a force-push that uses
+`--force-with-lease`, so it only replaces what was last fetched.
+
+igitt cannot answer password prompts: SSH runs in batch mode, so keys
+need to be in ssh-agent, and HTTPS needs a credential helper. Both
+buttons are off while planning, and Push during a merge or rebase.
+
 ## Resolving conflicts
 
 A conflicted file opens in the merge tool instead of a diff, after

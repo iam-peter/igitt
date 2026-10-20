@@ -141,6 +141,36 @@ Dialog {
 
             Label {
                 Layout.topMargin: 12
+                text: qsTr("Pushing")
+                font.bold: true
+            }
+            GridLayout {
+                columns: 2
+                Label {
+                    text: qsTr("Push to")
+                }
+                ComboBox {
+                    readonly property var modes: ["auto", "plain", "gerrit"]
+                    Layout.fillWidth: true
+                    model: [qsTr("Gerrit review if detected, otherwise the upstream"),
+                            qsTr("The upstream branch"), qsTr("Gerrit review (refs/for/…)")]
+                    currentIndex: Math.max(0, modes.indexOf(AppSettings.remote.pushMode))
+                    onActivated: index => AppSettings.remote.pushMode = modes[index]
+                }
+                Label {
+                    text: qsTr("Gerrit branch")
+                }
+                TextField {
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("the upstream branch")
+                    text: AppSettings.remote.gerritBranch
+                    selectByMouse: true
+                    onEditingFinished: AppSettings.remote.gerritBranch = text.trim()
+                }
+            }
+
+            Label {
+                Layout.topMargin: 12
                 text: qsTr("History")
                 font.bold: true
             }

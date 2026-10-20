@@ -18,6 +18,7 @@ qt_add_qml_module(igitt_core
         core/MessageFormat.h core/MessageFormat.cpp
         core/FileHistory.h core/FileHistory.cpp
         core/MergeConflict.h core/MergeConflict.cpp
+        core/RemoteOps.h core/RemoteOps.cpp
         models/PlanModel.h models/PlanModel.cpp
         models/Timelapse.h models/Timelapse.cpp
         models/ConflictResolver.h models/ConflictResolver.cpp

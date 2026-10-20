@@ -114,10 +114,12 @@ StatusInfo loadSimulatedStatus(const StateSource &source)
     return info;
 }
 
-HistoryState loadHistory(const StateSource &source, const StatusInfo &status, const HistoryFilter &filter)
+HistoryState loadHistory(const StateSource &source, const StatusInfo &status, const HistoryFilter &filter,
+                         const PushSettings &push)
 {
     const GitRunner &git = source.git;
     HistoryState history;
+    history.pushTarget = resolvePushTarget(git, push);
     history.head = status.headSha;
     history.wip = !status.entries.isEmpty();
     history.refs = parseRefs(git.run(QStringList{QStringLiteral("for-each-ref")} + refFormatArgs()).out);
@@ -287,7 +289,7 @@ RepositoryState loadState(const StateSource &source, const DiffRequest &diff, co
     }
     if (history.force || state.status->headSha != history.knownHead
         || state.status->entries.isEmpty() == history.knownWip)
-        state.history = loadHistory(source, *state.status, history.filter);
+        state.history = loadHistory(source, *state.status, history.filter, history.push);
     if (diff.kind == DiffKind::Unstaged || diff.kind == DiffKind::Staged)
         state.diff = loadDiff(source, diff, *state.status);
     return state;

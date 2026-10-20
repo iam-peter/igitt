@@ -22,6 +22,13 @@ ApplicationWindow {
         showRemotes: AppSettings.graph.showRemotes
         showTags: AppSettings.graph.showTags
         currentBranchOnly: AppSettings.graph.currentBranchOnly
+        pushMode: AppSettings.remote.pushMode
+        gerritBranch: AppSettings.remote.gerritBranch
+        onPushRejected: (reason, target) => {
+            forcePushDialog.reason = reason
+            forcePushDialog.target = target
+            forcePushDialog.open()
+        }
         onErrorOccurred: message => messageBar.show(message, true)
         onNotice: message => messageBar.show(message, false)
     }
@@ -68,6 +75,79 @@ ApplicationWindow {
             repo.discardPlan()
         else
             discardDialog.open()
+    }
+
+    // "3 hours ago" for the Fetch button.
+    function ago(when: date): string {
+        if (isNaN(when.getTime()))
+            return qsTr("never")
+        const minutes = Math.floor((Date.now() - when.getTime()) / 60000)
+        if (minutes < 1)
+            return qsTr("just now")
+        if (minutes < 60)
+            return qsTr("%n min ago", "", minutes)
+        if (minutes < 60 * 24)
+            return qsTr("%n h ago", "", Math.floor(minutes / 60))
+        return qsTr("%n day(s) ago", "", Math.floor(minutes / (60 * 24)))
+    }
+
+    // Re-evaluates the relative fetch time now and then.
+    property int clock: 0
+    Timer {
+        interval: 60000
+        repeat: true
+        running: true
+        onTriggered: root.clock++
+    }
+
+    Dialog {
+        id: forcePushDialog
+
+        property string reason
+        property string target
+
+        anchors.centerIn: parent
+        width: Math.min(520, root.width - 40)
+        modal: true
+        title: qsTr("Push rejected")
+        standardButtons: Dialog.Cancel
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 10
+
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: qsTr("The remote refused the push (%1): it has commits your branch does not.")
+                          .arg(forcePushDialog.reason)
+            }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: qsTr("Fetch and rebase or merge to keep them, or force-push to replace them. "
+                           + "Force-pushing uses --force-with-lease: it only replaces what you last fetched.")
+                opacity: 0.8
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                Button {
+                    text: qsTr("Fetch")
+                    onClicked: {
+                        repo.fetch()
+                        forcePushDialog.close()
+                    }
+                }
+                Button {
+                    objectName: "forcePushButton"
+                    text: qsTr("Force-push: %1").arg(forcePushDialog.target)
+                    onClicked: {
+                        repo.push(true)
+                        forcePushDialog.close()
+                    }
+                }
+            }
+        }
     }
 
     SettingsDialog {
@@ -171,6 +251,27 @@ ApplicationWindow {
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
                 ToolTip.text: qsTr("Collect actions in a plan, review the commands, and execute them together")
+            }
+            ToolSeparator {}
+            ToolButton {
+                objectName: "fetchButton"
+                text: qsTr("⇣ Fetch (%1)").arg((root.clock, root.ago(repo.lastFetch)))
+                enabled: repo.valid && !repo.writing && !repo.planning
+                onClicked: repo.fetch()
+                ToolTip.visible: hovered
+                ToolTip.text: repo.planning ? qsTr("Off while planning")
+                                            : qsTr("Fetch the upstream's remote and prune deleted branches")
+            }
+            ToolButton {
+                objectName: "pushButton"
+                text: (repo.pushForReview ? qsTr("⇡ Push for Review") : qsTr("⇡ Push"))
+                      + (repo.ahead > 0 ? `  ↑${repo.ahead}` : "")
+                enabled: repo.valid && repo.canPush && !repo.writing && !repo.planning && repo.operation === ""
+                onClicked: repo.push()
+                ToolTip.visible: hovered
+                ToolTip.text: repo.planning ? qsTr("Off while planning")
+                            : repo.operation !== "" ? qsTr("Finish the %1 first").arg(repo.operation.toLowerCase())
+                            : repo.pushDescription
             }
             ToolSeparator {}
             BusyIndicator {

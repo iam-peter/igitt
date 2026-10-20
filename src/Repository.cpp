@@ -5,6 +5,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QUrl>
 
 namespace {
@@ -73,6 +74,7 @@ void Repository::finish(JobKind kind, Outcome outcome)
 
     if (!outcome.openedPath.isEmpty()) {
         m_git.setWorkDir(outcome.openedPath);
+        m_gitDir = outcome.gitDir;
         m_historyHead.clear();
         m_statsRequested.clear();
         m_lastFold = {};
@@ -102,6 +104,8 @@ void Repository::finish(JobKind kind, Outcome outcome)
             endPlan();
         if (outcome.committed)
             emit committed();
+        if (!outcome.pushRejected.isEmpty())
+            emit pushRejected(outcome.pushRejected, m_pushTarget.description());
         if (!outcome.notice.isEmpty())
             emit notice(outcome.notice);
     }
@@ -123,6 +127,7 @@ void Repository::applyState(const RepositoryState &state)
         const HistoryState &history = *state.history;
         m_historyHead = history.head;
         m_historyWip = history.wip;
+        m_pushTarget = history.pushTarget;
         m_wipGraph = history.wipGraph;
         m_headMessage = history.headMessage;
         m_foldTargets = QSet<QString>(history.foldTargets.cbegin(), history.foldTargets.cend());
@@ -179,6 +184,8 @@ void Repository::open(const QString &pathOrUrl)
         }
         outcome.openedPath = QString::fromUtf8(result.out).trimmed();
         outcome.workDir = outcome.openedPath;
+        outcome.gitDir = QString::fromUtf8(GitRunner(outcome.openedPath).run(
+            {QStringLiteral("rev-parse"), QStringLiteral("--absolute-git-dir")}).out).trimmed();
         outcome.state = loadState(sourceFor(GitRunner(outcome.openedPath), nullptr), {}, history);
         return outcome;
     });
@@ -725,7 +732,110 @@ DiffRequest Repository::diffRequest() const
 
 HistoryRequest Repository::historyRequest(bool force) const
 {
-    return {force, m_historyHead, m_historyWip, m_filter};
+    return {force, m_historyHead, m_historyWip, m_filter, m_pushSettings};
+}
+
+QString Repository::pushMode() const
+{
+    switch (m_pushSettings.mode) {
+    case PushMode::Plain: return QStringLiteral("plain");
+    case PushMode::Gerrit: return QStringLiteral("gerrit");
+    case PushMode::Auto: break;
+    }
+    return QStringLiteral("auto");
+}
+
+void Repository::setPushMode(const QString &mode)
+{
+    const PushMode value = mode == QLatin1StringView("plain")    ? PushMode::Plain
+                         : mode == QLatin1StringView("gerrit") ? PushMode::Gerrit
+                                                               : PushMode::Auto;
+    if (m_pushSettings.mode == value)
+        return;
+    m_pushSettings.mode = value;
+    emit pushSettingsChanged();
+    refresh();
+}
+
+void Repository::setGerritBranch(const QString &branch)
+{
+    if (m_pushSettings.gerritBranch == branch.trimmed())
+        return;
+    m_pushSettings.gerritBranch = branch.trimmed();
+    emit pushSettingsChanged();
+    refresh();
+}
+
+QDateTime Repository::lastFetch() const
+{
+    const QFileInfo fetchHead(m_gitDir + QStringLiteral("/FETCH_HEAD"));
+    return !m_gitDir.isEmpty() && fetchHead.exists() ? fetchHead.lastModified() : QDateTime();
+}
+
+QString Repository::operation() const
+{
+    if (m_gitDir.isEmpty())
+        return {};
+    const QDir dir(m_gitDir);
+    if (dir.exists(QStringLiteral("MERGE_HEAD")))
+        return tr("Merging");
+    if (dir.exists(QStringLiteral("rebase-merge")) || dir.exists(QStringLiteral("rebase-apply")))
+        return tr("Rebasing");
+    if (dir.exists(QStringLiteral("CHERRY_PICK_HEAD")))
+        return tr("Cherry-picking");
+    if (dir.exists(QStringLiteral("REVERT_HEAD")))
+        return tr("Reverting");
+    return {};
+}
+
+void Repository::fetch()
+{
+    if (m_plan) {
+        emit errorOccurred(tr("Fetching is off while planning."));
+        return;
+    }
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true)](const GitRunner &git) {
+        Outcome outcome;
+        const QString remote = upstreamRemote(git);
+        const NetworkResult result = fetchFrom(git, remote);
+        if (result.ok)
+            outcome.notice = remote.isEmpty() ? tr("Fetched all remotes.") : tr("Fetched %1.").arg(remote);
+        else
+            outcome.error = tr("Fetching failed: %1").arg(result.message);
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::push(bool force)
+{
+    if (m_plan) {
+        emit errorOccurred(tr("Pushing is off while planning; execute or discard the plan first."));
+        return;
+    }
+    if (const QString op = operation(); !op.isEmpty()) {
+        emit errorOccurred(tr("git is in the middle of an operation (%1); finish or abort it first.").arg(op));
+        return;
+    }
+    enqueue(JobKind::Write, [force, settings = m_pushSettings, request = diffRequest(),
+                             history = historyRequest(true)](const GitRunner &git) {
+        Outcome outcome;
+        // Resolved again: the branch or its configuration may have changed.
+        const PushTarget target = resolvePushTarget(git, settings);
+        const NetworkResult result = pushTo(git, target, force);
+        if (result.ok) {
+            outcome.notice = target.gerrit ? tr("Pushed for review to refs/for/%1.").arg(target.remoteBranch)
+                                           : tr("Pushed to %1/%2.").arg(target.remote, target.remoteBranch);
+            if (!result.links.isEmpty())
+                outcome.notice += QLatin1Char(' ') + result.links.join(QStringLiteral(" "));
+        } else if (result.rejected && !target.gerrit && !force) {
+            outcome.pushRejected = result.message;
+        } else {
+            outcome.error = tr("Pushing failed: %1").arg(result.message);
+        }
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
 }
 
 void Repository::forgetFold()

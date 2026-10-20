@@ -252,6 +252,27 @@ private slots:
         QCOMPARE(gitOut({"show", ":conflict.txt"}), "one\nTWO other\nTWO main\nthree\n"_ba);
         QVERIFY(gitOut({"ls-files", "-u"}).isEmpty());
 
+        // Push stays off until the merge is done.
+        auto *pushButton = window->findChild<QQuickItem *>(u"pushButton"_s);
+        QVERIFY(pushButton && !pushButton->isEnabled());
+        git({"commit", "-q", "--no-edit"});
+
+        // Push and fetch, against a local "server".
+        QTemporaryDir server;
+        GitRunner(server.path()).run({"init", "-q", "--bare", "-b", "main", server.path()});
+        git({"remote", "add", "origin", server.path()});
+        repo->refresh();
+        QVERIFY(settle(*repo));
+        QVERIFY(repo->pushDescription().contains("track"_L1));
+        click(window, u"pushButton"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(GitRunner(server.path()).run({"rev-parse", "main"}).out, gitOut({"rev-parse", "HEAD"}));
+        QCOMPARE(repo->upstream(), u"origin/main"_s);
+        click(window, u"fetchButton"_s);
+        QVERIFY(settle(*repo));
+        QVERIFY(repo->lastFetch().isValid());
+        screenshot(window, u"pushed"_s);
+
         for (const QQmlError &w : std::as_const(warnings))
             qWarning().noquote() << w.toString();
         QVERIFY(warnings.isEmpty());
