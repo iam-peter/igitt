@@ -187,6 +187,15 @@ Pane {
                     }
                 }
                 IconButton {
+                    objectName: "fileTimelapseButton"
+                    iconName: "history"
+                    text: qsTr("Time-lapse")
+                    visible: view.repo.diffSource === Repository.FileContent
+                    onClicked: view.timelapseRequested(view.repo.diffPath)
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("See this file through its history")
+                }
+                IconButton {
                     objectName: "collapseAllButton"
                     iconName: "chevrons-down-up"
                     visible: view.repo.diff.fileCount > 1

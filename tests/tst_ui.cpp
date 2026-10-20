@@ -166,7 +166,9 @@ private slots:
         QVERIFY(settle(*repo));
         QCOMPARE(repo->diffSource(), Repository::FileContent);
         QCOMPARE(repo->diffPath(), u"feature.txt"_s);
-        QCOMPARE(repo->diff()->data(repo->diff()->index(1), DiffModel::TextRole).toString(), u"feature"_s);
+        QCOMPARE(repo->diff()->data(repo->diff()->index(0), DiffModel::TextRole).toString(), u"feature"_s);
+        QCOMPARE(repo->diff()->rowCount(), 1); // just the line, nothing to collapse
+        QVERIFY(window->findChild<QQuickItem *>(u"fileTimelapseButton"_s)->isVisible());
         screenshot(window, u"file-content"_s);
         QTest::mouseDClick(window, Qt::LeftButton, {}, match->mapToScene({match->width() / 2, match->height() / 2}).toPoint());
         QQuickWindow *featureLapse = nullptr;

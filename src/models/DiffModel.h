@@ -47,7 +47,7 @@ public:
 
     void setFiles(const QList<FileDiff> &files);
     void setMessage(const QString &message);
-    // A whole file rather than a diff: its lines, numbered, under a header.
+    // A whole file rather than a diff: just its lines, numbered.
     void setContent(const QString &path, const QStringList &lines, bool truncated);
     void clear();
 
@@ -108,6 +108,7 @@ private:
     QList<Row> m_rows;          // what is shown
     QList<QList<Row>> m_bodies; // per file, everything below its header
     QList<bool> m_collapsed;
+    bool m_content = false; // showing a file, not a diff: no file headers
     QList<int> m_added;
     QList<int> m_removed;
     QList<LineSelection> m_selection;

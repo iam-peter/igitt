@@ -477,17 +477,18 @@ private slots:
         QVERIFY(settle(repo()));
         QCOMPARE(repo().diffSource(), Repository::FileContent);
         DiffModel *diff = repo().diff();
-        QCOMPARE(diff->rowCount(), 7); // header and six lines, as on disk
+        QCOMPARE(diff->rowCount(), 6); // the lines as on disk, without a file header
+        QCOMPARE(diff->data(diff->index(0), DiffModel::KindRole).toInt(), int(DiffModel::Context));
         QCOMPARE(diff->data(diff->index(0), DiffModel::PathRole).toString(), u"f.txt"_s);
-        QCOMPARE(diff->data(diff->index(6), DiffModel::TextRole).toString(), u"six"_s);
-        QCOMPARE(diff->data(diff->index(6), DiffModel::NewLineRole).toInt(), 6);
-        QVERIFY(!diff->data(diff->index(6), DiffModel::SelectableRole).toBool());
+        QCOMPARE(diff->data(diff->index(5), DiffModel::TextRole).toString(), u"six"_s);
+        QCOMPARE(diff->data(diff->index(5), DiffModel::NewLineRole).toInt(), 6);
+        QVERIFY(!diff->data(diff->index(5), DiffModel::SelectableRole).toBool());
 
         // Deleted from disk: the staged version.
         QFile::remove(file());
         repo().showFileContent(u"f.txt"_s);
         QVERIFY(settle(repo()));
-        QCOMPARE(diff->rowCount(), 6);
+        QCOMPARE(diff->rowCount(), 5);
 
         writeFile(m_dir->filePath("blob.bin"), QByteArray("\0\1\2", 3));
         repo().showFileContent(u"blob.bin"_s);

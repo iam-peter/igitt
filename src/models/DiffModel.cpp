@@ -38,6 +38,7 @@ QString fileTitle(const FileDiff &file)
 void DiffModel::setFiles(const QList<FileDiff> &files)
 {
     beginResetModel();
+    m_content = false;
     m_files = files;
     m_bodies.clear();
     m_collapsed = QList<bool>(files.size(), false);
@@ -90,6 +91,10 @@ void DiffModel::setFiles(const QList<FileDiff> &files)
 void DiffModel::rebuildRows()
 {
     m_rows.clear();
+    if (m_content) {
+        m_rows = m_bodies.value(0);
+        return;
+    }
     for (int f = 0; f < m_files.size(); ++f) {
         m_rows.append({FileHeader, f, -1, -1, fileTitle(m_files[f])});
         if (!m_collapsed[f])
@@ -139,6 +144,7 @@ void DiffModel::setAllCollapsed(bool collapsed)
 void DiffModel::setMessage(const QString &message)
 {
     beginResetModel();
+    m_content = false;
     m_files.clear();
     m_bodies.clear();
     m_collapsed.clear();
@@ -156,6 +162,7 @@ void DiffModel::setMessage(const QString &message)
 void DiffModel::setContent(const QString &path, const QStringList &lines, bool truncated)
 {
     beginResetModel();
+    m_content = true;
     FileDiff file;
     file.oldPath = file.newPath = path;
     m_files = {file};
