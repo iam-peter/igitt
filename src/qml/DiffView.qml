@@ -236,7 +236,7 @@ Pane {
                 IconButton {
                     objectName: "collapseAllButton"
                     iconName: "chevrons-down-up"
-                    visible: view.repo.diff.fileCount > 1
+                    visible: view.repo.diff.fileCount > 0
                     enabled: view.repo.diff.collapsedCount < view.repo.diff.fileCount
                     onClicked: view.repo.diff.setAllCollapsed(true)
                     ToolTip.visible: hovered
@@ -245,7 +245,7 @@ Pane {
                 IconButton {
                     objectName: "expandAllButton"
                     iconName: "chevrons-up-down"
-                    visible: view.repo.diff.fileCount > 1
+                    visible: view.repo.diff.fileCount > 0
                     enabled: view.repo.diff.collapsedCount > 0
                     onClicked: view.repo.diff.setAllCollapsed(false)
                     ToolTip.visible: hovered

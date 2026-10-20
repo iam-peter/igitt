@@ -212,6 +212,10 @@ private slots:
         // So are the words that changed.
         repo->showFile(u"app.txt"_s, false);
         QVERIFY(settle(*repo));
+        // A single file collapses and expands too.
+        QCOMPARE(repo->diff()->fileCount(), 1);
+        QVERIFY(window->findChild<QQuickItem *>(u"collapseAllButton"_s)->isVisible());
+        QVERIFY(window->findChild<QQuickItem *>(u"expandAllButton"_s)->isVisible());
         QQuickItem *changed = diffLine(window, u"+line 4 changed"_s);
         QVERIFY(changed);
         QTRY_COMPARE(changed->property("markedChanges").toInt(), 1);
