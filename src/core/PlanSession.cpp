@@ -2,8 +2,10 @@
 
 #include "MergeConflict.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 
 #include <cstdio>
 #include <unistd.h>
@@ -28,6 +30,19 @@ QString shellQuote(const QString &arg)
     QString quoted = arg;
     quoted.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
     return QLatin1Char('\'') + quoted + QLatin1Char('\'');
+}
+
+// Copies an index file, keeping its modification time. git trusts cached
+// stat data only for files older than the index; a copy with a fresh time
+// would make a file edited in the same second look unchanged.
+bool copyIndex(const QString &from, const QString &to)
+{
+    QFile::remove(to);
+    if (!QFile::copy(from, to))
+        return false;
+    const QDateTime modified = QFileInfo(from).lastModified();
+    QFile copy(to);
+    return copy.open(QIODevice::ReadWrite) && copy.setFileTime(modified, QFileDevice::FileModificationTime);
 }
 
 } // namespace
@@ -64,14 +79,14 @@ bool PlanSession::begin(const GitRunner &git, QString &error)
     m_git = git;
     m_git.setEnvironment(env);
     if (QFile::exists(m_indexPath)) {
-        if (!QFile::copy(m_indexPath, indexPath(QStringLiteral("index")))) {
+        if (!copyIndex(m_indexPath, indexPath(QStringLiteral("index")))) {
             error = tr("Could not copy the index.");
             return false;
         }
     } else {
         m_git.run({QStringLiteral("read-tree"), QStringLiteral("--empty")});
     }
-    QFile::copy(indexPath(QStringLiteral("index")), indexPath(QStringLiteral("baseline.index")));
+    copyIndex(indexPath(QStringLiteral("index")), indexPath(QStringLiteral("baseline.index")));
 
     const GitResult tree = m_git.run({QStringLiteral("write-tree")});
     if (!tree.ok()) {
@@ -112,8 +127,7 @@ void PlanSession::remove(int id)
 {
     m_entries.removeIf([id](const PlanEntry &e) { return e.id == id; });
 
-    QFile::remove(indexPath(QStringLiteral("index")));
-    QFile::copy(indexPath(QStringLiteral("baseline.index")), indexPath(QStringLiteral("index")));
+    copyIndex(indexPath(QStringLiteral("baseline.index")), indexPath(QStringLiteral("index")));
     m_head = m_baselineHead;
     m_resolved.clear();
     for (PlanEntry &entry : m_entries) {
@@ -204,8 +218,7 @@ bool PlanSession::simulate(PlanEntry &entry, QString &error)
 {
     // Leave the plan as it was if the entry fails halfway.
     const QString backup = indexPath(QStringLiteral("backup.index"));
-    QFile::remove(backup);
-    QFile::copy(indexPath(QStringLiteral("index")), backup);
+    copyIndex(indexPath(QStringLiteral("index")), backup);
     const QString head = m_head;
     const QHash<QString, QString> resolved = m_resolved;
     entry.log.clear();
@@ -296,8 +309,7 @@ bool PlanSession::simulate(PlanEntry &entry, QString &error)
     }
 
     if (!ok) {
-        QFile::remove(indexPath(QStringLiteral("index")));
-        QFile::copy(backup, indexPath(QStringLiteral("index")));
+        copyIndex(backup, indexPath(QStringLiteral("index")));
         m_head = head;
         m_resolved = resolved;
     }

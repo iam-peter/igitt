@@ -2,7 +2,11 @@
 #include "core/PatchBuilder.h"
 #include "core/PlanSession.h"
 
+#include <QDateTime>
 #include <QFile>
+#include <QFileInfo>
+#include <QProcess>
+#include <QRegularExpression>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -60,6 +64,32 @@ private slots:
         QCOMPARE(rev("HEAD"), plan.head());
         QVERIFY(git({"status", "--porcelain"}).isEmpty());
         QVERIFY(git({"reflog", "-1"}).contains("igitt: execute plan"));
+    }
+
+    void seesEditsMadeInTheSameSecondAsTheIndex()
+    {
+        // A same-size edit carrying exactly the timestamp git cached for the
+        // file: only git's racy-index check, which compares with the index
+        // file's own modification time, notices it. Copies of the index must
+        // keep that time.
+        git({"config", "core.trustctime", "false"});
+        // Let a second pass, then have git cache real stat data for the file
+        // (entries written in the file's own second carry none).
+        QTest::qWait(1100);
+        git({"update-index", "--refresh"});
+        const QRegularExpression mtime(u"mtime: (\\d+):(\\d+)"_s);
+        const QRegularExpressionMatch cached = mtime.match(QString::fromUtf8(git({"ls-files", "--debug", "f.txt"})));
+        QVERIFY(cached.hasMatch());
+        const QString stamp = u"@%1.%2"_s.arg(cached.captured(1), cached.captured(2).rightJustified(9, u'0'));
+        write("f.txt", lines({{2, "Z"}, {9, "nine (B)"}})); // "2" -> "Z": same size
+        QCOMPARE(QProcess::execute(u"touch"_s, {u"-m"_s, u"-d"_s, stamp, m_dir->filePath("f.txt"),
+                                                 m_dir->filePath(".git/index")}), 0);
+        QVERIFY(!git({"status", "--porcelain"}).isEmpty()); // git itself sees it
+
+        PlanSession plan;
+        QString error;
+        QVERIFY(plan.begin(m_git, error));
+        QCOMPARE(loadSimulatedStatus(plan.source()).entries.size(), 1);
     }
 
     void refusesToExecuteAfterHeadMoved()
