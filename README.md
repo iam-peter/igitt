@@ -241,3 +241,8 @@ clicking their header, or all at once from the diff's toolbar.
 - Fonts: [Inter](https://rsms.me/inter/) and
   [JetBrains Mono](https://www.jetbrains.com/lp/mono/), SIL Open Font
   License 1.1 (`src/fonts/`).
+
+## License
+
+igitt is released under the MIT license; see `LICENSE`. The third-party
+assets above keep their own licenses.
