@@ -704,6 +704,41 @@ private slots:
         QVERIFY(warnings.isEmpty());
     }
 
+    // A message written, or an amend begun, in one repository must not be
+    // committed into the next one opened.
+    void openingRepositoryResetsCommitForm()
+    {
+        QTemporaryDir other;
+        GitRunner otherGit(other.path());
+        QVERIFY(otherGit.run({"init", "-q", "-b", "main"}).ok());
+        QVERIFY(otherGit.run({"commit", "-q", "--allow-empty", "-m", "Start elsewhere"}).ok());
+
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, m_dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        QCOMPARE(engine.rootObjects().size(), 1);
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(repo);
+        QVERIFY(settle(*repo));
+
+        auto *title = window->findChild<QQuickItem *>(u"commitTitle"_s);
+        auto *amend = window->findChild<QQuickItem *>(u"amendBox"_s);
+        QVERIFY(title && amend);
+        click(window, u"amendBox"_s);
+        QVERIFY(amend->property("checked").toBool());
+        QTRY_VERIFY(!title->property("text").toString().isEmpty());
+
+        repo->open(other.path());
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->path(), QDir(other.path()).canonicalPath());
+        QCOMPARE(title->property("text").toString(), QString());
+        QVERIFY(!amend->property("checked").toBool());
+        QCOMPARE(GitRunner(other.path()).run({"log", "--format=%s"}).out, "Start elsewhere\n"_ba);
+    }
+
 private:
     // Drags the fold handle of the diff view onto a row of the history.
     void dragSelectionOntoCommit(QQuickWindow *window, int row)

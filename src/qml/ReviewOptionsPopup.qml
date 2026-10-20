@@ -50,6 +50,19 @@ Popup {
             titleField.forceActiveFocus()
     }
 
+    // Reviewers, hashtags and the like belong to one project.
+    Connections {
+        target: popup.repo
+        function onPathChanged() {
+            popup.close()
+            for (const field of [targetField, titleField, reviewersField, hashtagsField, labelsField])
+                field.clear()
+            stateBox.currentIndex = 0
+            draftBox.checked = false
+            removeBranchBox.checked = false
+        }
+    }
+
     function push() {
         if (popup.preview.error !== "")
             return

@@ -25,6 +25,12 @@ MessageEditor {
             box.clear()
             amend.checked = false
         }
+        // A message, and above all an amend, is meant for the repository
+        // it was written in, never the next one opened.
+        function onPathChanged() {
+            box.clear()
+            amend.checked = false
+        }
     }
 
     Shortcut {
@@ -36,6 +42,7 @@ MessageEditor {
     leadingItems: [
         CheckBox {
             id: amend
+            objectName: "amendBox"
             text: qsTr("Amend")
             enabled: box.repo.headSha.length > 0
             onToggled: {
