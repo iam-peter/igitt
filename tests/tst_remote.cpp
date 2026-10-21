@@ -357,6 +357,9 @@ private slots:
 
     void asksGerritWhetherThereIsAnythingToPush()
     {
+#ifdef Q_OS_WIN
+        QSKIP("The ssh stand-in is a shell script, which Windows can't start as a program.");
+#endif
         // A stand-in for ssh that answers like Gerrit.
         QTemporaryDir bin;
         QFile ssh(bin.filePath(u"ssh"_s));
@@ -731,6 +734,9 @@ private slots:
 
     void showsTheBranchPullRequestFromGitHub()
     {
+#ifdef Q_OS_WIN
+        QSKIP("The gh stand-in is a shell script, which Windows can't start as a program.");
+#endif
         // A stand-in for gh that records how it was called.
         QTemporaryDir bin;
         const QString args = bin.filePath(u"args"_s);
@@ -835,6 +841,9 @@ private slots:
 
     void showsTheBranchMergeRequestFromGitLab()
     {
+#ifdef Q_OS_WIN
+        QSKIP("The glab stand-in is a shell script, which Windows can't start as a program.");
+#endif
         // A stand-in for glab answering `glab api --hostname <host> <endpoint>`.
         QTemporaryDir bin;
         const QString args = bin.filePath(u"args"_s);

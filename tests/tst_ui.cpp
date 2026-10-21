@@ -528,7 +528,9 @@ private slots:
         QVERIFY(settle(*repo));
 
         // GitHub: the branch's pull request on its tip, from a stand-in
-        // for gh. git pushes to the local server instead.
+        // for gh. git pushes to the local server instead. The stand-in is a
+        // shell script, which Windows can't start as a program.
+#ifndef Q_OS_WIN
         {
             QTemporaryDir bin;
             QFile gh(bin.filePath(u"gh"_s));
@@ -563,6 +565,7 @@ private slots:
             QCOMPARE(repo->reviewHost(), QString());
             qputenv("PATH", path);
         }
+#endif
 
         for (const QQmlError &w : std::as_const(warnings))
             qWarning().noquote() << w.toString();
@@ -585,6 +588,9 @@ private slots:
     // made of a bare repository and an ssh stand-in that answers queries.
     void showsGerritReviews()
     {
+#ifdef Q_OS_WIN
+        QSKIP("The ssh stand-in is a shell script, which Windows can't start as a program.");
+#endif
         QTemporaryDir root;
         const QString remote = root.filePath(u"remote.git"_s);
         const QString url = u"ssh://ada@review.example:29418/demo"_s;
