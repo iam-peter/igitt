@@ -1,10 +1,16 @@
-# igitt
+<p align="center">
+  <img src="src/logo/igitt.svg" width="128" height="128" alt="">
+</p>
+
+<h1 align="center">igitt</h1>
 
 A Qt Quick git tool combining what gitk (history browsing) and git gui
 (staging and committing) do, plus the operations neither of them offers —
 first of all folding working tree changes into any earlier commit, and
 editing the history like `git rebase -i` without touching the working
 tree.
+
+![The history of igitt itself, with uncommitted changes to a test selected and the commit they belong in tagged "fold here"](docs/screenshots/history.png)
 
 ## Building
 
@@ -18,6 +24,8 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ./build/src/igitt [path/to/repo]
 ```
+
+`cmake --install build` also installs a desktop file and the icon.
 
 `tst_ui` saves screenshots of the window when `IGITT_SCREENSHOT_DIR` is set.
 
@@ -72,6 +80,8 @@ age. The lines the revision changed are highlighted, the ones it deleted
 shown struck through; clicking a line's revision jumps there. The arrow
 keys step through the revisions, and Play animates them.
 
+![The time-lapse of Repository.h at the revision that replaced an include](docs/screenshots/timelapse.png)
+
 ## Fetch and push
 
 **Fetch** fetches the current branch's remote (all remotes without an
@@ -108,6 +118,8 @@ choices and can be edited before **Save and Mark Resolved** writes and
 stages it. Files that cannot be merged line by line (binary, or deleted
 on one side) offer keeping one side instead. Folds and plans wait until
 the merge, rebase or cherry-pick is finished.
+
+![The merge tool with both sides of a conflict taken](docs/screenshots/merge-tool.png)
 
 ## Commit messages
 
@@ -163,6 +175,8 @@ commit is planned, so the plan shows the message they produce, Change-Id
 included. Staging a file records the file as it was at that moment.
 
 ## Folding changes into an earlier commit
+
+![Selected lines being dragged onto the commit they belong in](docs/screenshots/fold-drag.png)
 
 Select lines in the unstaged or staged diff, then drag the "Drag onto a
 commit to fold" handle onto a commit in the history, or right-click the
