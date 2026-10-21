@@ -5,8 +5,6 @@
 #include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
-#include <QProcess>
-#include <QRegularExpression>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -73,17 +71,15 @@ private slots:
         // file's own modification time, notices it. Copies of the index must
         // keep that time.
         git({"config", "core.trustctime", "false"});
-        // Let a second pass, then have git cache real stat data for the file
-        // (entries written in the file's own second carry none).
-        QTest::qWait(1100);
+        // Date the file back, so that the index written now is newer and
+        // git caches real stat data for it (entries written in the file's
+        // own second carry none).
+        const QDateTime stamp = QDateTime::fromSecsSinceEpoch(QDateTime::currentSecsSinceEpoch() - 10);
+        QVERIFY(setModified("f.txt", stamp));
         git({"update-index", "--refresh"});
-        const QRegularExpression mtime(u"mtime: (\\d+):(\\d+)"_s);
-        const QRegularExpressionMatch cached = mtime.match(QString::fromUtf8(git({"ls-files", "--debug", "f.txt"})));
-        QVERIFY(cached.hasMatch());
-        const QString stamp = u"@%1.%2"_s.arg(cached.captured(1), cached.captured(2).rightJustified(9, u'0'));
         write("f.txt", lines({{2, "Z"}, {9, "nine (B)"}})); // "2" -> "Z": same size
-        QCOMPARE(QProcess::execute(u"touch"_s, {u"-m"_s, u"-d"_s, stamp, m_dir->filePath("f.txt"),
-                                                 m_dir->filePath(".git/index")}), 0);
+        QVERIFY(setModified("f.txt", stamp));
+        QVERIFY(setModified(".git/index", stamp));
         QVERIFY(!git({"status", "--porcelain"}).isEmpty()); // git itself sees it
 
         PlanSession plan;
@@ -415,6 +411,13 @@ private:
         QFile file(m_dir->filePath(name));
         QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
         file.write(content);
+    }
+
+    [[nodiscard]] bool setModified(const QString &name, const QDateTime &time)
+    {
+        QFile file(m_dir->filePath(name));
+        return file.open(QIODevice::ReadWrite | QIODevice::ExistingOnly)
+               && file.setFileTime(time, QFileDevice::FileModificationTime);
     }
 
     std::unique_ptr<QTemporaryDir> m_dir;
