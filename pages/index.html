@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>igitt</title>
+<meta name="description" content="A git tool combining gitk and git gui, which folds changes into earlier commits and edits history without touching the working tree.">
+<link rel="icon" href="igitt.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #f7faf8;
+    --fg: #14201b;
+    --muted: #55655e;
+    --card: #ffffff;
+    --border: #dbe5e0;
+    --code-bg: #0f1a17;
+    --code-fg: #d9f5e6;
+    --accent: #0e7490;
+    --accent-strong: #10b981;
+    --gradient: linear-gradient(135deg, #a3e635 0%, #10b981 55%, #0e7490 100%);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c1311;
+      --fg: #e4efe9;
+      --muted: #94a69d;
+      --card: #131d1a;
+      --border: #24332e;
+      --code-bg: #070c0b;
+      --accent: #5ad3c2;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  a { color: var(--accent); }
+  main { max-width: 920px; margin: 0 auto; padding: 0 16px 64px; }
+
+  header { text-align: center; padding: 64px 0 40px; }
+  header img { width: 112px; height: 112px; filter: drop-shadow(0 10px 24px rgb(16 185 129 / 0.3)); }
+  h1 { font-size: 3rem; margin: 16px 0 4px; letter-spacing: -0.02em; }
+  .tagline { color: var(--muted); font-size: 1.15rem; max-width: 620px; margin: 0 auto 28px; }
+
+  .buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .button {
+    display: inline-block; padding: 10px 20px; border-radius: 10px;
+    font-weight: 600; text-decoration: none; border: 1px solid var(--border);
+    color: var(--fg); background: var(--card);
+  }
+  .button.primary { background: var(--gradient); color: #fff; border-color: transparent; }
+  .button:hover { filter: brightness(1.06); }
+
+  .shot {
+    display: block; width: 100%; height: auto; margin: 8px 0 48px;
+    border-radius: 12px; border: 1px solid var(--border);
+    box-shadow: 0 20px 50px rgb(0 0 0 / 0.12);
+  }
+
+  h2 { font-size: 1.5rem; margin: 40px 0 8px; }
+  p { margin: 8px 0; }
+  .note { color: var(--muted); font-size: 0.95rem; }
+
+  .code-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0 8px; }
+  .channels { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .code-head button {
+    font: inherit; font-size: 0.95rem; padding: 6px 16px; border: 0; cursor: pointer;
+    background: var(--card); color: var(--muted);
+  }
+  .channels button[aria-pressed="true"] { background: var(--accent-strong); color: #fff; }
+  .copy { border: 1px solid var(--border) !important; border-radius: 8px; color: var(--fg) !important; }
+
+  .code { background: var(--code-bg); color: var(--code-fg); border-radius: 10px; }
+  .code pre { margin: 0; padding: 14px 16px; overflow-x: auto; font: 13.5px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+
+  ul.features { padding-left: 20px; }
+  ul.features li { margin: 6px 0; }
+  footer { text-align: center; color: var(--muted); font-size: 0.9rem; padding-top: 48px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="igitt.svg" alt="">
+    <h1>igitt</h1>
+    <p class="tagline">A git tool combining what gitk and git gui do, which also folds
+      changes into any earlier commit and edits the history without touching
+      the working tree.</p>
+    <div class="buttons">
+      <a class="button primary" href="https://github.com/iam-peter/igitt/releases/latest">Download</a>
+      <a class="button" href="https://github.com/iam-peter/igitt/releases/tag/nightly">Nightly</a>
+      <a class="button" href="https://github.com/iam-peter/igitt">Source on GitHub</a>
+    </div>
+  </header>
+
+  <img class="shot" src="history.png" width="1400" height="900"
+       alt="The history of igitt itself, with uncommitted changes selected and the commit they belong in tagged fold here">
+
+  <h2>What it does</h2>
+  <ul class="features">
+    <li>Browse the history of every branch as a graph and search it.</li>
+    <li>Step through every revision of a file in the time-lapse view, each line blamed.</li>
+    <li>Stage and commit single lines, hunks or files.</li>
+    <li>Drag changes onto any earlier commit to fold them in, with a suggestion where they belong.</li>
+    <li>Reword, move, squash and drop commits like <code>git rebase -i</code>, without touching the working tree.</li>
+    <li>Resolve conflicts with ours and theirs side by side, picking each conflict's lines.</li>
+    <li>Push for review to Gerrit and see the state of GitHub pull requests and GitLab merge requests.</li>
+  </ul>
+
+  <h2>Debian and Ubuntu</h2>
+  <p>The APT repository brings igitt with its own Qt and installs git with it.
+    It needs git 2.40, so Ubuntu 24.04 or Debian 13 and newer.</p>
+  <div class="code-head">
+    <div class="channels" role="group" aria-label="Channel">
+      <button type="button" data-channel="stable" aria-pressed="true">Stable</button>
+      <button type="button" data-channel="nightly" aria-pressed="false">Nightly</button>
+    </div>
+    <button type="button" class="copy" data-copy="apt">Copy</button>
+  </div>
+  <div class="code"><pre id="apt">sudo curl -fsSLo /usr/share/keyrings/igitt-archive-keyring.asc https://iam-peter.github.io/igitt/key.asc
+echo "deb [signed-by=/usr/share/keyrings/igitt-archive-keyring.asc] https://iam-peter.github.io/igitt/apt <span id="channel">stable</span> main" | sudo tee /etc/apt/sources.list.d/igitt.list
+sudo apt update &amp;&amp; sudo apt install igitt</pre></div>
+  <p class="note">The repository is signed with the key
+    <code>E61A 05C6 0E8A D423 C403 6586 D3D1 B02A 57B5 9B54</code>.</p>
+
+  <h2>Other systems</h2>
+  <p>Each <a href="https://github.com/iam-peter/igitt/releases/latest">release</a> has an
+    AppImage for any Linux, a zip for Windows and a disk image for macOS.
+    igitt runs the git command line, so git 2.40 or newer has to be installed.
+    The macOS app isn't signed: open it with a right click and Open the first time.</p>
+
+  <footer>
+    <a href="https://github.com/iam-peter/igitt">github.com/iam-peter/igitt</a>
+  </footer>
+</main>
+<script>
+  for (const button of document.querySelectorAll(".channels button")) {
+    button.addEventListener("click", () => {
+      for (const other of document.querySelectorAll(".channels button"))
+        other.setAttribute("aria-pressed", String(other === button));
+      document.getElementById("channel").textContent = button.dataset.channel;
+    });
+  }
+  for (const button of document.querySelectorAll("[data-copy]")) {
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(document.getElementById(button.dataset.copy).textContent);
+        button.textContent = "Copied";
+      } catch {
+        button.textContent = "Select and copy";
+      }
+      setTimeout(() => { button.textContent = "Copy"; }, 1500);
+    });
+  }
+</script>
+</body>
+</html>

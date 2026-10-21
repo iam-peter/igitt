@@ -1,6 +1,7 @@
-# Publishes the APT repository on GitHub Pages: the stable channel has the
-# package of the latest release, the nightly channel the one of the nightly.
-# Pages keeps one site only, so both channels are built anew each time.
+# Publishes the start page and the APT repository on GitHub Pages: the
+# stable channel has the package of the latest release, the nightly channel
+# the one of the nightly. Pages keeps one site only, so both channels are
+# built anew each time.
 name: APT Repository
 
 on:
@@ -54,6 +55,11 @@ jobs:
           # Without a tag, the release marked latest
           download stable
           download nightly nightly
+
+      - name: Start page
+        run: |
+          mkdir site
+          cp pages/index.html src/logo/igitt.svg docs/screenshots/history.png site/
 
       - name: Repository
         env:
