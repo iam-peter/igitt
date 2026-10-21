@@ -9,7 +9,15 @@
 #include <QSet>
 
 #include <cstdio>
+
+#ifdef Q_OS_WIN
+#include <io.h>
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#else
 #include <unistd.h>
+#endif
 
 namespace {
 
@@ -44,6 +52,28 @@ bool copyIndex(const QString &from, const QString &to)
     const QDateTime modified = QFileInfo(from).lastModified();
     QFile copy(to);
     return copy.open(QIODevice::ReadWrite) && copy.setFileTime(modified, QFileDevice::FileModificationTime);
+}
+
+bool syncToDisk(int fd)
+{
+#ifdef Q_OS_WIN
+    return _commit(fd) == 0;
+#else
+    return ::fsync(fd) == 0;
+#endif
+}
+
+// Moves a lock file over the file it locks, as git does. Windows' rename()
+// refuses to replace an existing file.
+bool replaceFile(const QString &from, const QString &to)
+{
+#ifdef Q_OS_WIN
+    return MoveFileExW(reinterpret_cast<const wchar_t *>(QDir::toNativeSeparators(from).utf16()),
+                       reinterpret_cast<const wchar_t *>(QDir::toNativeSeparators(to).utf16()),
+                       MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+#else
+    return std::rename(QFile::encodeName(from).constData(), QFile::encodeName(to).constData()) == 0;
+#endif
 }
 
 } // namespace
@@ -197,10 +227,9 @@ bool PlanSession::execute(QString &error)
 
     QFile planned(indexPath(QStringLiteral("index")));
     const bool written = planned.open(QIODevice::ReadOnly) && lock.write(planned.readAll()) == planned.size()
-                         && lock.flush() && ::fsync(lock.handle()) == 0;
+                         && lock.flush() && syncToDisk(lock.handle());
     lock.close();
-    if (!written || std::rename(QFile::encodeName(lockPath).constData(),
-                                QFile::encodeName(m_indexPath).constData()) != 0) {
+    if (!written || !replaceFile(lockPath, m_indexPath)) {
         QFile::remove(lockPath);
         error = tr("HEAD was moved, but replacing the index failed. "
                    "`git reset --soft %1` restores the previous HEAD.").arg(m_baselineHead.left(12));
