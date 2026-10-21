@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=igitt
+GenericName=Git History and Commit Tool
+Comment=Browse the history, commit, and fold changes into earlier commits
+Exec=igitt
+Icon=igitt
+Terminal=false
+Categories=Development;RevisionControl;
+StartupWMClass=igitt

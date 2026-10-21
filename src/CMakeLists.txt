@@ -147,6 +147,7 @@ qt_add_qml_module(igitt_ui
         icons/undo-2.svg
         icons/whole-word.svg
         icons/x.svg
+        logo/igitt.svg
         fonts/Inter-Bold.ttf
         fonts/Inter-Italic.ttf
         fonts/Inter-Medium.ttf
@@ -170,3 +171,6 @@ target_compile_definitions(igitt PRIVATE PROJECT_VERSION="${PROJECT_VERSION}")
 target_link_libraries(igitt PRIVATE igitt_ui igitt_uiplugin)
 
 install(TARGETS igitt RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+# Desktop environments find the icon by the desktop file's Icon= name.
+install(FILES logo/igitt.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+install(FILES logo/igitt.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)

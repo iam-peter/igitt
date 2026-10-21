@@ -1,6 +1,7 @@
 #include <QCommandLineParser>
 #include <QDir>
 #include <QGuiApplication>
+#include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QtQml/qqmlextensionplugin.h>
@@ -17,6 +18,9 @@ int main(int argc, char *argv[])
     QGuiApplication::setOrganizationName(QStringLiteral("igitt"));
     QGuiApplication::setOrganizationDomain(QStringLiteral("igitt.local"));
     QGuiApplication::setApplicationVersion(QStringLiteral(PROJECT_VERSION));
+    QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/qt/qml/Igitt/logo/igitt.svg")));
+    // Wayland shows the icon of the desktop file this names.
+    QGuiApplication::setDesktopFileName(QStringLiteral("igitt"));
     QQuickStyle::setStyle(QStringLiteral("Fusion"));
     Fonts::registerBundled();
 
