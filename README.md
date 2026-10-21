@@ -44,7 +44,7 @@ against the same Qt; `-DIGITT_USE_KSYNTAXHIGHLIGHTING=OFF` leaves it out.
 cmake -B build -G Ninja -DCMAKE_PREFIX_PATH=$HOME/Qt/6.12.0/gcc_64
 cmake --build build
 ctest --test-dir build --output-on-failure
-./build/src/igitt [path/to/repo]
+./build/bin/igitt [path/to/repo]
 ```
 
 `cmake --install build` also installs a desktop file and the icon.

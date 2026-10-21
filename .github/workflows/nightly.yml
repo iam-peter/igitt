@@ -91,7 +91,7 @@ jobs:
           export QMAKE="$QT_ROOT_DIR/bin/qmake"
           export QML_SOURCES_PATHS="$GITHUB_WORKSPACE/src/qml"
           export LD_LIBRARY_PATH="$QT_ROOT_DIR/lib:$LD_LIBRARY_PATH"
-          ./linuxdeploy-x86_64.AppImage --appdir AppDir --executable build/src/igitt \
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir --executable build/bin/igitt \
             --desktop-file src/logo/igitt.desktop --icon-file src/logo/igitt.svg \
             --plugin qt --output appimage
           mv igitt-*.AppImage igitt-linux-x64.AppImage
@@ -151,8 +151,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory igitt | Out-Null
-          # Qt puts all executables on Windows next to each other, not in src/
-          Copy-Item build/Release/igitt.exe igitt/
+          # Visual Studio adds a folder per configuration below bin/
+          Copy-Item build/bin/Release/igitt.exe igitt/
           windeployqt --release --qmldir src/qml igitt/igitt.exe
           Compress-Archive -Path igitt -DestinationPath igitt-windows-x64.zip
 
@@ -198,8 +198,8 @@ jobs:
 
       - name: Disk image
         run: |
-          macdeployqt build/src/igitt.app -qmldir="$GITHUB_WORKSPACE/src/qml" -dmg
-          mv build/src/igitt.dmg igitt-macos.dmg
+          macdeployqt build/bin/igitt.app -qmldir="$GITHUB_WORKSPACE/src/qml" -dmg
+          mv build/bin/igitt.dmg igitt-macos.dmg
 
       - uses: actions/upload-artifact@v4
         with:
