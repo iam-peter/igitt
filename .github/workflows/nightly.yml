@@ -52,7 +52,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 \
             libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 \
-            libxcb-shape0 libxcb-xinerama0 libfontconfig1 libfuse2
+            libxcb-shape0 libxcb-xinerama0 libfontconfig1 libfuse2 dpkg-dev
 
       - uses: jurplel/install-qt-action@v4
         with:
@@ -96,10 +96,20 @@ jobs:
             --plugin qt --output appimage
           mv igitt-*.AppImage igitt-linux-x64.AppImage
 
+      # A version after the one in CMake, rising with the commit time, so
+      # apt upgrades every nightly
+      - name: Debian package
+        run: |
+          base=$(sed -n 's/^CMAKE_PROJECT_VERSION:STATIC=//p' build/CMakeCache.txt)
+          stamp=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y%m%d%H%M%S)
+          packaging/deb/build-deb.sh AppDir "$base+git$stamp.${GITHUB_SHA::7}" igitt-linux-x64.deb
+
       - uses: actions/upload-artifact@v4
         with:
           name: igitt-linux
-          path: igitt-linux-x64.AppImage
+          path: |
+            igitt-linux-x64.AppImage
+            igitt-linux-x64.deb
           retention-days: 1
 
   windows:
@@ -219,3 +229,4 @@ jobs:
           gh release create nightly artifacts/* --prerelease --target "$GITHUB_SHA" \
             --title "Nightly $(date -u +%Y-%m-%d)" \
             --notes "Built from $GITHUB_SHA. igitt runs the git command line, git 2.40 or newer has to be installed. The macOS app isn't signed: open it with a right click and Open the first time."
+

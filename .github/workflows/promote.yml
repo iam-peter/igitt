@@ -32,6 +32,18 @@ jobs:
           gh release download nightly --repo "$GH_REPO" --dir artifacts
           gh api "repos/$GH_REPO/commits/nightly" --jq '.sha' > nightly-sha
 
+      # The nightly's files with the release's version. A pre-release
+      # suffix takes a ~, which apt sorts before the release itself.
+      - name: Version the Debian package
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          deb=artifacts/igitt-linux-x64.deb
+          dpkg-deb -R "$deb" package
+          sed -i "s/^Version: .*/Version: ${VERSION//-/\~}/" package/DEBIAN/control
+          dpkg-deb --root-owner-group -Zxz -b package "$deb"
+
       - name: Create stable release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -46,3 +58,4 @@ jobs:
             --target "$commit" \
             --title "igitt $VERSION" \
             --generate-notes
+
