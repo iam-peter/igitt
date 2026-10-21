@@ -4,6 +4,8 @@
 
 <h1 align="center">igitt</h1>
 
+<p align="center"><a href="https://iam-peter.github.io/igitt/">iam-peter.github.io/igitt</a></p>
+
 A Qt Quick git tool combining what gitk (history browsing) and git gui
 (staging and committing) do, plus the operations neither of them offers —
 first of all folding working tree changes into any earlier commit, and
