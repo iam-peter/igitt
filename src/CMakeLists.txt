@@ -169,8 +169,24 @@ target_link_libraries(igitt_ui PUBLIC
 qt_add_executable(igitt main.cpp)
 target_compile_definitions(igitt PRIVATE PROJECT_VERSION="${PROJECT_VERSION}")
 target_link_libraries(igitt PRIVATE igitt_ui igitt_uiplugin)
+# A window of its own on Windows, an app bundle on macOS, each with the
+# icon file manager, Dock and taskbar show.
+set_target_properties(igitt PROPERTIES
+    WIN32_EXECUTABLE TRUE
+    MACOSX_BUNDLE TRUE
+    MACOSX_BUNDLE_ICON_FILE igitt.icns
+)
+if(WIN32)
+    target_sources(igitt PRIVATE logo/igitt.rc)
+elseif(APPLE)
+    target_sources(igitt PRIVATE logo/igitt.icns)
+    set_source_files_properties(logo/igitt.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+endif()
 
-install(TARGETS igitt RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS igitt
+    BUNDLE DESTINATION .
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
 # Desktop environments find the icon by the desktop file's Icon= name.
 install(FILES logo/igitt.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
 install(FILES logo/igitt.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
