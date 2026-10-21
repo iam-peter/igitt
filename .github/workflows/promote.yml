@@ -1,0 +1,48 @@
+# Turns the current nightly into a stable release with the same downloads.
+name: Promote Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without the v prefix, for example 1.2.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download nightly assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="$VERSION"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Version must look like 1.2.0 or 1.2.0-rc.1" >&2
+            exit 1
+          fi
+          mkdir artifacts
+          gh release download nightly --repo "$GH_REPO" --dir artifacts
+          gh api "repos/$GH_REPO/commits/nightly" --jq '.sha' > nightly-sha
+
+      - name: Create stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          commit=$(cat nightly-sha)
+          echo "Promoting nightly at $commit to $tag"
+          gh release create "$tag" artifacts/* --repo "$GH_REPO" \
+            --target "$commit" \
+            --title "igitt $VERSION" \
+            --generate-notes

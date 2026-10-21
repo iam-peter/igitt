@@ -12,6 +12,14 @@ tree.
 
 ![The history of igitt itself, with uncommitted changes to a test selected and the commit they belong in tagged "fold here"](docs/screenshots/history.png)
 
+## Download
+
+Every night with new commits, the
+[nightly release](https://github.com/iam-peter/igitt/releases/tag/nightly)
+is rebuilt for Linux (an AppImage), Windows and macOS. igitt runs the git
+command line, so git 2.40 or newer has to be installed. The macOS app
+isn't signed: open it with a right click and Open the first time.
+
 ## Building
 
 Requires Qt ≥ 6.9, CMake ≥ 3.21 and git ≥ 2.40 at runtime. KDE's
