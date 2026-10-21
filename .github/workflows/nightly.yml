@@ -74,6 +74,13 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
 
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-log-linux
+          path: build/Testing/Temporary/LastTest.log
+          retention-days: 7
+
       - name: AppImage
         run: |
           base=https://github.com/linuxdeploy
@@ -123,6 +130,13 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
 
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-log-windows
+          path: build/Testing/Temporary/LastTest.log
+          retention-days: 7
+
       - name: Package
         shell: pwsh
         run: |
@@ -163,6 +177,13 @@ jobs:
         run: ctest --test-dir build --output-on-failure
         env:
           QT_QPA_PLATFORM: offscreen
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-log-macos
+          path: build/Testing/Temporary/LastTest.log
+          retention-days: 7
 
       - name: Disk image
         run: |
