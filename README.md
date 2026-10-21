@@ -20,6 +20,18 @@ is rebuilt for Linux (an AppImage), Windows and macOS. igitt runs the git
 command line, so git 2.40 or newer has to be installed. The macOS app
 isn't signed: open it with a right click and Open the first time.
 
+On Debian and Ubuntu, igitt can come from its APT repository instead,
+which brings its own Qt and installs git with it. It needs git 2.40, so
+Ubuntu 24.04 or Debian 13 and newer:
+
+```bash
+sudo curl -fsSLo /usr/share/keyrings/igitt-archive-keyring.asc https://iam-peter.github.io/igitt/key.asc
+echo "deb [signed-by=/usr/share/keyrings/igitt-archive-keyring.asc] https://iam-peter.github.io/igitt/apt stable main" | sudo tee /etc/apt/sources.list.d/igitt.list
+sudo apt update && sudo apt install igitt
+```
+
+Put `nightly` in place of `stable` for the nightly builds.
+
 ## Building
 
 Requires Qt ≥ 6.9, CMake ≥ 3.21 and git ≥ 2.40 at runtime. KDE's

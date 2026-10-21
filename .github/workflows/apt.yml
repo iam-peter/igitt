@@ -1,0 +1,72 @@
+# Publishes the APT repository on GitHub Pages: the stable channel has the
+# package of the latest release, the nightly channel the one of the nightly.
+# Pages keeps one site only, so both channels are built anew each time.
+name: APT Repository
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # A waiting run replaces another waiting one, the last sees the newest
+    # releases anyway
+    concurrency:
+      group: apt-repository
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y reprepro
+
+      # A channel without a package stays empty, any other failure stops
+      # here before an empty repository replaces the published one
+      - name: Download the packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          download() {
+            local out
+            if ! out=$(gh release download "${@:2}" --pattern '*.deb' --dir "packages/$1" 2>&1); then
+              case $out in
+                *"no assets match"*|*"release not found"*) echo "No $1 package" ;;
+                *) echo "$out" >&2; return 1 ;;
+              esac
+            fi
+          }
+          mkdir -p packages/stable packages/nightly
+          # Without a tag, the release marked latest
+          download stable
+          download nightly nightly
+
+      - name: Repository
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          export GNUPGHOME=$(mktemp -d)
+          gpg --batch --import <<< "$APT_SIGNING_KEY"
+          packaging/deb/build-apt-repository.sh packages site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

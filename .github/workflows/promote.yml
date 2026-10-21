@@ -59,3 +59,11 @@ jobs:
             --title "igitt $VERSION" \
             --generate-notes
 
+  apt:
+    needs: release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/apt.yml
+    secrets: inherit

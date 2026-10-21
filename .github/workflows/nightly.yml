@@ -230,3 +230,11 @@ jobs:
             --title "Nightly $(date -u +%Y-%m-%d)" \
             --notes "Built from $GITHUB_SHA. igitt runs the git command line, git 2.40 or newer has to be installed. The macOS app isn't signed: open it with a right click and Open the first time."
 
+  apt:
+    needs: release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/apt.yml
+    secrets: inherit
