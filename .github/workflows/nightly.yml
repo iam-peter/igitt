@@ -141,7 +141,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory igitt | Out-Null
-          Copy-Item build/src/Release/igitt.exe igitt/
+          # Qt puts all executables on Windows next to each other, not in src/
+          Copy-Item build/Release/igitt.exe igitt/
           windeployqt --release --qmldir src/qml igitt/igitt.exe
           Compress-Archive -Path igitt -DestinationPath igitt-windows-x64.zip
 
