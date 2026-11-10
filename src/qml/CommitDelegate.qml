@@ -62,7 +62,8 @@ Control {
     background: Rectangle {
         color: delegate.current ? Qt.alpha(delegate.laneColor, 0.3)
              : delegate.hovered ? Qt.alpha(delegate.laneColor, 0.12)
-             : delegate.index % 2 ? delegate.palette.alternateBase : delegate.palette.base
+             : delegate.index % 2 ? Qt.tint(delegate.palette.base, Qt.alpha(delegate.palette.text, 0.04))
+             : delegate.palette.base
 
         Rectangle {
             anchors.fill: parent

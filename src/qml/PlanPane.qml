@@ -72,7 +72,8 @@ Pane {
                 width: ListView.view.width
                 implicitHeight: content.implicitHeight + 8
                 color: error !== "" ? Qt.rgba(0.85, 0.2, 0.2, 0.15)
-                                    : index % 2 ? pane.palette.alternateBase : pane.palette.base
+                                    : index % 2 ? Qt.tint(pane.palette.base, Qt.alpha(pane.palette.text, 0.04))
+                                                : pane.palette.base
 
                 ColumnLayout {
                     id: content
