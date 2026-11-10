@@ -70,9 +70,9 @@ jobs:
           gpg --batch --import <<< "$APT_SIGNING_KEY"
           packaging/deb/build-apt-repository.sh packages site
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
