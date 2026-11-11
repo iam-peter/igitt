@@ -8,9 +8,10 @@
 
 A Qt Quick git tool combining what gitk (history browsing) and git gui
 (staging and committing) do, plus the operations neither of them offers —
-first of all folding working tree changes into any earlier commit, and
+first of all folding working tree changes into any earlier commit,
 editing the history like `git rebase -i` without touching the working
-tree.
+tree, and composing several commits at once from groups of related
+changes.
 
 ![The history of igitt itself, with uncommitted changes to a test selected and the commit they belong in tagged "fold here"](docs/screenshots/history.png)
 
@@ -179,7 +180,8 @@ click its status badge, to stage or unstage all of it.
 ## Plan mode
 
 With **Plan** switched on, write actions (staging, unstaging, commit,
-amend, fold, history edits) are not carried out but collected in a plan. Each one is
+amend, fold, history edits, and the commits and moves of composing) are
+not carried out but collected in a plan. Each one is
 simulated on a scratch copy of the index and a simulated HEAD, so the
 history, file lists and diffs show the result, with planned commits
 tagged. Every entry lists the git commands it ran, with patches and
@@ -260,6 +262,48 @@ always does. Undo works as for folds, and the reflog has every edit
 ("igitt: reword …", "igitt: move …"). The same restrictions apply: no
 merge commits between the edited commit and HEAD, though a merge commit
 itself can be reworded.
+
+## Composing commits
+
+![Commits not merged yet beside a group of changes, with the timeline above them](docs/screenshots/compose.png)
+
+**Compose** in the tool bar opens a window that puts commits together by
+what they are about rather than by file. Every changed line between HEAD
+and the working tree, staged or not and untracked files too, is a card on
+the left. Drag cards into groups, one per commit to be: a group has a
+title and a whole message, written as in the commit form, and is
+committed on its own; the groups stand in the order they are committed,
+and their grips move them. The staging area is not used, and committing a
+group leaves the other changes where they are.
+
+The scissors on a card open it in place to split a hunk by lines: a click
+picks a line, Ctrl+click adds one, Shift+click a range, a drag picks the
+lines it goes over and Ctrl+A all of them. Dragging what is picked
+carries those lines out, onto a group or the place for a new one, while
+the rest of the hunk stays open to split further; Esc closes it.
+
+Left of the groups, scrolled to with Shift and the wheel, the bar beneath
+or the timeline above, are the commits of the branch that are not merged
+yet: those the remote's default branch (or else the upstream) does not
+have, down to the last merge. Their changes are cards too, and what is
+dragged between the columns is moved in the history:
+
+- A change of the working tree dropped onto a commit is folded into it.
+- A change of a commit dragged onto a group, or back to the changes on
+  the left, leaves the commit; since the working tree is not touched, it
+  is an uncommitted change now, in that group.
+- A change of one commit dropped onto another moves there; the tree at
+  the end is the one at the start.
+
+Each move is done like a fold, with `git merge-tree` and `git
+commit-tree` for the commits it affects and nothing changed if one of
+them conflicts, and Undo takes it back. A commit that a remote branch
+already has is marked pushed and stays as it is, since changing it would
+need a force push: what is held over it gets a red border instead. A
+change pushed only for review, to Gerrit's `refs/for`, is on no remote
+branch and can be changed, which makes a new patch set. Pinning a group
+keeps it in sight at the side while the board scrolls back through the
+history. In plan mode, commits and moves go into the plan.
 
 ## Ideas
 

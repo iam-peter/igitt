@@ -117,10 +117,21 @@
     <li>Stage and commit single lines, hunks or files.</li>
     <li>Drag changes onto any earlier commit to fold them in, with a suggestion where they belong.</li>
     <li>Reword, move, squash and drop commits like <code>git rebase -i</code>, without touching the working tree.</li>
+    <li>Compose several commits at once: drag changes, or single lines of them, into groups, fold them into commits not merged yet, or take them out again.</li>
     <li>Resolve conflicts with ours and theirs side by side, picking each conflict's lines.</li>
     <li>Push for review to Gerrit and see the state of GitHub pull requests and GitLab merge requests.</li>
     <li>Pick a theme: Light, Dark, Dracula, Alucard, the four Catppuccin flavors, or one of your own.</li>
   </ul>
+
+  <h2>Composing commits</h2>
+  <p>The compose window puts commits together by what they are about rather than by
+    file. Every changed line is a card; drag cards into groups, one per commit, each
+    with its own message, and split a hunk by dragging over its lines. Scrolled to the
+    left are the commits of the branch not merged yet: drop a change onto one to fold
+    it in, or drag one of its changes back out into a group or onto another commit.
+    A timeline above shows where you are. <a href="https://github.com/iam-peter/igitt#composing-commits">More in the README</a>.</p>
+  <img class="shot" src="compose.png" width="1400" height="900" loading="lazy"
+       alt="The compose window: commits not merged yet beside a group of changes, with the timeline above them">
 
   <h2>Themes</h2>
   <p>igitt draws its controls in a style of its own and takes every color from a theme,
