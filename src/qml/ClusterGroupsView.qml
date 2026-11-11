@@ -30,13 +30,16 @@ Item {
     required property var colorOf
 
     readonly property Styles.Semantics s: Styles.TokenInterface.semantics
+    // The clusters, read once per change: each read of the property makes
+    // the list anew, with every piece of every group
+    readonly property var groupList: clusters.clusters
     // The newest commit and the groups share the board, each column
     // between these widths; past the narrowest, the board scrolls, as it
     // does to the older commits
     readonly property int newGroupWidth: 200
     readonly property int filesWidth: 380
     readonly property int columnWidth: {
-        const count = clusters.clusters.length + (clusters.commitCount > 0 ? 1 : 0)
+        const count = groupList.length + (clusters.commitCount > 0 ? 1 : 0)
         if (count === 0)
             return 320
         // From the view, not the board, whose size follows its columns
@@ -44,8 +47,8 @@ Item {
         return Math.max(320, Math.min(600, Math.floor(free / count)))
     }
     // The board's columns side by side, known before they are laid out
-    readonly property int pinnedCount: clusters.clusters.filter(cluster => cluster.pinned).length
-    readonly property real boardWidth: (clusters.commitCount + clusters.clusters.length - pinnedCount)
+    readonly property int pinnedCount: groupList.filter(cluster => cluster.pinned).length
+    readonly property real boardWidth: (clusters.commitCount + groupList.length - pinnedCount)
                                        * (columnWidth + 8) + (clusters.commitCount > 0 ? 10 : 0) + newGroupWidth
     // How many commits the board showed, and the column it shows first,
     // to keep its place as commits come and go and columns change width
@@ -66,9 +69,6 @@ Item {
     function isLocked(sha: string): bool {
         return sha !== "" && clusters.isPublished(sha)
     }
-    function hunkById(id: string): var {
-        return clusters.hunks.find(hunk => hunk.id === id) ?? null
-    }
     function dropOn(clusterId: int) {
         if (dragged)
             composer.place(dragged, clusterId)
@@ -76,11 +76,11 @@ Item {
     // Where a group lands in the order, for a pointer over the row of the
     // groups pinned or not: at the place of the group there
     function groupIndexAt(x: real, pinned: bool): int {
-        const row = clusters.clusters.filter(cluster => cluster.pinned === pinned)
+        const row = groupList.filter(cluster => cluster.pinned === pinned)
         if (row.length === 0)
             return -1
         const slot = Math.max(0, Math.min(row.length - 1, Math.floor((x + 4) / (columnWidth + 8))))
-        return clusters.clusters.findIndex(cluster => cluster.id === row[slot].id)
+        return groupList.findIndex(cluster => cluster.id === row[slot].id)
     }
 
     // What every change that can be dragged has: the pointer picks it up,
@@ -146,7 +146,7 @@ Item {
     onBoardWidthChanged: placeBoard()
     Connections {
         target: view.clusters
-        function onChanged() {
+        function onCommitsChanged() {
             view.followHistory()
         }
     }
@@ -198,7 +198,7 @@ Item {
         required property var modelData
         required property Item lane
         // Its place in the order the groups are committed, pinned or not
-        readonly property int order: view.clusters.clusters.findIndex(cluster => cluster.id === modelData.id)
+        readonly property int order: view.groupList.findIndex(cluster => cluster.id === modelData.id)
         readonly property color tint: view.colorOf(modelData.color)
 
         width: view.columnWidth
@@ -345,7 +345,7 @@ Item {
                 Layout.rightMargin: -8
                 clip: true
                 spacing: 6
-                model: group.modelData.hunks.map(id => view.hunkById(id)).filter(hunk => hunk)
+                model: group.modelData.pieces
                 delegate: DraggableCard {
                     width: ListView.view.width - 8
                     maxLines: 2
@@ -416,7 +416,7 @@ Item {
                     // Only files with changes left to place
                     model: view.clusters.files.map(file => ({
                         path: file.path,
-                        hunks: file.hunks.map(id => view.hunkById(id)).filter(hunk => hunk && hunk.cluster < 0)
+                        hunks: file.pieces.filter(piece => piece.cluster < 0)
                     })).filter(file => file.hunks.length > 0)
                     delegate: ColumnLayout {
                         id: file
@@ -533,6 +533,9 @@ Item {
                                     required property var modelData
                                     required property int index
                                     readonly property bool isHead: index === view.clusters.commitCount - 1
+                                    // In sight, or a column away: only then are its cards made
+                                    readonly property bool inSight: x + width >= board.contentItem.contentX - view.columnWidth
+                                                                    && x <= board.contentItem.contentX + board.width + view.columnWidth
                                     readonly property bool locked: modelData.published
                                     readonly property bool dropping: commitDrop.containsDrag && view.dragged?.commit !== modelData.sha
                                     readonly property bool target: dropping && !locked
@@ -643,20 +646,23 @@ Item {
                                             color: view.s.text_muted
                                             font.pixelSize: 11
                                         }
-                                        // Into the column's padding on the right,
-                                        // where its bar sits
-                                        ListView {
+                                        // Into the column's padding on the right, where its bar sits
+                                        Loader {
+                                            objectName: "commitCards"
                                             Layout.fillWidth: true
                                             Layout.fillHeight: true
                                             Layout.rightMargin: -8
-                                            clip: true
-                                            spacing: 6
-                                            model: commit.modelData.pieces
-                                            delegate: DraggableCard {
-                                                width: ListView.view.width - 8
-                                                maxLines: 2
+                                            active: commit.inSight
+                                            sourceComponent: ListView {
+                                                clip: true
+                                                spacing: 6
+                                                model: commit.modelData.pieces
+                                                delegate: DraggableCard {
+                                                    width: ListView.view.width - 8
+                                                    maxLines: 2
+                                                }
+                                                ScrollBar.vertical: ScrollBar {}
                                             }
-                                            ScrollBar.vertical: ScrollBar {}
                                         }
                                     }
                                 }
@@ -680,7 +686,7 @@ Item {
 
                             // Only those not pinned: the dock has the others
                             Repeater {
-                                model: view.clusters.clusters.filter(cluster => !cluster.pinned)
+                                model: view.groupList.filter(cluster => !cluster.pinned)
                                 delegate: GroupColumn {
                                     lane: groups
                                 }
@@ -753,7 +759,7 @@ Item {
             spacing: 8
 
             Repeater {
-                model: view.clusters.clusters.filter(cluster => cluster.pinned)
+                model: view.groupList.filter(cluster => cluster.pinned)
                 delegate: GroupColumn {
                     lane: dock
                 }

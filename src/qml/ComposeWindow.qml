@@ -126,8 +126,14 @@ ApplicationWindow {
     }
     // The changes again, after they moved outside this window: a commit
     // from the main window or a terminal, a checkout, a plan begun or
-    // ended. Not while committing, which reads them itself.
+    // ended. Once for all that asks in the same turn of the event loop, as
+    // a move does twice, by HEAD and by its own signal.
     function followRepository() {
+        Qt.callLater(window.readAgain)
+    }
+    // Not while committing, which reads them itself; lines moved out of a
+    // commit go into their groups once read
+    function readAgain() {
         if (committing)
             return
         const base = currentBase()
@@ -135,7 +141,13 @@ ApplicationWindow {
             clusters.base = base
         else
             clusters.reload()
+        if (placeMoved) {
+            placeMoved = false
+            clusters.placeExpected()
+        }
     }
+    // A move is done: its lines are to be placed after the next reading
+    property bool placeMoved: false
     // A commit on its way that will not report back: the repository was
     // replaced, or the plan began or ended, and its result was dropped
     function abandonCommits(reason: string) {
@@ -188,9 +200,8 @@ ApplicationWindow {
                 clusters.dropExpected()
                 clusters.setError(error)
             }
+            window.placeMoved = ok
             window.followRepository()
-            // Read again: what came out of a commit goes into its group
-            clusters.placeExpected()
         }
         function onHeadChanged() {
             window.followRepository()
@@ -233,7 +244,7 @@ ApplicationWindow {
                 font.bold: true
             }
             Label {
-                text: qsTr("%n hunk(s), %1 not in a cluster", "", clusters.hunks.length).arg(clusters.unassignedCount)
+                text: qsTr("%n hunk(s), %1 not in a cluster", "", clusters.pieceCount).arg(clusters.unassignedCount)
                 color: Styles.TokenInterface.semantics.text_muted
             }
             Item {

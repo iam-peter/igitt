@@ -5,6 +5,7 @@
 
 #include "Repository.h"
 #include "core/ChangeClusters.h"
+#include "core/GitRunner.h"
 #include "core/LaneColors.h"
 #include "themes.h"
 #include "models/ConflictResolver.h"
@@ -12,6 +13,7 @@
 #include "models/Timelapse.h"
 
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFontDatabase>
 #include <QQmlApplicationEngine>
@@ -1276,6 +1278,92 @@ private slots:
         screenshot(compose, u"compose-timeline"_s);
 
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.value(0).toString()));
+    }
+
+    void benchComposeWindow()
+    {
+        if (qEnvironmentVariableIsEmpty("IGITT_BENCH"))
+            QSKIP("set IGITT_BENCH to run");
+        QTemporaryDir dir;
+        GitRunner git;
+        git.setWorkDir(dir.path());
+        git.run({u"init"_s, u"-q"_s, u"-b"_s, u"main"_s});
+        const auto writeFiles = [&](int round) {
+            for (int f = 0; f < 5; ++f) {
+                QFile file(QDir(dir.path()).filePath(u"file%1.txt"_s.arg(f)));
+                QVERIFY(file.open(QIODevice::WriteOnly));
+                for (int l = 0; l < 300; ++l)
+                    file.write((l % 20 == round % 20 && l % 100 < 60 ? "changed " + QByteArray::number(round) + " "
+                                                                       : QByteArray()) + "line " + QByteArray::number(l) + '\n');
+            }
+        };
+        for (int round = 0; round < 31; ++round) {
+            writeFiles(round);
+            git.run({u"add"_s, u"-A"_s});
+            git.run({u"commit"_s, u"-q"_s, u"-m"_s, u"Round %1"_s.arg(round)});
+        }
+        // Working tree: every tenth line of each file
+        for (int f = 0; f < 5; ++f) {
+            QFile file(QDir(dir.path()).filePath(u"file%1.txt"_s.arg(f)));
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            for (int l = 0; l < 300; ++l)
+                file.write((l % 10 == 0 ? QByteArray("work ") : QByteArray()) + "line " + QByteArray::number(l) + '\n');
+        }
+
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QVERIFY(settle(*window->findChild<Repository *>()));
+        QElapsedTimer timer;
+        timer.start();
+        click(window, u"composeButton"_s);
+        QQuickWindow *compose = nullptr;
+        QTRY_VERIFY([&] {
+            for (QWindow *w : QGuiApplication::topLevelWindows()) {
+                if (w != window && w->isVisible() && w->findChild<ChangeClusters *>())
+                    compose = qobject_cast<QQuickWindow *>(w);
+            }
+            return compose != nullptr;
+        }());
+        QVERIFY(QTest::qWaitForWindowExposed(compose));
+        QVERIFY(QQuickTest::qWaitForPolish(compose));
+        compose->grabWindow();
+        const qint64 open = timer.restart();
+        auto *clusters = compose->findChild<ChangeClusters *>();
+        const int group = clusters->addCluster(u"Bench"_s);
+        const QVariantList pieces = clusters->hunks();
+        qint64 inAssign = 0;
+        for (int i = 0; i < 20; ++i) {
+            QElapsedTimer one;
+            one.start();
+            clusters->assign(pieces[i].toMap().value(u"id"_s).toString(), group);
+            inAssign += one.elapsed();
+            QVERIFY(QQuickTest::qWaitForPolish(compose));
+            compose->grabWindow();
+        }
+        qWarning() << "BENCH in assign (model and bindings) ms" << inAssign;
+        const qint64 assigns = timer.restart();
+        QMetaObject::invokeMethod(clusters, "reload");
+        QVERIFY(QQuickTest::qWaitForPolish(compose));
+        compose->grabWindow();
+        const qint64 reload = timer.restart();
+        // A move: a working change folded into HEAD, until it shows
+        const QVariantMap loose = clusters->hunks().last().toMap();
+        const QString head = clusters->commits().last().toMap().value(u"sha"_s).toString();
+        timer.restart();
+        QVERIFY(QMetaObject::invokeMethod(compose, "placeInCommit", Q_ARG(QVariant, QVariant(loose)),
+                                          Q_ARG(QString, head)));
+        QTRY_VERIFY(!compose->property("moving").toBool());
+        QTRY_VERIFY(clusters->commits().last().toMap().value(u"sha"_s).toString() != head);
+        QVERIFY(QQuickTest::qWaitForPolish(compose));
+        compose->grabWindow();
+        const qint64 move = timer.restart();
+        qWarning() << "BENCH move ms" << move;
+        qWarning() << "BENCH hunks" << pieces.size() << "commits" << clusters->commits().size() << "open ms" << open
+                   << "20 assigns ms" << assigns << "reload ms" << reload;
+        compose->close();
     }
 
     // Every theme reaches the window, the graph and the controls without a

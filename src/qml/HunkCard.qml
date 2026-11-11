@@ -68,14 +68,6 @@ Rectangle {
             split: true,
         })
     }
-    // The row of the shown lines at a height of the list, the nearest one
-    // above or below it
-    function rowAt(y: real): int {
-        if (shownLines.length === 0)
-            return -1
-        const row = Math.floor((y + lineList.contentY) / lineHeight)
-        return Math.max(0, Math.min(shownLines.length - 1, row))
-    }
     // The lines of the rows from one to the other
     function indexesOf(from: int, to: int): var {
         const indexes = []
@@ -119,13 +111,6 @@ Rectangle {
         picked = []
         kept = []
         anchorRow = -1
-        lineList.contentY = 0
-    }
-
-    Shortcut {
-        sequences: [StandardKey.SelectAll]
-        enabled: card.splitting
-        onActivated: card.picked = card.shownLines.map(line => line.index)
     }
 
     implicitWidth: 260
@@ -237,16 +222,76 @@ Rectangle {
             font.pixelSize: 11
         }
 
-        // The lines, and where they are picked and carried out
+        // The lines: plain text, but for the card split open
+        Column {
+            id: plainLines
+
+            Layout.fillWidth: true
+            visible: !card.splitting && card.shownLines.length > 0
+
+            Repeater {
+                model: card.splitting ? [] : card.shownLines
+                delegate: Rectangle {
+                    id: shown
+
+                    required property var modelData
+
+                    width: plainLines.width
+                    height: card.lineHeight
+                    color: modelData.kind === "+" ? card.s.diff_added : card.s.diff_removed
+                    Text {
+                        width: parent.width
+                        height: parent.height
+                        leftPadding: 2
+                        verticalAlignment: Text.AlignVCenter
+                        text: shown.modelData.kind + shown.modelData.text
+                        textFormat: Text.PlainText
+                        elide: Text.ElideRight
+                        color: card.s.text_default
+                        font: metrics.font
+                    }
+                }
+            }
+        }
+        Loader {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(card.shownLines.length, card.maxSplitLines) * card.lineHeight
+            active: card.splitting
+            visible: active
+            sourceComponent: splitLines
+        }
+        Label {
+            visible: !card.splitting && card.hunk.added + card.hunk.removed > card.shownLines.length
+                     && card.maxLines > 0
+            text: qsTr("… %n more line(s)", "", card.hunk.added + card.hunk.removed - card.shownLines.length)
+            color: card.s.text_muted
+            font.pixelSize: 11
+        }
+    }
+
+    // Split open, the lines as a list of their own, and where they are
+    // picked and carried out: made only for the card split open, as are
+    // its handlers and its Ctrl+A
+    Component {
+        id: splitLines
+
         Item {
             id: linesArea
             objectName: "hunkLines"
 
-            Layout.fillWidth: true
-            Layout.preferredHeight: Math.min(card.shownLines.length,
-                                             card.splitting ? card.maxSplitLines : card.shownLines.length)
-                                    * card.lineHeight
-            visible: card.shownLines.length > 0
+            // The row of the shown lines at a height of the list, the
+            // nearest one above or below it
+            function rowAt(y: real): int {
+                if (card.shownLines.length === 0)
+                    return -1
+                const row = Math.floor((y + lineList.contentY) / card.lineHeight)
+                return Math.max(0, Math.min(card.shownLines.length - 1, row))
+            }
+
+            Shortcut {
+                sequences: [StandardKey.SelectAll]
+                onActivated: card.picked = card.shownLines.map(line => line.index)
+            }
 
             ListView {
                 id: lineList
@@ -257,7 +302,7 @@ Rectangle {
                 boundsBehavior: Flickable.StopAtBounds
                 model: card.shownLines
                 ScrollBar.vertical: ScrollBar {
-                    visible: card.splitting && lineList.contentHeight > lineList.height
+                    visible: lineList.contentHeight > lineList.height
                 }
                 delegate: Rectangle {
                     id: line
@@ -297,7 +342,6 @@ Rectangle {
             }
             // The list scrolls by the wheel only, as dragging picks
             WheelHandler {
-                enabled: card.splitting
                 target: null
                 onWheel: event => {
                     lineList.contentY = Math.max(0, Math.min(lineList.contentHeight - lineList.height,
@@ -306,17 +350,15 @@ Rectangle {
             }
             HoverHandler {
                 id: hover
-                enabled: card.splitting
-                cursorShape: card.picked.includes(card.shownLines[card.rowAt(hover.point.position.y)]?.index)
+                cursorShape: card.picked.includes(card.shownLines[linesArea.rowAt(hover.point.position.y)]?.index)
                              ? Qt.OpenHandCursor : Qt.IBeamCursor
             }
             TapHandler {
                 id: tap
 
-                enabled: card.splitting
                 // The handler's own point has the modifiers; the event
                 // point it passes does not
-                onTapped: card.click(card.rowAt(tap.point.position.y), tap.point.modifiers)
+                onTapped: card.click(linesArea.rowAt(tap.point.position.y), tap.point.modifiers)
             }
             // From a picked line, the drag carries the picked lines out;
             // from any other, or with Shift, it picks the lines it goes over
@@ -326,13 +368,13 @@ Rectangle {
                 property bool carry
 
                 target: null
-                enabled: card.splitting && !(parent.Window.window?.popupOpen ?? false)
+                enabled: !(parent.Window.window?.popupOpen ?? false)
                 // A list does not take the drag over to scroll
                 grabPermissions: PointerHandler.CanTakeOverFromAnything
                 cursorShape: carry ? Qt.ClosedHandCursor : Qt.IBeamCursor
                 onActiveChanged: {
                     if (active) {
-                        const row = card.rowAt(centroid.pressPosition.y)
+                        const row = linesArea.rowAt(centroid.pressPosition.y)
                         const modifiers = centroid.modifiers
                         carry = card.picked.includes(card.shownLines[row].index)
                                 && !(modifiers & Qt.ShiftModifier)
@@ -342,7 +384,7 @@ Rectangle {
                             card.carryMoved(linesArea.mapToItem(card, centroid.position))
                         } else {
                             card.sweepFrom(row, modifiers)
-                            card.sweepTo(card.rowAt(centroid.position.y))
+                            card.sweepTo(linesArea.rowAt(centroid.position.y))
                         }
                     } else if (carry) {
                         carry = false
@@ -364,16 +406,9 @@ Rectangle {
                     else if (y > linesArea.height)
                         lineList.contentY = Math.min(Math.max(0, lineList.contentHeight - lineList.height),
                                                      lineList.contentY + (y - linesArea.height) / 4)
-                    card.sweepTo(card.rowAt(y))
+                    card.sweepTo(linesArea.rowAt(y))
                 }
             }
-        }
-        Label {
-            visible: !card.splitting && card.hunk.added + card.hunk.removed > card.shownLines.length
-                     && card.maxLines > 0
-            text: qsTr("… %n more line(s)", "", card.hunk.added + card.hunk.removed - card.shownLines.length)
-            color: card.s.text_muted
-            font.pixelSize: 11
         }
     }
 }

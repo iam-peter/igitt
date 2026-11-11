@@ -40,23 +40,28 @@ class ChangeClusters : public QObject
     // added, removed, lines: [{index, kind, text}], split, cluster}; split
     // says the hunk's other lines are in other pieces
     Q_PROPERTY(QVariantList hunks READ hunks NOTIFY changed FINAL)
-    // {id, name, message, color, pinned, hunks: [piece ids], added,
-    // removed, files}, in the order they are committed; name is the
-    // message's title
+    // {id, name, message, color, pinned, hunks: [piece ids], pieces: [as
+    // hunks], added, removed, files}, in the order they are committed;
+    // name is the message's title
     Q_PROPERTY(QVariantList clusters READ clusters NOTIFY changed FINAL)
     // The commits of the branch not merged yet, oldest first, the newest
     // being the base: {sha, shortSha, subject, published, added, removed,
     // files, pieces: [as hunks, with commit: its sha]}. Not merged: not on
     // the remote's default branch, or else the upstream; down to the last
     // merge, MaxCommits at most. Published: on a remote-tracking branch.
-    Q_PROPERTY(QVariantList commits READ commits NOTIFY changed FINAL)
-    Q_PROPERTY(int commitCount READ commitCount NOTIFY changed FINAL)
+    // Of their own: what changes the clusters leaves them, and their views,
+    // as they are
+    Q_PROPERTY(QVariantList commits READ commits NOTIFY commitsChanged FINAL)
+    Q_PROPERTY(int commitCount READ commitCount NOTIFY commitsChanged FINAL)
     // When each was written (its author date, which rewriting keeps), in
     // seconds since the epoch, newest first
-    Q_PROPERTY(QList<qreal> commitTimes READ commitTimes NOTIFY changed FINAL)
-    // The changed files, each with the ids of its pieces: {path, hunks}
+    Q_PROPERTY(QList<qreal> commitTimes READ commitTimes NOTIFY commitsChanged FINAL)
+    // The changed files, each with its pieces: {path, hunks: [ids],
+    // pieces: [as hunks]}
     Q_PROPERTY(QVariantList files READ files NOTIFY changed FINAL)
     Q_PROPERTY(int unassignedCount READ unassignedCount NOTIFY changed FINAL)
+    // How many pieces there are, without making the list of them
+    Q_PROPERTY(int pieceCount READ pieceCount NOTIFY changed FINAL)
     Q_PROPERTY(QString error READ error NOTIFY errorChanged FINAL)
     // What the clusters are committed on: its short id and subject
     Q_PROPERTY(QString headSha READ headSha NOTIFY changed FINAL)
@@ -78,6 +83,7 @@ public:
     QList<qreal> commitTimes() const;
     static constexpr int MaxCommits = 30;
     int unassignedCount() const;
+    int pieceCount() const { return int(m_hunkList.size()); }
     QString error() const { return m_error; }
     QString headSha() const { return m_headSha; }
     QString headSubject() const { return m_headSubject; }
@@ -143,6 +149,7 @@ signals:
     void pathChanged();
     void baseChanged();
     void changed();
+    void commitsChanged();
     void errorChanged();
     // After commitCluster(), so the history can be read again.
     void clusterCommitted(const QString &sha);
@@ -188,7 +195,13 @@ private:
     };
 
     int clusterIndex(int id) const;
+    // The lists built anew, then changed()
+    void notifyChanged();
     void readCommits();
+    // The lists the properties give, built once per change
+    QVariantList buildHunks() const;
+    QVariantList buildClusters(const QHash<QString, QVariant> &pieces) const;
+    QVariantList buildFiles(const QHash<QString, QVariant> &pieces) const;
     QVariantList buildCommitList() const;
     const Commit *commit(const QString &sha) const;
     // A commit hunk's file and hunk index, from its id
@@ -216,8 +229,12 @@ private:
     QList<Cluster> m_clusters;
     QList<Commit> m_commits;
     QList<Expected> m_expected;
-    // commits(), built once per reading
+    // commits(), built once per reading, and the other lists once per
+    // change
     QVariantList m_commitList;
+    QVariantList m_hunkList;
+    QVariantList m_clusterList;
+    QVariantList m_fileList;
     // What reload() keeps of lines and pieces that come and go
     QHash<QString, int> m_clusterOf;
     int m_nextId = 1;

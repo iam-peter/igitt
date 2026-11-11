@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QSet>
 
@@ -41,7 +42,38 @@ QString title(const QString &message)
 
 ChangeClusters::ChangeClusters(QObject *parent)
     : QObject(parent)
-{}
+{
+}
+
+void ChangeClusters::notifyChanged()
+{
+    // Before changed(): QML reads the lists as soon as it is emitted,
+    // before any slot connected to it could build them anew
+    m_hunkList = buildHunks();
+    // Clusters and files carry their pieces themselves, so a view needs no
+    // lookup that might read the pieces of before
+    QHash<QString, QVariant> pieces;
+    for (const QVariant &piece : std::as_const(m_hunkList))
+        pieces.insert(piece.toMap().value(QStringLiteral("id")).toString(), piece);
+    m_clusterList = buildClusters(pieces);
+    m_fileList = buildFiles(pieces);
+    emit changed();
+}
+
+QVariantList ChangeClusters::hunks() const
+{
+    return m_hunkList;
+}
+
+QVariantList ChangeClusters::clusters() const
+{
+    return m_clusterList;
+}
+
+QVariantList ChangeClusters::files() const
+{
+    return m_fileList;
+}
 
 void ChangeClusters::setPath(const QString &path)
 {
@@ -77,11 +109,17 @@ void ChangeClusters::reload()
 {
     m_diff.clear();
     m_hunks.clear();
-    // Nothing of an earlier reading stays, should this one fail
+    // Nothing of an earlier reading stays, should this one fail; whether
+    // the commits changed is told once the reading is done
+    const QVariantList commitsBefore = m_commitList;
+    const auto tellCommits = qScopeGuard([this, commitsBefore] {
+        if (m_commitList != commitsBefore)
+            emit commitsChanged();
+    });
     m_commits.clear();
     m_commitList.clear();
     if (m_git.workDir().isEmpty()) {
-        emit changed();
+        notifyChanged();
         return;
     }
 
@@ -119,7 +157,7 @@ void ChangeClusters::reload()
     const GitResult diff = m_git.run(diffArgs, {}, env);
     if (!scratch.isValid() || !added.ok() || !diff.ok()) {
         setError(!added.ok() ? added.errorText() : diff.errorText());
-        emit changed();
+        notifyChanged();
         return;
     }
     const QByteArray text = diff.out;
@@ -166,7 +204,7 @@ void ChangeClusters::reload()
     }
     readCommits();
     setError({});
-    emit changed();
+    notifyChanged();
 }
 
 void ChangeClusters::readCommits()
@@ -375,7 +413,7 @@ void ChangeClusters::placeExpected()
     }
     m_expected.clear();
     if (any)
-        emit changed();
+        notifyChanged();
 }
 
 void ChangeClusters::dropExpected()
@@ -505,7 +543,7 @@ std::pair<QString, int> ChangeClusters::parsePiece(const QString &pieceId)
     return {pieceId.left(slash), cluster == QLatin1String("none") ? -1 : cluster.toInt()};
 }
 
-QVariantList ChangeClusters::hunks() const
+QVariantList ChangeClusters::buildHunks() const
 {
     QVariantList list;
     for (const Hunk &hunk : m_hunks) {
@@ -553,11 +591,12 @@ QVariantList ChangeClusters::hunks() const
     return list;
 }
 
-QVariantList ChangeClusters::clusters() const
+QVariantList ChangeClusters::buildClusters(const QHash<QString, QVariant> &pieces) const
 {
     QVariantList list;
     for (const Cluster &cluster : m_clusters) {
         QStringList ids;
+        QVariantList own;
         QSet<QString> paths;
         int added = 0;
         int removed = 0;
@@ -573,6 +612,7 @@ QVariantList ChangeClusters::clusters() const
             }
             if (any) {
                 ids.append(pieceId(hunk.id, cluster.id));
+                own.append(pieces.value(ids.last()));
                 paths.insert(m_diff[hunk.file].path());
             }
         }
@@ -585,6 +625,7 @@ QVariantList ChangeClusters::clusters() const
             {QStringLiteral("color"), cluster.color},
             {QStringLiteral("pinned"), cluster.pinned},
             {QStringLiteral("hunks"), ids},
+            {QStringLiteral("pieces"), own},
             {QStringLiteral("files"), files},
             {QStringLiteral("added"), added},
             {QStringLiteral("removed"), removed},
@@ -593,23 +634,28 @@ QVariantList ChangeClusters::clusters() const
     return list;
 }
 
-QVariantList ChangeClusters::files() const
+QVariantList ChangeClusters::buildFiles(const QHash<QString, QVariant> &pieces) const
 {
     QVariantList list;
     int current = -1;
     QStringList ids;
+    QVariantList own;
     const auto flush = [&] {
         if (current >= 0)
-            list.append(QVariantMap{{QStringLiteral("path"), m_diff[current].path()}, {QStringLiteral("hunks"), ids}});
+            list.append(QVariantMap{{QStringLiteral("path"), m_diff[current].path()},
+                                    {QStringLiteral("hunks"), ids}, {QStringLiteral("pieces"), own}});
         ids.clear();
+        own.clear();
     };
     for (const Hunk &hunk : m_hunks) {
         if (hunk.file != current) {
             flush();
             current = hunk.file;
         }
-        for (int cluster : clustersOf(hunk))
+        for (int cluster : clustersOf(hunk)) {
             ids.append(pieceId(hunk.id, cluster));
+            own.append(pieces.value(ids.last()));
+        }
     }
     flush();
     return list;
@@ -630,7 +676,7 @@ int ChangeClusters::addCluster(const QString &name)
     cluster.message = name.isEmpty() ? tr("Cluster %1").arg(cluster.id) : name;
     cluster.color = m_nextColor++ % kColors;
     m_clusters.append(cluster);
-    emit changed();
+    notifyChanged();
     return cluster.id;
 }
 
@@ -646,7 +692,7 @@ void ChangeClusters::removeCluster(int id)
                 setLineCluster(line, -1);
         }
     }
-    emit changed();
+    notifyChanged();
 }
 
 void ChangeClusters::renameCluster(int id, const QString &name)
@@ -660,7 +706,7 @@ void ChangeClusters::renameCluster(int id, const QString &name)
     if (renamed == message)
         return;
     message = renamed;
-    emit changed();
+    notifyChanged();
 }
 
 void ChangeClusters::setClusterMessage(int id, const QString &message)
@@ -669,7 +715,7 @@ void ChangeClusters::setClusterMessage(int id, const QString &message)
     if (index < 0 || m_clusters[index].message == message)
         return;
     m_clusters[index].message = message;
-    emit changed();
+    notifyChanged();
 }
 
 QString ChangeClusters::clusterMessage(int id) const
@@ -684,7 +730,7 @@ void ChangeClusters::setClusterPinned(int id, bool pinned)
     if (index < 0 || m_clusters[index].pinned == pinned)
         return;
     m_clusters[index].pinned = pinned;
-    emit changed();
+    notifyChanged();
 }
 
 void ChangeClusters::moveCluster(int id, int index)
@@ -696,7 +742,7 @@ void ChangeClusters::moveCluster(int id, int index)
     if (from == to)
         return;
     m_clusters.move(from, to);
-    emit changed();
+    notifyChanged();
 }
 
 void ChangeClusters::setLineCluster(Line &line, int cluster)
@@ -724,7 +770,7 @@ void ChangeClusters::assign(const QString &pieceId, int clusterId)
         }
     }
     if (any)
-        emit changed();
+        notifyChanged();
 }
 
 void ChangeClusters::assignFile(const QString &path, int clusterId)
@@ -743,7 +789,7 @@ void ChangeClusters::assignFile(const QString &path, int clusterId)
         }
     }
     if (any)
-        emit changed();
+        notifyChanged();
 }
 
 void ChangeClusters::assignLines(const QString &hunkId, const QList<int> &lines, int clusterId)
@@ -761,7 +807,7 @@ void ChangeClusters::assignLines(const QString &hunkId, const QList<int> &lines,
         }
     }
     if (any)
-        emit changed();
+        notifyChanged();
 }
 
 QByteArray ChangeClusters::clusterPatch(int id) const
