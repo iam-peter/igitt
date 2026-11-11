@@ -102,7 +102,7 @@ age. The lines the revision changed are highlighted, the ones it deleted
 shown struck through; clicking a line's revision jumps there. The arrow
 keys step through the revisions, and Play animates them.
 
-![The time-lapse of Repository.h at the revision that replaced an include](docs/screenshots/timelapse.png)
+![The time-lapse of Repository.h at the revision that moved git onto a background thread](docs/screenshots/timelapse.png)
 
 ## Fetch and push
 
@@ -277,6 +277,8 @@ flavors come with it. Settings picks one, or System for Light or Dark as
 the system is. Themes of your own are JSON files in igitt's theme
 folder, read again as soon as they change; see
 [docs/THEMES.md](docs/THEMES.md).
+
+![igitt in Light, Dark, Dracula and Catppuccin Mocha](docs/screenshots/themes.png)
 
 ## Third-party assets
 
