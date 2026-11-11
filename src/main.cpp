@@ -10,6 +10,7 @@
 
 Q_IMPORT_QML_PLUGIN(Igitt_CorePlugin)
 Q_IMPORT_QML_PLUGIN(IgittPlugin)
+Q_IMPORT_QML_PLUGIN(IgittStylePlugin)
 
 int main(int argc, char *argv[])
 {
@@ -21,7 +22,10 @@ int main(int argc, char *argv[])
     QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/qt/qml/Igitt/logo/igitt.svg")));
     // Wayland shows the icon of the desktop file this names.
     QGuiApplication::setDesktopFileName(QStringLiteral("igitt"));
-    QQuickStyle::setStyle(QStringLiteral("Fusion"));
+    // igitt's own style, its colors from the theme in use; what it leaves
+    // out comes from Basic.
+    QQuickStyle::setStyle(QStringLiteral("IgittStyle"));
+    QQuickStyle::setFallbackStyle(QStringLiteral("Basic"));
     Fonts::registerBundled();
 
     QCommandLineParser parser;

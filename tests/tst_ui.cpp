@@ -1,7 +1,11 @@
 // Loads the real UI against a small repository and fails on any QML warning.
-// Set IGITT_SCREENSHOT_DIR to also save screenshots of the window.
+// Set IGITT_SCREENSHOT_DIR to also save screenshots of the window, and
+// IGITT_TEST_THEME to show them in another theme than the light one
+// (dracula, catppuccin-mocha, ...).
 
 #include "Repository.h"
+#include "core/LaneColors.h"
+#include "themes.h"
 #include "models/ConflictResolver.h"
 #include "ui/Fonts.h"
 #include "models/Timelapse.h"
@@ -15,6 +19,7 @@
 #include <QtQuickTest/quicktest.h>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -23,6 +28,7 @@
 
 Q_IMPORT_QML_PLUGIN(Igitt_CorePlugin)
 Q_IMPORT_QML_PLUGIN(IgittPlugin)
+Q_IMPORT_QML_PLUGIN(IgittStylePlugin)
 
 using namespace Qt::StringLiterals;
 
@@ -54,9 +60,14 @@ private slots:
         QCoreApplication::setOrganizationName(u"igitt-test"_s);
         QCoreApplication::setOrganizationDomain(u"igitt.test"_s);
         QSettings().clear();
+        if (const QString theme = qEnvironmentVariable("IGITT_TEST_THEME"); !theme.isEmpty()) {
+            QSettings().setValue(u"appearance/scheme"_s, u"light"_s);
+            QSettings().setValue(u"appearance/lightTheme"_s, theme);
+        }
         if (qEnvironmentVariableIsEmpty("IGITT_TEST_DEFAULT_RHI"))
             QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
-        QQuickStyle::setStyle(u"Fusion"_s);
+        QQuickStyle::setStyle(u"IgittStyle"_s);
+        QQuickStyle::setFallbackStyle(u"Basic"_s);
         Fonts::registerBundled();
         createDemoRepository();
     }
@@ -708,6 +719,90 @@ private slots:
         for (const QQmlError &w : std::as_const(warnings))
             qWarning().noquote() << w.toString();
         QVERIFY(warnings.isEmpty());
+    }
+
+    // Every theme reaches the window, the graph and the controls without a
+    // warning, and a theme written into the user's folder is shown as soon
+    // as it is saved.
+    void followsTheTheme()
+    {
+        Themes *themes = Themes::instance();
+        const QString folder = themes->folder();
+        const QString scheme = themes->scheme();
+        const QString light = themes->lightTheme();
+        const QString dark = themes->darkTheme();
+        QTemporaryDir user;
+        themes->setFolders(u":/qt/qml/IgittStyle/themes"_s, user.path());
+        const auto restore = qScopeGuard([&] {
+            themes->setScheme(scheme);
+            themes->setLightTheme(light);
+            themes->setDarkTheme(dark);
+            themes->setFolders(u":/qt/qml/IgittStyle/themes"_s, folder);
+        });
+
+        QQmlApplicationEngine engine;
+        QList<QQmlError> warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &w) { warnings += w; });
+        engine.setInitialProperties({{u"initialPath"_s, m_dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        QCOMPARE(engine.rootObjects().size(), 1);
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(repo);
+        QVERIFY(settle(*repo));
+
+        // Semantics.qml has a property for every role the theme files have.
+        auto *tokens = engine.singletonInstance<QObject *>("IgittStyle", "TokenInterface");
+        QVERIFY(tokens);
+        auto *semantics = tokens->property("semantics").value<QObject *>();
+        QVERIFY(semantics);
+        QStringList properties;
+        for (int i = semantics->metaObject()->propertyOffset(); i < semantics->metaObject()->propertyCount(); ++i)
+            properties.append(QString::fromLatin1(semantics->metaObject()->property(i).name()));
+        QStringList roles;
+        for (const ThemeLibrary::Role &role : ThemeLibrary::roles())
+            roles.append(role.name);
+        properties.sort();
+        roles.sort();
+        QCOMPARE(properties, roles);
+
+        const auto show = [themes](const QString &id) {
+            themes->setScheme(u"light"_s);
+            themes->setLightTheme(id);
+        };
+        const QVariantList available = themes->available();
+        QCOMPARE(available.size(), 8);
+        for (const QVariant &theme : available) {
+            const QString id = theme.toMap().value(u"id"_s).toString();
+            show(id);
+            QCOMPARE(themes->current(), id);
+            QCOMPARE(themes->dark(), theme.toMap().value(u"dark"_s).toBool());
+            const QVariantMap roles = themes->roles();
+            QTRY_COMPARE(window->color(), roles.value(u"background_default"_s).value<QColor>());
+            QCOMPARE(QColor::fromString(LaneColors::instance()->colorName(0)),
+                     roles.value(u"graph_lanes"_s).toList().first().value<QColor>());
+            screenshot(window, u"theme-"_s + id);
+        }
+
+        QFile file(QDir(user.path()).filePath(u"mine.json"_s));
+        const auto save = [&file](const QByteArray &background) {
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            file.write(R"({"name": "Mine", "dark": true, "roles": {"background_default": ")" + background
+                       + R"("}})");
+            file.close();
+        };
+        save("#123456");
+        QTRY_COMPARE(themes->available().size(), 9);
+        show(u"mine"_s);
+        QTRY_COMPARE(window->color(), QColor(u"#123456"_s));
+        save("#654321");
+        QTRY_COMPARE(window->color(), QColor(u"#654321"_s));
+        QVERIFY(themes->errors().isEmpty());
+
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.value(0).toString()));
     }
 
     // A message written, or an amend begun, in one repository must not be

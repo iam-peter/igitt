@@ -40,7 +40,7 @@ Pane {
 
         FileList {
             id: stagedFiles
-            SplitView.preferredHeight: 130
+            SplitView.preferredHeight: 110
             SplitView.minimumHeight: 56
             repo: pane.repo
             staged: true
@@ -55,9 +55,11 @@ Pane {
         }
 
         CommitBox {
+            id: commitBox
             objectName: "commitBox"
-            SplitView.preferredHeight: 210
-            SplitView.minimumHeight: 120
+            // Trailers make it grow, so the buttons below them stay in view.
+            SplitView.preferredHeight: Math.max(210, commitBox.implicitHeight)
+            SplitView.minimumHeight: Math.max(120, commitBox.implicitHeight)
             repo: pane.repo
             monoFont: pane.monoFont
         }

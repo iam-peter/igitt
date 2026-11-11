@@ -1,5 +1,7 @@
 #include "GraphLayout.h"
 
+#include "LaneColors.h"
+
 #include <algorithm>
 
 namespace {
@@ -33,11 +35,7 @@ int freeLane(QList<Lane> &lanes)
 
 QString laneColorName(int color)
 {
-    static const char *const palette[] = {
-        "#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#b07aa1",
-        "#76b7b2", "#edc948", "#ff9da7", "#9c755f",
-    };
-    return QString::fromLatin1(palette[color % std::size(palette)]);
+    return LaneColors::instance()->colorName(color);
 }
 
 QList<GraphRow> layoutGraphWithWip(const QList<CommitInfo> &commits, const QString &head, GraphRow &wipRow)

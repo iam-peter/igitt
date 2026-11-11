@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Igitt.Core
+import IgittStyle as Styles
 
 // The merge tool, after GitKraken's: both sides next to each other, a
 // checkbox on each conflict to take its lines, and the output below,
@@ -15,8 +16,8 @@ Pane {
     required property string path
     required property font monoFont
 
-    readonly property color oursColor: "#4e79a7"
-    readonly property color theirsColor: "#e08e2b"
+    readonly property color oursColor: Styles.TokenInterface.semantics.info_default
+    readonly property color theirsColor: Styles.TokenInterface.semantics.warning_default
     property int currentConflict: 0
     // The output was edited by hand; picking a side rebuilds it.
     property bool edited: false
@@ -120,7 +121,7 @@ Pane {
 
                 width: ListView.view.width
                 implicitHeight: content.implicitHeight
-                color: chunk.conflict < 0 ? "transparent"
+                color: chunk.conflict < 0 ? Styles.TokenInterface.transparent
                      : Qt.alpha(side.tint, chunk.taken ? 0.28 : 0.1)
                 border.width: chunk.conflict === view.currentConflict ? 2 : 0
                 border.color: side.tint

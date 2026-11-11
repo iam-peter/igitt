@@ -5,6 +5,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Igitt
 import Igitt.Core
+import IgittStyle as Styles
 
 // One row of the commit graph, in the columns AppSettings.graph enables.
 Control {
@@ -62,15 +63,15 @@ Control {
     background: Rectangle {
         color: delegate.current ? Qt.alpha(delegate.laneColor, 0.3)
              : delegate.hovered ? Qt.alpha(delegate.laneColor, 0.12)
-             : delegate.index % 2 ? Qt.tint(delegate.palette.base, Qt.alpha(delegate.palette.text, 0.04))
+             : delegate.index % 2 ? Styles.TokenInterface.semantics.background_stripe
              : delegate.palette.base
 
         Rectangle {
             anchors.fill: parent
             visible: delegate.dropTarget
-            color: delegate.dropBlocker === "" ? Qt.rgba(0.2, 0.7, 0.3, 0.25) : Qt.rgba(0.85, 0.2, 0.2, 0.2)
+            color: Qt.alpha(delegate.dropBlocker === "" ? Styles.TokenInterface.semantics.success_default : Styles.TokenInterface.semantics.danger_default, 0.22)
             border.width: 2
-            border.color: delegate.dropBlocker === "" ? "#59a14f" : "#e15759"
+            border.color: delegate.dropBlocker === "" ? Styles.TokenInterface.semantics.success_default : Styles.TokenInterface.semantics.danger_default
         }
     }
 
@@ -99,7 +100,7 @@ Control {
                         required property var modelData
                         name: modelData.name
                         kind: modelData.kind
-                        laneColor: modelData.color
+                        laneColor: delegate.laneColor
                         current: modelData.current
                         remotes: modelData.remotes
                     }
@@ -149,7 +150,7 @@ Control {
             Tag {
                 visible: delegate.planned
                 text: qsTr("planned")
-                tint: "#8c5ad8"
+                tint: Styles.TokenInterface.semantics.special_default
                 filled: true
             }
             // What Gerrit has for this commit, if it is pushed for review;
@@ -166,13 +167,15 @@ Control {
                        : !change ? review.label
                        : review.number > 0 ? `Gerrit ${review.number}/${review.patchSet}` : qsTr("not on Gerrit"))
                       + (badges !== "" ? ` · ${badges}` : "")
-                tint: change ? (state === "upToDate" ? "#59a14f"
-                                : state === "outdated" ? "#e08e2b"
-                                : state === "closed" ? "#888888" : "#4e79a7")
-                    : state === "merged" ? "#8c5ad8"
-                    : state === "closed" ? "#888888"
-                    : review && (review.checks === "failure" || review.decision === "changesRequested") ? "#e15759"
-                    : review && review.decision === "approved" ? "#59a14f" : "#4e79a7"
+                readonly property Styles.Semantics s: Styles.TokenInterface.semantics
+
+                tint: change ? (state === "upToDate" ? s.success_default
+                                : state === "outdated" ? s.warning_default
+                                : state === "closed" ? s.text_muted : s.info_default)
+                    : state === "merged" ? s.special_default
+                    : state === "closed" ? s.text_muted
+                    : review && (review.checks === "failure" || review.decision === "changesRequested") ? s.danger_default
+                    : review && review.decision === "approved" ? s.success_default : s.info_default
                 ToolTip.visible: reviewHover.hovered
                 ToolTip.text: [!change ? ""
                                : state === "upToDate" ? qsTr("Gerrit has this commit as the current patch set.")
@@ -195,7 +198,7 @@ Control {
             Tag {
                 visible: delegate.suggested
                 text: qsTr("fold here")
-                tint: "#59a14f"
+                tint: Styles.TokenInterface.semantics.success_default
             }
             Label {
                 Layout.fillWidth: true
@@ -245,12 +248,12 @@ Control {
                 Rectangle {
                     width: changes.total > 0 ? changes.barWidth * changes.added / changes.total : 0
                     height: 6
-                    color: "#59a14f"
+                    color: Styles.TokenInterface.semantics.success_default
                 }
                 Rectangle {
                     width: changes.total > 0 ? changes.barWidth * changes.removed / changes.total : 0
                     height: 6
-                    color: "#e15759"
+                    color: Styles.TokenInterface.semantics.danger_default
                 }
             }
         }

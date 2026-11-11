@@ -3,6 +3,7 @@
 #include "core/FoldEngine.h"
 #include "core/GerritReview.h"
 #include "core/HistoryEditor.h"
+#include "core/LaneColors.h"
 #include "core/PatchBuilder.h"
 
 #include <QDir>
@@ -36,6 +37,8 @@ Repository::Repository(QObject *parent)
     m_reviewTimer.setInterval(400);
     connect(&m_reviewTimer, &QTimer::timeout, this, &Repository::queryReviewsNow);
     connect(&m_diff, &DiffModel::selectionChanged, this, &Repository::updateFoldSuggestion);
+    connect(this, &Repository::headChanged, this, &Repository::wipLaneColorChanged);
+    connect(LaneColors::instance(), &LaneColors::changed, this, &Repository::wipLaneColorChanged);
     // Rows request their stats as they scroll into view; collect a batch.
     m_statsTimer.setSingleShot(true);
     m_statsTimer.setInterval(30);

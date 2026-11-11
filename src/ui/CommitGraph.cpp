@@ -1,5 +1,7 @@
 #include "CommitGraph.h"
 
+#include "core/LaneColors.h"
+
 #include <QFont>
 #include <QPainter>
 #include <QPainterPath>
@@ -19,6 +21,7 @@ QColor laneColor(int index)
 CommitGraph::CommitGraph(QQuickItem *parent)
     : QQuickPaintedItem(parent)
 {
+    connect(LaneColors::instance(), &LaneColors::changed, this, [this] { update(); });
     setAntialiasing(true);
     connect(this, &CommitGraph::changed, this, [this] { update(); });
 }

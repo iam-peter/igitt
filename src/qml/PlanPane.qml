@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Igitt.Core
+import IgittStyle as Styles
 
 // The pending actions of a plan: what each one runs, and what executing
 // the plan will do.
@@ -71,8 +72,8 @@ Pane {
 
                 width: ListView.view.width
                 implicitHeight: content.implicitHeight + 8
-                color: error !== "" ? Qt.rgba(0.85, 0.2, 0.2, 0.15)
-                                    : index % 2 ? Qt.tint(pane.palette.base, Qt.alpha(pane.palette.text, 0.04))
+                color: error !== "" ? Qt.alpha(Styles.TokenInterface.semantics.danger_default, 0.15)
+                                    : index % 2 ? Styles.TokenInterface.semantics.background_stripe
                                                 : pane.palette.base
 
                 ColumnLayout {
@@ -115,7 +116,7 @@ Pane {
                         text: entry.error
                         textFormat: Text.PlainText
                         wrapMode: Text.Wrap
-                        color: "#d62728"
+                        color: Styles.TokenInterface.semantics.danger_default
                     }
                     TextArea {
                         Layout.fillWidth: true

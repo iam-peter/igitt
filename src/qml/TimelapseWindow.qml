@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Igitt.Core
+import IgittStyle as Styles
 
 // A file through its history, like Perforce's Time-lapse View: pick a
 // revision on the timeline; each line shows the revision that last
@@ -17,7 +18,7 @@ ApplicationWindow {
 
     readonly property var current: lapse.revision >= 0 && lapse.revision < lapse.revisionCount
                                    ? lapse.revisions[lapse.revision] : null
-    readonly property color ageColor: palette.highlight
+    readonly property color ageColor: Styles.TokenInterface.semantics.info_default
 
     function step(delta: int) {
         lapse.revision = Math.max(0, Math.min(lapse.revisionCount - 1, lapse.revision + delta))
@@ -182,9 +183,9 @@ ApplicationWindow {
                     authors: lapse.revisions.map(r => r.author)
                     current: lapse.revision
                     evenSpacing: evenSpacing.checked
-                    lineColor: window.palette.mid
-                    highlightColor: window.palette.highlight
-                    textColor: window.palette.placeholderText
+                    lineColor: Styles.TokenInterface.semantics.stroke_subtle
+                    highlightColor: Styles.TokenInterface.semantics.primary_default
+                    textColor: Styles.TokenInterface.semantics.text_muted
                     onRevisionRequested: revision => lapse.revision = revision
 
                     ToolTip {
@@ -232,7 +233,7 @@ ApplicationWindow {
             visible: lapse.error !== ""
             text: lapse.error
             wrapMode: Text.Wrap
-            color: "#d62728"
+            color: Styles.TokenInterface.semantics.danger_default
         }
 
         ListView {
@@ -269,8 +270,8 @@ ApplicationWindow {
 
                 width: lines.contentWidth
                 height: metrics.height + 4
-                color: line.deleted ? Qt.rgba(0.85, 0.25, 0.25, 0.18)
-                     : line.changedHere ? Qt.rgba(0.95, 0.75, 0.1, 0.28)
+                color: line.deleted ? Styles.TokenInterface.semantics.diff_removed
+                     : line.changedHere ? Qt.alpha(Styles.TokenInterface.semantics.warning_default, 0.28)
                      : Qt.alpha(window.ageColor, 0.06 * line.age)
 
                 Row {
@@ -292,7 +293,7 @@ ApplicationWindow {
                         font.pointSize: window.monoFont.pointSize - 1
                         elide: Text.ElideRight
                         opacity: line.revision === lapse.revision ? 1 : 0.65
-                        color: blameHover.hovered && line.revision >= 0 ? window.palette.link : window.palette.text
+                        color: blameHover.hovered && line.revision >= 0 ? Styles.TokenInterface.semantics.text_link : Styles.TokenInterface.semantics.text_default
 
                         HoverHandler {
                             id: blameHover
@@ -309,7 +310,7 @@ ApplicationWindow {
                         horizontalAlignment: Text.AlignRight
                         text: line.deleted ? "" : line.lineNo
                         font: window.monoFont
-                        color: window.palette.placeholderText
+                        color: Styles.TokenInterface.semantics.text_muted
                     }
                     Text {
                         text: line.text.replace(/\t/g, "    ")
@@ -317,7 +318,7 @@ ApplicationWindow {
                         font.family: window.monoFont.family
                         font.pointSize: window.monoFont.pointSize
                         font.strikeout: line.deleted
-                        color: window.palette.text
+                        color: Styles.TokenInterface.semantics.text_default
                     }
                 }
             }

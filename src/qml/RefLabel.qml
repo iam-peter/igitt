@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import IgittStyle as Styles
 
 // A branch, tag or stash name, in the color of its commit's lane. Local
 // branches are filled; remote-only branches, tags and stashes outlined.
@@ -14,7 +15,7 @@ Rectangle {
     property var remotes: []
 
     readonly property bool filled: kind === "branch" || kind === "head"
-    readonly property color textColor: filled ? (laneColor.hslLightness > 0.62 ? "#202020" : "white")
+    readonly property color textColor: filled ? Styles.TokenInterface.textOn(laneColor)
                                               : laneColor
 
     implicitWidth: text.implicitWidth + 12

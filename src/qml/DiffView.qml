@@ -4,12 +4,19 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Igitt.Core
+import IgittStyle as Styles
 
 Pane {
     id: view
 
     required property Repository repo
     required property font monoFont
+    // The theme's colors of code, as DiffLineText takes them.
+    readonly property list<color> syntaxColors: {
+        const s = Styles.TokenInterface.semantics
+        return [s.syntax_keyword, s.syntax_type, s.syntax_function, s.syntax_string, s.syntax_number,
+                s.syntax_comment, s.syntax_preprocessor, s.syntax_heading]
+    }
 
     readonly property bool workingDiff: repo.diffSource === Repository.UnstagedDiff
                                         || repo.diffSource === Repository.StagedDiff
@@ -360,13 +367,13 @@ Pane {
                 height: lineArea.height + (comments.length > 0 ? commentBox.implicitHeight : 0)
                 color: {
                     if (selected)
-                        return Qt.alpha(view.palette.highlight, 0.55)
+                        return Styles.TokenInterface.semantics.selection_default
                     switch (kind) {
                     case DiffModel.FileHeader: return view.palette.button
-                    case DiffModel.HunkHeader: return Qt.rgba(0.3, 0.45, 0.8, 0.15)
-                    case DiffModel.Added: return Qt.rgba(0.2, 0.7, 0.3, 0.18)
-                    case DiffModel.Removed: return Qt.rgba(0.85, 0.25, 0.25, 0.18)
-                    default: return "transparent"
+                    case DiffModel.HunkHeader: return Styles.TokenInterface.semantics.diff_hunk
+                    case DiffModel.Added: return Styles.TokenInterface.semantics.diff_added
+                    case DiffModel.Removed: return Styles.TokenInterface.semantics.diff_removed
+                    default: return Styles.TokenInterface.transparent
                     }
                 }
 
@@ -480,9 +487,9 @@ Pane {
                     markup: row.markup
                     highlight: AppSettings.diff.highlightSyntax
                     wordDiff: AppSettings.diff.wordDiff
-                    dark: view.palette.base.hslLightness < 0.5
-                    changeColor: row.kind === DiffModel.Added ? Qt.rgba(0.2, 0.7, 0.3, 0.4)
-                                                              : Qt.rgba(0.85, 0.25, 0.25, 0.4)
+                    syntaxColors: view.syntaxColors
+                    changeColor: row.kind === DiffModel.Added ? Styles.TokenInterface.semantics.diff_added_word
+                                                              : Styles.TokenInterface.semantics.diff_removed_word
                 }
 
                 // Lines added and removed in the file.
@@ -496,13 +503,13 @@ Pane {
                     Label {
                         visible: row.added > 0
                         text: `+${row.added}`
-                        color: "#3c8c3c"
+                        color: Styles.TokenInterface.semantics.success_default
                         font.bold: true
                     }
                     Label {
                         visible: row.removed > 0
                         text: `−${row.removed}`
-                        color: "#c0392b"
+                        color: Styles.TokenInterface.semantics.danger_default
                         font.bold: true
                     }
                 }

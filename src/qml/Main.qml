@@ -5,6 +5,7 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 import Igitt.Core
+import IgittStyle as Styles
 
 ApplicationWindow {
     id: root
@@ -293,7 +294,7 @@ ApplicationWindow {
                 visible: dropDialog.published
                 wrapMode: Text.Wrap
                 text: qsTr("The commit is already on a remote branch, so you will have to force push.")
-                color: "#d62728"
+                color: Styles.TokenInterface.semantics.danger_default
             }
         }
     }
@@ -344,6 +345,13 @@ ApplicationWindow {
     }
 
     font: uiFont
+    // The graph's lanes in the theme's colors, for the models and the
+    // painted items.
+    Binding {
+        target: LaneColors
+        property: "colors"
+        value: Styles.TokenInterface.semantics.graph_lanes.map(color => color.toString())
+    }
     // Plain Text items and painted items use the application font.
     onUiFontChanged: Fonts.setApplicationFont(uiFont)
     Component.onCompleted: {
@@ -494,7 +502,7 @@ ApplicationWindow {
             Layout.fillWidth: true
             visible: repo.planning
             implicitHeight: planBanner.implicitHeight + 8
-            color: Qt.rgba(0.55, 0.35, 0.85, 0.2)
+            color: Qt.alpha(Styles.TokenInterface.semantics.special_default, 0.2)
 
             Label {
                 id: planBanner
@@ -612,7 +620,7 @@ ApplicationWindow {
         visible: false
         padding: 6
         background: Rectangle {
-            color: messageBar.isError ? Qt.rgba(0.85, 0.2, 0.2, 0.18) : Qt.rgba(0.2, 0.6, 0.3, 0.16)
+            color: Qt.alpha(messageBar.isError ? Styles.TokenInterface.semantics.danger_default : Styles.TokenInterface.semantics.success_default, 0.18)
         }
 
         RowLayout {

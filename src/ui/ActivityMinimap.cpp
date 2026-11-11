@@ -1,5 +1,7 @@
 #include "ActivityMinimap.h"
 
+#include "core/LaneColors.h"
+
 #include <QDateTime>
 #include <QMouseEvent>
 #include <QPainter>
@@ -17,6 +19,7 @@ constexpr qreal Margin = 4;
 ActivityMinimap::ActivityMinimap(QQuickItem *parent)
     : QQuickPaintedItem(parent)
 {
+    connect(LaneColors::instance(), &LaneColors::changed, this, [this] { update(); });
     setAntialiasing(true);
     setAcceptedMouseButtons(Qt::LeftButton);
     connect(this, &ActivityMinimap::viewChanged, this, [this] { update(); });
@@ -207,7 +210,7 @@ void ActivityMinimap::paint(QPainter *painter)
     // The selected commit.
     if (m_currentRow >= 0 && m_currentRow < m_model->count()) {
         const qreal x = xForTime(m_model->timestampAt(m_currentRow));
-        painter->setPen(QPen(QColor(0x2ecc40), 2));
+        painter->setPen(QPen(m_currentColor, 2));
         painter->drawLine(QPointF(x, 0), QPointF(x, height()));
     }
 

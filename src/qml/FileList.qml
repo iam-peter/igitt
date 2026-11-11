@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Igitt.Core
+import IgittStyle as Styles
 
 Item {
     id: fileList
@@ -165,23 +166,24 @@ Item {
                     spacing: 8
 
                     Rectangle {
+                        id: badge
                         // Click the status badge to stage or unstage, like git gui.
                         implicitWidth: 18
                         implicitHeight: 18
                         radius: 3
                         color: {
                             switch (item.status) {
-                            case "A": case "?": return "#59a14f"
-                            case "D": return "#e15759"
-                            case "R": case "C": return "#4e79a7"
-                            case "U": return "#d62728"
-                            default: return "#e08e2b"
+                            case "A": case "?": return Styles.TokenInterface.semantics.success_default
+                            case "D": return Styles.TokenInterface.semantics.danger_default
+                            case "R": case "C": return Styles.TokenInterface.semantics.info_default
+                            case "U": return Styles.TokenInterface.semantics.danger_default
+                            default: return Styles.TokenInterface.semantics.warning_default
                             }
                         }
                         Label {
                             anchors.centerIn: parent
                             text: item.status === "?" ? "+" : item.status
-                            color: "white"
+                            color: Styles.TokenInterface.textOn(badge.color)
                             font.bold: true
                             font.pixelSize: 11
                         }
@@ -194,7 +196,7 @@ Item {
                         text: item.path
                         textFormat: Text.PlainText
                         elide: Text.ElideMiddle
-                        color: item.highlighted ? item.palette.highlightedText : item.palette.text
+                        color: item.palette.text
                     }
                 }
             }
@@ -204,8 +206,8 @@ Item {
     Rectangle {
         anchors.fill: parent
         visible: fileList.dropTarget
-        color: Qt.rgba(0.2, 0.7, 0.3, 0.15)
+        color: Qt.alpha(Styles.TokenInterface.semantics.success_default, 0.15)
         border.width: 2
-        border.color: "#59a14f"
+        border.color: Styles.TokenInterface.semantics.success_default
     }
 }

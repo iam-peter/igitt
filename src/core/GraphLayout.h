@@ -33,5 +33,6 @@ QList<GraphRow> layoutGraph(const QList<CommitInfo> &commits);
 // into `head` (unconnected if empty). That row goes to `wipRow`.
 QList<GraphRow> layoutGraphWithWip(const QList<CommitInfo> &commits, const QString &head, GraphRow &wipRow);
 
-// The color of a lane, by GraphRow::color and GraphSegment::color.
+// The color of a lane, by GraphRow::color and GraphSegment::color, in
+// the theme's colors (LaneColors).
 QString laneColorName(int color);

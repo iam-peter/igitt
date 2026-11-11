@@ -1,5 +1,7 @@
 #include "CommitModel.h"
 
+#include "core/LaneColors.h"
+
 #include <QVariantMap>
 
 namespace {
@@ -14,19 +16,27 @@ QString initials(const QString &name)
     return (words.first().left(1) + words.last().left(1)).toUpper();
 }
 
-QVariantMap label(const QString &name, const QString &kind, const QString &color, bool current = false,
-                  const QStringList &remotes = {})
+QVariantMap label(const QString &name, const QString &kind, bool current = false, const QStringList &remotes = {})
 {
     return {
         {QStringLiteral("name"), name},
         {QStringLiteral("kind"), kind},
-        {QStringLiteral("color"), color},
         {QStringLiteral("current"), current},
         {QStringLiteral("remotes"), remotes},
     };
 }
 
 } // namespace
+
+CommitModel::CommitModel(QObject *parent)
+    : QAbstractListModel(parent)
+{
+    // Another theme colors every lane anew.
+    connect(LaneColors::instance(), &LaneColors::changed, this, [this] {
+        if (count() > 0)
+            emit dataChanged(index(0), index(count() - 1), {LaneColorRole});
+    });
+}
 
 void CommitModel::setCommits(const QList<CommitInfo> &commits, const QList<GraphRow> &graph,
                              const QList<RefInfo> &refs, const QString &headSha,
@@ -57,10 +67,9 @@ void CommitModel::setCommits(const QList<CommitInfo> &commits, const QList<Graph
         const int row = m_rowBySha.value(it.key(), -1);
         if (row < 0)
             continue;
-        const QString color = laneColorName(m_graph[row].color);
-        QVariantList labels = refLabels(it.value(), color);
+        QVariantList labels = refLabels(it.value());
         if (detached && it.key() == headSha)
-            labels.prepend(label(QStringLiteral("HEAD"), QStringLiteral("head"), color, true));
+            labels.prepend(label(QStringLiteral("HEAD"), QStringLiteral("head"), true));
         m_refs.insert(it.key(), labels);
     }
     updateMatches();
@@ -73,7 +82,7 @@ void CommitModel::setCommits(const QList<CommitInfo> &commits, const QList<Graph
 
 // One label per local branch, carrying the remote-tracking branches of
 // the same name that point at the same commit, as GitKraken shows them.
-QVariantList CommitModel::refLabels(const QList<RefInfo> &refs, const QString &color) const
+QVariantList CommitModel::refLabels(const QList<RefInfo> &refs) const
 {
     QVariantList current;
     QVariantList locals;
@@ -90,7 +99,7 @@ QVariantList CommitModel::refLabels(const QList<RefInfo> &refs, const QString &c
             if (localNames.contains(shortName))
                 remotesByName[shortName].append(ref.name);
             else
-                others.append(label(ref.name, QStringLiteral("remote"), color));
+                others.append(label(ref.name, QStringLiteral("remote")));
         }
     }
     for (const RefInfo &ref : refs) {
@@ -98,14 +107,14 @@ QVariantList CommitModel::refLabels(const QList<RefInfo> &refs, const QString &c
         case RefInfo::LocalBranch: {
             const bool isCurrent = ref.name == m_currentBranch;
             (isCurrent ? current : locals)
-                .append(label(ref.name, QStringLiteral("branch"), color, isCurrent, remotesByName.value(ref.name)));
+                .append(label(ref.name, QStringLiteral("branch"), isCurrent, remotesByName.value(ref.name)));
             break;
         }
         case RefInfo::Tag:
-            others.append(label(ref.name, QStringLiteral("tag"), color));
+            others.append(label(ref.name, QStringLiteral("tag")));
             break;
         case RefInfo::Stash:
-            others.append(label(ref.name, QStringLiteral("stash"), color));
+            others.append(label(ref.name, QStringLiteral("stash")));
             break;
         case RefInfo::RemoteBranch:
             break;

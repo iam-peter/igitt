@@ -271,12 +271,22 @@ The interface uses Inter and code JetBrains Mono, both bundled; Settings
 can change either and their sizes. Files in a diff collapse and expand by
 clicking their header, or all at once from the diff's toolbar.
 
+igitt draws its controls in a style of its own and takes all its colors
+from a theme: Light, Dark, Dracula, Alucard and the four Catppuccin
+flavors come with it. Settings picks a light and a dark one and whether
+igitt follows the system between them. Themes of your own are JSON files
+in igitt's theme folder, read again as soon as they change; see
+[docs/THEMES.md](docs/THEMES.md).
+
 ## Third-party assets
 
 - Icons: [Lucide](https://lucide.dev), ISC license (`src/icons/LICENSE.txt`).
 - Fonts: [Inter](https://rsms.me/inter/) and
   [JetBrains Mono](https://www.jetbrains.com/lp/mono/), SIL Open Font
   License 1.1 (`src/fonts/`).
+- Themes: the palettes of [Dracula](https://draculatheme.com) and
+  [Catppuccin](https://catppuccin.com), MIT license; the controls' style
+  started out after [shadcn/ui](https://ui.shadcn.com), MIT license.
 
 ## License
 

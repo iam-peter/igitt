@@ -5,6 +5,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Igitt
 import Igitt.Core
+import IgittStyle as Styles
 
 // The repository's tracked files: click one to see its content, double-click
 // (or right-click) for its time-lapse view.
@@ -113,7 +114,7 @@ Pane {
 
                     Icon {
                         name: entry.isDir ? (entry.expanded ? "folder-open" : "folder") : "file"
-                        color: entry.isDir ? "#c9a227" : entry.palette.text
+                        color: entry.isDir ? Styles.TokenInterface.semantics.icon_folder : entry.palette.text
                     }
                     Label {
                         Layout.fillWidth: true

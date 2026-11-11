@@ -8,6 +8,7 @@ qt_add_qml_module(igitt_core
         core/GitRunner.h core/GitRunner.cpp
         core/LogParser.h core/LogParser.cpp
         core/GraphLayout.h core/GraphLayout.cpp
+        core/LaneColors.h core/LaneColors.cpp
         core/StatusParser.h core/StatusParser.cpp
         core/DiffParser.h core/DiffParser.cpp
         core/Highlighter.h core/Highlighter.cpp
@@ -57,6 +58,9 @@ if(KF6SyntaxHighlighting_FOUND)
 else()
     message(STATUS "KSyntaxHighlighting not found; using the built-in highlighter")
 endif()
+
+# The controls' style and the themes (IgittStyle).
+add_subdirectory(style)
 
 # UI: QML and the custom items, as a library so the UI smoke test can load it.
 set_source_files_properties(qml/AppSettings.qml qml/Icons.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
@@ -161,6 +165,8 @@ target_include_directories(igitt_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/ui)
 target_link_libraries(igitt_ui PUBLIC
     igitt_core
     igitt_coreplugin
+    igitt_style
+    igitt_styleplugin
     Qt6::Gui
     Qt6::Quick
     Qt6::QuickControls2

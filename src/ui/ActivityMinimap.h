@@ -22,6 +22,8 @@ class ActivityMinimap : public QQuickPaintedItem
     Q_PROPERTY(QColor lineColor MEMBER m_lineColor NOTIFY viewChanged)
     Q_PROPERTY(QColor textColor MEMBER m_textColor NOTIFY viewChanged)
     Q_PROPERTY(QColor bandColor MEMBER m_bandColor NOTIFY viewChanged)
+    // The line at the chosen commit.
+    Q_PROPERTY(QColor currentColor MEMBER m_currentColor NOTIFY viewChanged)
 
 public:
     explicit ActivityMinimap(QQuickItem *parent = nullptr);
@@ -59,6 +61,7 @@ private:
     QColor m_lineColor = QColor(0x4e79a7);
     QColor m_textColor = Qt::gray;
     QColor m_bandColor = QColor(0x4e79a7);
+    QColor m_currentColor = QColor(0x2ecc40);
     qint64 m_oldest = 0;
     qint64 m_newest = 0;
 };

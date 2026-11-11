@@ -40,7 +40,7 @@ public:
                      // pull or merge request on its tip; see Repository::setReviews()
     };
 
-    using QAbstractListModel::QAbstractListModel;
+    explicit CommitModel(QObject *parent = nullptr);
 
     // `graph` is layoutGraph(commits), computed off the UI thread.
     // `planned` are commits that only exist in a plan's simulation.
@@ -94,7 +94,7 @@ private:
         QRegularExpression pattern; // when searching with regular expressions
     };
 
-    QVariantList refLabels(const QList<RefInfo> &refs, const QString &color) const;
+    QVariantList refLabels(const QList<RefInfo> &refs) const;
     bool termMatches(const SearchTerm &term, const CommitInfo &commit) const;
     void updateMatches();
 

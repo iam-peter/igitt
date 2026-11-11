@@ -125,7 +125,7 @@ class Repository : public QObject
     // Uncommitted changes, drawn as a row on top of the history.
     Q_PROPERTY(bool hasWip READ hasWip NOTIFY headChanged)
     Q_PROPERTY(QVariant wipGraph READ wipGraph NOTIFY headChanged)
-    Q_PROPERTY(QString wipLaneColor READ wipLaneColor NOTIFY headChanged)
+    Q_PROPERTY(QString wipLaneColor READ wipLaneColor NOTIFY wipLaneColorChanged)
     // {modified, added, deleted}: files with uncommitted changes.
     Q_PROPERTY(QVariantMap wipCounts READ wipCounts NOTIFY headChanged)
     Q_PROPERTY(PlanModel *plan READ plan CONSTANT)
@@ -288,6 +288,7 @@ public:
     Q_INVOKABLE void removePlanEntry(int entryId);
 
 signals:
+    void wipLaneColorChanged();
     void pathChanged();
     void busyChanged();
     void headChanged();

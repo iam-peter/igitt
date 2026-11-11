@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Igitt.Core
+import IgittStyle as Styles
 
 // What Gerrit has on the commit on display: its change's messages, the
 // inline comments, and the patch sets to compare the commit with.
@@ -78,7 +79,7 @@ ColumnLayout {
             Tag {
                 visible: panel.hasReview && panel.review.unresolved === true
                 text: qsTr("unresolved comments")
-                tint: "#e08e2b"
+                tint: Styles.TokenInterface.semantics.warning_default
             }
             IconButton {
                 objectName: "showCommitButton"
@@ -268,12 +269,12 @@ ColumnLayout {
                 Tag {
                     visible: patchSet.modelData.local
                     text: qsTr("this commit")
-                    tint: "#59a14f"
+                    tint: Styles.TokenInterface.semantics.success_default
                 }
                 Tag {
                     visible: patchSet.modelData.current
                     text: qsTr("current")
-                    tint: "#4e79a7"
+                    tint: Styles.TokenInterface.semantics.info_default
                 }
                 Item {
                     Layout.fillWidth: true

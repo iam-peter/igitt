@@ -5,6 +5,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Igitt
 import Igitt.Core
+import IgittStyle as Styles
 
 // A commit message as title, body and trailers, put together by
 // MessageFormat with the limits from AppSettings.commit.
@@ -91,7 +92,7 @@ ColumnLayout {
         }
         Label {
             text: `${box.titleLength}/${box.limits.titleLimit}`
-            color: box.titleTooLong ? "#d62728" : box.palette.placeholderText
+            color: box.titleTooLong ? Styles.TokenInterface.semantics.danger_default : box.palette.placeholderText
             font.family: box.monoFont.family
             ToolTip.visible: counterHover.hovered
             ToolTip.text: qsTr("The title should be at most %n characters.", "", box.limits.titleLimit)
@@ -121,7 +122,7 @@ ColumnLayout {
                 x: body.leftPadding + box.limits.bodyWidth * metrics.averageCharacterWidth
                 width: 1
                 height: Math.max(body.height, body.contentHeight)
-                color: box.overlongLines > 0 ? "#d62728" : body.palette.mid
+                color: box.overlongLines > 0 ? Styles.TokenInterface.semantics.danger_default : body.palette.mid
                 opacity: 0.6
             }
         }

@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Igitt.Core
+import IgittStyle as Styles
 
 // Options for one push, as the review host takes them. Gerrit: topic, work
 // in progress or ready, reviewers and hashtags; the topic starts as the one
@@ -189,7 +190,7 @@ Popup {
             wrapMode: Text.WrapAnywhere
             textFormat: Text.PlainText
             text: popup.preview.error !== "" ? popup.preview.error : popup.preview.text
-            color: popup.preview.error !== "" ? "#d04040" : palette.text
+            color: popup.preview.error !== "" ? Styles.TokenInterface.semantics.danger_default : palette.text
             opacity: popup.preview.error !== "" ? 1 : 0.7
             font.family: AppSettings.fonts.codeFamily
         }

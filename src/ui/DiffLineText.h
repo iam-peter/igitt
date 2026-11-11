@@ -11,8 +11,7 @@
 
 // One line of a diff or a file, as plain text: nothing in it is ever read
 // as markup. Colors its syntax and marks the words that changed from a
-// LineMarkup (see DiffModel's markup role), in colors for a light or a
-// dark palette.
+// LineMarkup (see DiffModel's markup role), in the theme's colors.
 class DiffLineText : public QQuickItem
 {
     Q_OBJECT
@@ -25,7 +24,8 @@ class DiffLineText : public QQuickItem
     Q_PROPERTY(QColor color READ color WRITE setColor NOTIFY colorsChanged)
     // Behind the changed words.
     Q_PROPERTY(QColor changeColor READ changeColor WRITE setChangeColor NOTIFY colorsChanged)
-    Q_PROPERTY(bool dark READ dark WRITE setDark NOTIFY colorsChanged)
+    // By TokenStyle, from Keyword to Heading: the theme's syntax_* roles.
+    Q_PROPERTY(QList<QColor> syntaxColors READ syntaxColors WRITE setSyntaxColors NOTIFY colorsChanged)
     Q_PROPERTY(bool highlight READ highlight WRITE setHighlight NOTIFY markupChanged)
     Q_PROPERTY(bool wordDiff READ wordDiff WRITE setWordDiff NOTIFY markupChanged)
     // What is drawn, for tests.
@@ -47,8 +47,8 @@ public:
     void setColor(const QColor &color);
     QColor changeColor() const { return m_changeColor; }
     void setChangeColor(const QColor &color);
-    bool dark() const { return m_dark; }
-    void setDark(bool dark);
+    QList<QColor> syntaxColors() const { return m_syntaxColors; }
+    void setSyntaxColors(const QList<QColor> &colors);
     bool highlight() const { return m_highlight; }
     void setHighlight(bool highlight);
     bool wordDiff() const { return m_wordDiff; }
@@ -76,7 +76,7 @@ private:
     QFont m_font;
     QColor m_color = Qt::black;
     QColor m_changeColor = Qt::transparent;
-    bool m_dark = false;
+    QList<QColor> m_syntaxColors;
     bool m_highlight = true;
     bool m_wordDiff = true;
 

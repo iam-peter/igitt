@@ -5,6 +5,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Igitt
 import Igitt.Core
+import IgittStyle as Styles
 
 Pane {
     id: view
@@ -243,7 +244,7 @@ Pane {
                     text: view.repo.commits.searchError !== "" ? view.repo.commits.searchError
                         : view.repo.commits.matchCount === 0 ? qsTr("No results")
                         : qsTr("%n match(es)", "", view.repo.commits.matchCount)
-                    color: view.repo.commits.searchError !== "" ? "#d62728" : view.palette.text
+                    color: view.repo.commits.searchError !== "" ? Styles.TokenInterface.semantics.danger_default : view.palette.text
                     opacity: 0.8
                 }
                 IconButton {
@@ -293,6 +294,7 @@ Pane {
             lineColor: view.palette.highlight
             bandColor: view.palette.highlight
             textColor: view.palette.placeholderText
+            currentColor: Styles.TokenInterface.semantics.success_default
             onRowRequested: row => {
                 list.currentIndex = row
                 list.positionViewAtIndex(row, ListView.Center)

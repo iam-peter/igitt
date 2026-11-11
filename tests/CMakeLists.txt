@@ -22,6 +22,12 @@ igitt_add_test(tst_highlight)
 target_link_libraries(tst_models PRIVATE Qt6::Gui)
 set_tests_properties(tst_models PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# The theme files, read from the sources.
+qt_add_executable(tst_themes tst_themes.cpp)
+target_link_libraries(tst_themes PRIVATE igitt_style Qt6::Test)
+target_compile_definitions(tst_themes PRIVATE IGITT_THEMES_DIR="${PROJECT_SOURCE_DIR}/src/style/themes")
+add_test(NAME tst_themes COMMAND tst_themes)
+
 qt_add_executable(tst_ui tst_ui.cpp)
 target_link_libraries(tst_ui PRIVATE igitt_ui igitt_uiplugin Qt6::Test Qt6::QuickTest)
 add_test(NAME tst_ui COMMAND tst_ui)

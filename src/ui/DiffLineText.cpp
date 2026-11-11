@@ -10,24 +10,13 @@
 
 namespace {
 
-// After GitHub's light and dark themes; readable on the added and removed
-// line backgrounds of either.
-QColor styleColor(TokenStyle style, bool dark)
+// The color of a token, from the colors given by TokenStyle.
+QColor styleColor(TokenStyle style, const QList<QColor> &colors)
 {
-    switch (style) {
-    case TokenStyle::Keyword: return QColor(dark ? 0xff7b72 : 0xcf222e);
-    case TokenStyle::Type: return QColor(dark ? 0xffa657 : 0x953800);
-    case TokenStyle::Function: return QColor(dark ? 0xd2a8ff : 0x8250df);
-    case TokenStyle::String: return QColor(dark ? 0xa5d6ff : 0x0a3069);
-    case TokenStyle::Number: return QColor(dark ? 0x79c0ff : 0x0550ae);
-    case TokenStyle::Comment: return QColor(dark ? 0x8b949e : 0x6e7781);
-    case TokenStyle::Preprocessor: return QColor(dark ? 0x7ee787 : 0x116329);
-    case TokenStyle::Heading: return QColor(dark ? 0x79c0ff : 0x0550ae);
-    case TokenStyle::Emphasis:
-    case TokenStyle::Normal:
-        break;
-    }
-    return {};
+    if (style == TokenStyle::Normal || style == TokenStyle::Emphasis)
+        return {};
+    const int index = int(style) - int(TokenStyle::Keyword);
+    return index < colors.size() ? colors.at(index) : QColor();
 }
 
 } // namespace
@@ -93,11 +82,11 @@ void DiffLineText::setChangeColor(const QColor &color)
     emit colorsChanged();
 }
 
-void DiffLineText::setDark(bool dark)
+void DiffLineText::setSyntaxColors(const QList<QColor> &colors)
 {
-    if (m_dark == dark)
+    if (m_syntaxColors == colors)
         return;
-    m_dark = dark;
+    m_syntaxColors = colors;
     invalidate();
     emit colorsChanged();
 }
@@ -143,7 +132,7 @@ void DiffLineText::updatePolish()
             if (count == 0)
                 continue;
             QTextCharFormat format;
-            if (const QColor color = styleColor(span.style, m_dark); color.isValid())
+            if (const QColor color = styleColor(span.style, m_syntaxColors); color.isValid())
                 format.setForeground(color);
             if (span.style == TokenStyle::Heading)
                 format.setFontWeight(QFont::Bold);

@@ -1,5 +1,7 @@
 #include "RevisionTimeline.h"
 
+#include "core/LaneColors.h"
+
 #include "core/GraphLayout.h"
 
 #include <QDateTime>
@@ -18,6 +20,7 @@ constexpr qreal Radius = 4.5;
 RevisionTimeline::RevisionTimeline(QQuickItem *parent)
     : QQuickPaintedItem(parent)
 {
+    connect(LaneColors::instance(), &LaneColors::changed, this, [this] { update(); });
     setAntialiasing(true);
     setAcceptedMouseButtons(Qt::LeftButton);
     setAcceptHoverEvents(true);

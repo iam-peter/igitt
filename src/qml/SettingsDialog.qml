@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Igitt
+import IgittStyle as Styles
 
 ModalDialog {
     id: dialog
@@ -76,6 +77,78 @@ ModalDialog {
                     AppSettings.fonts.codeFamily = "JetBrains Mono"
                     AppSettings.fonts.codeSize = 10
                 }
+            }
+
+            Label {
+                Layout.topMargin: 12
+                text: qsTr("Theme")
+                font.bold: true
+            }
+            GridLayout {
+                columns: 2
+                Label {
+                    text: qsTr("Show")
+                }
+                ComboBox {
+                    objectName: "schemeSetting"
+                    Layout.fillWidth: true
+                    textRole: "text"
+                    valueRole: "value"
+                    model: [
+                        {value: "system", text: qsTr("Light or dark, as the system is")},
+                        {value: "light", text: qsTr("Always the light theme")},
+                        {value: "dark", text: qsTr("Always the dark theme")},
+                    ]
+                    // Again once the model is there.
+                    currentIndex: count > 0 ? Math.max(0, indexOfValue(Styles.Themes.scheme)) : -1
+                    onActivated: Styles.Themes.scheme = currentValue
+                }
+                Label {
+                    text: qsTr("Light theme")
+                }
+                ComboBox {
+                    objectName: "lightThemeSetting"
+                    Layout.fillWidth: true
+                    textRole: "name"
+                    valueRole: "id"
+                    model: Styles.Themes.available.filter(theme => !theme.dark)
+                    // Again once the model is there.
+                    currentIndex: count > 0 ? Math.max(0, indexOfValue(Styles.Themes.lightTheme)) : -1
+                    onActivated: Styles.Themes.lightTheme = currentValue
+                }
+                Label {
+                    text: qsTr("Dark theme")
+                }
+                ComboBox {
+                    objectName: "darkThemeSetting"
+                    Layout.fillWidth: true
+                    textRole: "name"
+                    valueRole: "id"
+                    model: Styles.Themes.available.filter(theme => theme.dark)
+                    // Again once the model is there.
+                    currentIndex: count > 0 ? Math.max(0, indexOfValue(Styles.Themes.darkTheme)) : -1
+                    onActivated: Styles.Themes.darkTheme = currentValue
+                }
+            }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: qsTr("Your own themes go in %1 as JSON files, see docs/THEMES.md. "
+                           + "igitt reads them again whenever they change.").arg(Styles.Themes.folder)
+                color: Styles.TokenInterface.semantics.text_muted
+            }
+            Label {
+                objectName: "themeErrors"
+                Layout.fillWidth: true
+                visible: Styles.Themes.errors.length > 0
+                wrapMode: Text.Wrap
+                textFormat: Text.PlainText
+                text: Styles.Themes.errors.join("\n")
+                color: Styles.TokenInterface.semantics.danger_default
+            }
+            Button {
+                text: qsTr("Open the theme folder")
+                onClicked: Qt.openUrlExternally(Styles.Themes.openFolder())
             }
 
             Label {

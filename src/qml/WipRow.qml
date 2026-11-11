@@ -5,6 +5,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Igitt
 import Igitt.Core
+import IgittStyle as Styles
 
 // Uncommitted changes, on top of the graph and connected to HEAD.
 Control {
@@ -58,7 +59,7 @@ Control {
             Label {
                 visible: wip.counts.modified > 0
                 text: `✎ ${wip.counts.modified}`
-                color: "#e08e2b"
+                color: Styles.TokenInterface.semantics.warning_default
                 ToolTip.visible: modifiedHover.hovered
                 ToolTip.text: qsTr("%n modified file(s)", "", wip.counts.modified)
                 HoverHandler {
@@ -68,7 +69,7 @@ Control {
             Label {
                 visible: wip.counts.added > 0
                 text: `+ ${wip.counts.added}`
-                color: "#59a14f"
+                color: Styles.TokenInterface.semantics.success_default
                 ToolTip.visible: addedHover.hovered
                 ToolTip.text: qsTr("%n new file(s)", "", wip.counts.added)
                 HoverHandler {
@@ -78,7 +79,7 @@ Control {
             Label {
                 visible: wip.counts.deleted > 0
                 text: `− ${wip.counts.deleted}`
-                color: "#e15759"
+                color: Styles.TokenInterface.semantics.danger_default
                 ToolTip.visible: deletedHover.hovered
                 ToolTip.text: qsTr("%n deleted file(s)", "", wip.counts.deleted)
                 HoverHandler {
