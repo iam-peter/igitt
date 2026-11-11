@@ -13,7 +13,8 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # Not ubuntu-latest: on Ubuntu 26.04 its package mirrors did not resolve
+    runs-on: ubuntu-24.04
     # A waiting run replaces another waiting one, the last sees the newest
     # releases anyway
     concurrency:
