@@ -103,6 +103,31 @@ private slots:
         QCOMPARE(git({"diff", "--cached", "--name-only"}), "g.txt\n"_ba);
     }
 
+    // A planned move of B's change out of B: B is rewritten in the plan
+    // only, and executing it leaves the change in the working tree, its
+    // file's index following the new HEAD.
+    void plansAMoveOutOfACommitThenPublishesIt()
+    {
+        const QByteArray realState = repoState();
+        PlanSession plan;
+        QString error;
+        QVERIFY2(plan.begin(m_git, error), qPrintable(error));
+        PlanEntry move = entry(PlanEntry::MoveChange);
+        move.source = rev("HEAD");
+        move.patch = m_git.run({u"diff"_s, u"HEAD~1"_s, u"HEAD"_s}).out;
+        QVERIFY2(plan.add(move, error), qPrintable(error));
+
+        QCOMPARE(repoState(), realState);
+        QCOMPARE(git({"show", plan.head() + u":f.txt"_s}), lines({}));
+        QCOMPARE(git({"log", "-1", "--format=%s", plan.head()}), "B\n"_ba);
+
+        QVERIFY2(plan.execute(error), qPrintable(error));
+        QCOMPARE(rev("HEAD"), plan.head());
+        QCOMPARE(git({"show", "HEAD:f.txt"}), lines({}));
+        QVERIFY(git({"diff"}).contains("+nine (B)"));
+        QVERIFY(git({"diff", "--cached"}).isEmpty());
+    }
+
     void seesEditsMadeInTheSameSecondAsTheIndex()
     {
         // A same-size edit carrying exactly the timestamp git cached for the

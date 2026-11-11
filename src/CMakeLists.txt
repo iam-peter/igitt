@@ -10,6 +10,7 @@ qt_add_qml_module(igitt_core
         core/GraphLayout.h core/GraphLayout.cpp
         core/LaneColors.h core/LaneColors.cpp
         core/PatchCommit.h core/PatchCommit.cpp
+        core/ChangeMove.h core/ChangeMove.cpp
         core/ChangeClusters.h core/ChangeClusters.cpp
         core/StatusParser.h core/StatusParser.cpp
         core/DiffParser.h core/DiffParser.cpp

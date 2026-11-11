@@ -1,3 +1,4 @@
+#include "core/ChangeMove.h"
 #include "core/DiffParser.h"
 #include "core/FoldEngine.h"
 #include "core/PatchBuilder.h"
@@ -158,6 +159,69 @@ private slots:
         QVERIFY(engine.blocker(rev("HEAD")).isEmpty());
     }
 
+    // D changes lines 2 and 5; its change to line 2 leaves it for the
+    // working tree, where it is uncommitted now.
+    void movesAChangeOutOfACommit()
+    {
+        write("app.txt", lines({{2, "two, D"}, {5, "five, D"}, {9, "nine, revised"}}));
+        commitAll("D: two and five\n", "Dave", "1600003000 +0000");
+        const QByteArray messages = git({"log", "--format=%an %ad %s%n%b", "--date=raw"});
+
+        const FoldResult result = moveChange(m_git, rev("HEAD"), {}, commitPatch("HEAD", {"2", "two, D"}));
+        QVERIFY2(result.ok, qPrintable(result.error));
+        QCOMPARE(rev("HEAD"), result.newHead);
+        QCOMPARE(git({"log", "--format=%an %ad %s%n%b", "--date=raw"}), messages);
+        QCOMPARE(git({"show", "HEAD:app.txt"}), lines({{5, "five, D"}, {9, "nine, revised"}}));
+        QCOMPARE(read("app.txt"), lines({{2, "two, D"}, {5, "five, D"}, {9, "nine, revised"}}));
+        const QByteArray uncommitted = git({"diff", "HEAD"});
+        QVERIFY(uncommitted.contains("+two, D"));
+        QVERIFY(!uncommitted.contains("+five"));
+    }
+
+    // From the newest commit into an older one, and from an older one into
+    // a newer: the commits change, the tree at the end does not.
+    void movesAChangeBetweenCommits()
+    {
+        write("app.txt", lines({{2, "two, D"}, {5, "five, D"}, {9, "nine, revised"}}));
+        commitAll("D: two and five\n", "Dave", "1600003000 +0000");
+        const QByteArray tree = git({"rev-parse", "HEAD^{tree}"});
+
+        FoldResult result = moveChange(m_git, rev("HEAD"), rev("HEAD~2"), commitPatch("HEAD", {"2", "two, D"}));
+        QVERIFY2(result.ok, qPrintable(result.error));
+        QCOMPARE(git({"rev-parse", "HEAD^{tree}"}), tree);
+        QCOMPARE(git({"log", "--format=%s"}), "D: two and five\nC: revise nine\nB: add notes\nA: add app\n"_ba);
+        QCOMPARE(git({"show", "HEAD~2:app.txt"}), lines({{2, "two, D"}}));
+        QVERIFY(!git({"show", "HEAD", "--format="}).contains("+two"));
+
+        result = moveChange(m_git, rev("HEAD~1"), rev("HEAD"), commitPatch("HEAD~1", {"9", "nine, revised"}));
+        QVERIFY2(result.ok, qPrintable(result.error));
+        QCOMPARE(git({"rev-parse", "HEAD^{tree}"}), tree);
+        QVERIFY(git({"show", "HEAD~1", "--format="}).isEmpty());
+        QVERIFY(git({"show", "HEAD", "--format="}).contains("+nine, revised"));
+        QVERIFY(git({"diff", "HEAD"}).isEmpty());
+    }
+
+    void movesAWorkingTreeChangeIntoACommit()
+    {
+        write("app.txt", lines({{4, "four"}, {9, "nine, revised"}}));
+        const FoldResult result = moveChange(m_git, {}, rev("HEAD~1"), unstagedPatch({"4", "four"}));
+        QVERIFY2(result.ok, qPrintable(result.error));
+        QVERIFY(git({"show", "HEAD~1:app.txt"}).contains("four"));
+        QVERIFY(git({"diff", "HEAD"}).isEmpty());
+    }
+
+    void conflictingMoveLeavesEverythingUntouched()
+    {
+        // D's line 9 builds on C's; B predates both.
+        write("app.txt", lines({{9, "nine, D"}}));
+        commitAll("D: nine again\n", "Dave", "1600003000 +0000");
+        const QString head = rev("HEAD");
+        const FoldResult result = moveChange(m_git, rev("HEAD"), rev("HEAD~2"),
+                                             commitPatch("HEAD", {"nine, revised", "nine, D"}));
+        QVERIFY(!result.ok);
+        QCOMPARE(rev("HEAD"), head);
+    }
+
 private:
     static QByteArray lines(const QHash<int, QByteArray> &changes)
     {
@@ -221,6 +285,11 @@ private:
     }
 
     QByteArray unstagedPatch(const QStringList &selected) { return patchOf({}, selected); }
+    // The change `commit` made, of the lines in `selected`
+    QByteArray commitPatch(const QString &commit, const QStringList &selected)
+    {
+        return patchOf({commit + u"~1"_s, commit}, selected);
+    }
     QByteArray stagedPatch(const QStringList &selected) { return patchOf({"--cached"}, selected); }
     QByteArray untrackedPatch(const QString &path, const QStringList &selected)
     {

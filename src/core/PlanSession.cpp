@@ -1,5 +1,6 @@
 #include "PlanSession.h"
 
+#include "ChangeMove.h"
 #include "MergeConflict.h"
 #include "PatchCommit.h"
 
@@ -149,6 +150,12 @@ bool PlanSession::add(PlanEntry entry, QString &error)
     entry.id = m_nextId++;
     if (entry.kind == PlanEntry::Fold)
         entry.target = stableId(entry.target);
+    if (entry.kind == PlanEntry::MoveChange) {
+        if (!entry.target.isEmpty())
+            entry.target = stableId(entry.target);
+        if (!entry.source.isEmpty())
+            entry.source = stableId(entry.source);
+    }
     if (entry.kind == PlanEntry::EditHistory) {
         entry.edit.commit = stableId(entry.edit.commit);
         if (!entry.edit.to.isEmpty())
@@ -348,6 +355,9 @@ bool PlanSession::simulate(PlanEntry &entry, QString &error)
     case PlanEntry::CommitPatch:
         ok = simulateCommitPatch(entry, error);
         break;
+    case PlanEntry::MoveChange:
+        ok = simulateMove(entry, error);
+        break;
     }
 
     if (!ok) {
@@ -483,6 +493,47 @@ bool PlanSession::simulateFold(PlanEntry &entry, QString &error)
         rewrite(oldId, newId);
     }
     m_head = result.newHead;
+    return true;
+}
+
+bool PlanSession::simulateMove(PlanEntry &entry, QString &error)
+{
+    // Empty is the working tree
+    const auto place = [this](const QString &id) { return id.isEmpty() ? QString() : resolve(id); };
+    const QString from = place(entry.source);
+    const QString to = place(entry.target);
+    const auto gone = [](const QString &given, const QString &id) {
+        return !given.isEmpty() && (id.isEmpty() || id.startsWith(PlannedPrefix));
+    };
+    if (gone(entry.source, from) || gone(entry.target, to)) {
+        error = tr("A commit the change moves between is not part of the plan any more.");
+        return false;
+    }
+    entry.log += QStringLiteral("$ igitt move a change from %1 to %2 (merge-tree and commit-tree per "
+                                "rewritten commit)\n")
+                     .arg(from.isEmpty() ? QStringLiteral("the working tree") : from.left(12),
+                          to.isEmpty() ? QStringLiteral("the working tree") : to.left(12));
+    entry.log += QString::fromUtf8(entry.patch);
+    const FoldResult result = moveChange(m_git, from, to, entry.patch,
+                                         m_head.isEmpty() ? QStringLiteral("HEAD") : m_head, false);
+    if (!result.ok) {
+        error = result.error;
+        if (!result.conflicts.isEmpty())
+            error += QLatin1Char(' ') + tr("Conflicting files: %1").arg(result.conflicts.join(QStringLiteral(", ")));
+        return false;
+    }
+    for (const auto &[oldId, newId] : result.rewrites) {
+        entry.log += QStringLiteral("  %1 -> %2\n").arg(oldId.left(12), newId.left(12));
+        rewrite(oldId, newId);
+    }
+    m_head = result.newHead;
+    // The index of the change's paths follows, as for a commit of a patch
+    const GitResult reset = run(entry, QStringList{QStringLiteral("reset"), QStringLiteral("-q"), m_head,
+                                                   QStringLiteral("--")} + patchPaths(entry.patch));
+    if (!reset.ok()) {
+        error = reset.errorText();
+        return false;
+    }
     return true;
 }
 

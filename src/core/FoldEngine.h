@@ -55,6 +55,11 @@ public:
     // updated) and the caller takes result.newHead from there.
     FoldResult fold(const QString &target, const QByteArray &patch, FoldBase base,
                     const QString &head = QStringLiteral("HEAD"), bool moveHead = true) const;
+    // Steps 2 to 4 for a change given as two trees: what it was made on,
+    // and that with the change. fold() comes down to this; a change taken
+    // out of a commit is the commit's tree and that without the change.
+    FoldResult foldChange(const QString &target, const QString &baseTree, const QString &changedTree,
+                          const QString &head = QStringLiteral("HEAD"), bool moveHead = true) const;
 
 private:
     const GitRunner &m_git;

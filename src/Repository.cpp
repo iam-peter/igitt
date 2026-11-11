@@ -1,5 +1,6 @@
 #include "Repository.h"
 
+#include "core/ChangeMove.h"
 #include "core/FoldEngine.h"
 #include "core/GerritReview.h"
 #include "core/HistoryEditor.h"
@@ -125,6 +126,8 @@ void Repository::finish(JobKind kind, Outcome outcome)
             emit committed();
         if (outcome.patchCommitted)
             emit patchCommitted(outcome.patchCommitted->isEmpty(), *outcome.patchCommitted);
+        if (outcome.changeMoved)
+            emit changeMoved(outcome.changeMoved->isEmpty(), *outcome.changeMoved);
         if (outcome.message)
             emit messageLoaded(outcome.message->first, outcome.message->second);
         if (!outcome.pushRejected.isEmpty())
@@ -630,6 +633,45 @@ void Repository::commitPatch(const QByteArray &patch, const QString &message)
     });
 }
 
+void Repository::moveChange(const QString &from, const QString &to, const QByteArray &patch, const QString &title)
+{
+    if (m_plan) {
+        PlanEntry entry;
+        entry.kind = PlanEntry::MoveChange;
+        entry.source = from;
+        entry.target = to;
+        entry.patch = patch;
+        entry.title = title;
+        enqueuePlanEntry(entry);
+        return;
+    }
+    enqueue(JobKind::Write, [=, request = diffRequest(), history = historyRequest(true)](const GitRunner &git) {
+        Outcome outcome;
+        const FoldResult result = ::moveChange(git, from, to, patch);
+        if (!result.ok) {
+            QString error = result.error;
+            if (!result.conflicts.isEmpty())
+                error += QLatin1Char(' ') + tr("Conflicting files: %1").arg(result.conflicts.join(QStringLiteral(", ")));
+            outcome.error = tr("%1 failed: %2").arg(title, error);
+            outcome.changeMoved = error;
+        } else {
+            // The index of the change's paths follows HEAD, so the change
+            // shows where it is now and nowhere else; undoing carries it
+            // back along with HEAD
+            const GitResult reset = git.run(QStringList{QStringLiteral("reset"), QStringLiteral("-q"),
+                                                        QStringLiteral("HEAD"), QStringLiteral("--")}
+                                            + patchPaths(patch));
+            if (!reset.ok())
+                outcome.error = tr("Moved, but the index of its files could not follow: %1").arg(reset.errorText());
+            outcome.fold = LastFold{result.oldHead, result.newHead, {}, true, true};
+            outcome.changeMoved = QString();
+            outcome.notice = tr("%1: rewrote %n commit(s).", "", result.rewritten).arg(title);
+        }
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
 QString Repository::foldBlocker(const QString &sha) const
 {
     if (m_diffSource != UnstagedDiff && m_diffSource != StagedDiff)
@@ -956,6 +998,8 @@ void Repository::enqueuePlanEntry(const PlanEntry &entry)
             outcome.error = tr("Could not plan “%1”: %2").arg(entry.title, error);
         if (entry.kind == PlanEntry::CommitPatch)
             outcome.patchCommitted = added ? QString() : error;
+        if (entry.kind == PlanEntry::MoveChange)
+            outcome.changeMoved = added ? QString() : error;
         outcome.plan = snapshot(*plan);
         outcome.state = loadState(plan->source(), request, history);
         return outcome;

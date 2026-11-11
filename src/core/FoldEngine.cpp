@@ -57,15 +57,10 @@ FoldResult FoldEngine::fold(const QString &target, const QByteArray &patch, Fold
     if (const QString reason = blocker(target, head); !reason.isEmpty())
         return fail(reason);
 
-    result.oldHead = m_objects.revParse(head);
-    CommitRewriter::Commit targetCommit;
-    if (!m_objects.readCommit(m_objects.revParse(target + QStringLiteral("^{commit}")), targetCommit))
-        return fail(tr("Could not read commit %1.").arg(target));
-
     // 1. The change as a pair of trees: its base and the base with the patch.
     QString baseTree;
     if (base == FoldBase::Head) {
-        baseTree = m_objects.revParse(result.oldHead + QStringLiteral("^{tree}"));
+        baseTree = m_objects.revParse(head + QStringLiteral("^{tree}"));
     } else {
         const GitResult written = m_git.run({QStringLiteral("write-tree")});
         if (!written.ok())
@@ -94,10 +89,46 @@ FoldResult FoldEngine::fold(const QString &target, const QByteArray &patch, Fold
     if (changedTree == baseTree)
         return fail(tr("The selection contains no changes."));
 
+    result = foldChange(target, baseTree, changedTree, head, moveHead);
+    if (!result.ok)
+        return result;
+
+    if (base == FoldBase::Index) {
+        // The folded lines are part of HEAD now; stage them so they don't
+        // show up as unstaged changes reverting nothing.
+        const GitResult staged = m_git.run({QStringLiteral("apply"), QStringLiteral("--cached"),
+                                            QStringLiteral("--whitespace=nowarn")}, patch);
+        result.indexUpdated = staged.ok();
+        if (!staged.ok())
+            result.error = tr("The commits were rewritten, but staging the folded lines failed: %1")
+                               .arg(staged.errorText());
+    }
+    return result;
+}
+
+FoldResult FoldEngine::foldChange(const QString &target, const QString &baseTree, const QString &changedTree,
+                                  const QString &head, bool moveHead) const
+{
+    FoldResult result;
+    const auto fail = [&result](const QString &error) {
+        result.error = error;
+        return result;
+    };
+
+    if (const QString reason = blocker(target, head); !reason.isEmpty())
+        return fail(reason);
+    if (baseTree == changedTree)
+        return fail(tr("The selection contains no changes."));
+
+    result.oldHead = m_objects.revParse(head);
+    CommitRewriter::Commit targetCommit;
+    if (!m_objects.readCommit(m_objects.revParse(target + QStringLiteral("^{commit}")), targetCommit))
+        return fail(tr("Could not read commit %1.").arg(target));
+
     // merge-tree in git < 2.45 wants commits, so wrap the trees in
     // throwaway ones; nothing refers to them afterwards.
     QString error;
-    const QString baseCommit = base == FoldBase::Head ? result.oldHead : m_objects.wrapTree(baseTree, {}, error);
+    const QString baseCommit = m_objects.wrapTree(baseTree, {}, error);
     const QString changeCommit = error.isEmpty() ? m_objects.wrapTree(changedTree, {baseCommit}, error) : QString();
     if (!error.isEmpty())
         return fail(error);
@@ -157,16 +188,5 @@ FoldResult FoldEngine::fold(const QString &target, const QByteArray &patch, Fold
             return fail(tr("HEAD moved while folding; nothing was changed. %1").arg(moved.errorText()));
     }
     result.ok = true;
-
-    if (base == FoldBase::Index) {
-        // The folded lines are part of HEAD now; stage them so they don't
-        // show up as unstaged changes reverting nothing.
-        const GitResult staged = m_git.run({QStringLiteral("apply"), QStringLiteral("--cached"),
-                                            QStringLiteral("--whitespace=nowarn")}, patch);
-        result.indexUpdated = staged.ok();
-        if (!staged.ok())
-            result.error = tr("The commits were rewritten, but staging the folded lines failed: %1")
-                               .arg(staged.errorText());
-    }
     return result;
 }

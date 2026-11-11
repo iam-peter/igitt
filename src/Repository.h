@@ -259,6 +259,13 @@ public:
     // in PatchCommit.h); while planning, plans it. Emits patchCommitted().
     Q_INVOKABLE void commitPatch(const QByteArray &patch, const QString &message);
 
+    // Moves `patch` from `from` to `to`, each a commit of the branch or
+    // empty for the working tree (see moveChange() in ChangeMove.h); the
+    // index of its paths follows. While planning, plans it. Emits
+    // changeMoved(); undoFold() takes it back.
+    Q_INVOKABLE void moveChange(const QString &from, const QString &to, const QByteArray &patch,
+                                const QString &title);
+
     // Why the selected lines cannot be folded into `sha`, or an empty
     // string if they can.
     Q_INVOKABLE QString foldBlocker(const QString &sha) const;
@@ -308,6 +315,8 @@ signals:
     void committed();
     // After commitPatch(), whether it went through; error says why not.
     void patchCommitted(bool ok, const QString &error);
+    // After moveChange(), whether it went through; error says why not.
+    void changeMoved(bool ok, const QString &error);
     void messageLoaded(const QString &sha, const QString &message);
     void errorOccurred(const QString &message);
     // `links` are URLs the remote printed, such as Gerrit's changes.
@@ -342,6 +351,7 @@ private:
         std::optional<LastFold> fold;
         bool committed = false;
         std::optional<QString> patchCommitted; // empty: it went through
+        std::optional<QString> changeMoved;    // likewise
         std::optional<std::pair<QString, QString>> message; // sha and message
         QString gitDir;
         QString pushRejected; // why the remote refused a push
