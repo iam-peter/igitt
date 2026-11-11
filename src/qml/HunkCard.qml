@@ -16,6 +16,8 @@ Rectangle {
     // Lines of the diff shown; 0 shows only the title.
     property int maxLines: 4
     property bool showPath: true
+    // A label in the title row, such as the group the hunk is in
+    property string badge
 
     readonly property Styles.Semantics s: Styles.TokenInterface.semantics
     // The changed lines first: the context around them says little here.
@@ -63,6 +65,23 @@ Rectangle {
                 elide: Text.ElideMiddle
                 font.bold: true
                 font.pixelSize: 12
+            }
+            Rectangle {
+                visible: card.badge !== ""
+                Layout.maximumWidth: card.width * 0.55
+                implicitWidth: badgeLabel.implicitWidth + 10
+                implicitHeight: badgeLabel.implicitHeight + 2
+                radius: 3
+                color: card.tint
+                Label {
+                    id: badgeLabel
+                    anchors.fill: parent
+                    horizontalAlignment: Text.AlignHCenter
+                    text: card.badge
+                    elide: Text.ElideRight
+                    color: Styles.TokenInterface.textOn(card.tint)
+                    font.pixelSize: 10
+                }
             }
             Label {
                 visible: card.hunk.added > 0

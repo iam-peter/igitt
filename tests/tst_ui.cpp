@@ -4,6 +4,7 @@
 // (dracula, catppuccin-mocha, ...).
 
 #include "Repository.h"
+#include "core/ChangeClusters.h"
 #include "core/LaneColors.h"
 #include "themes.h"
 #include "models/ConflictResolver.h"
@@ -834,6 +835,54 @@ private slots:
         QTest::keyClick(window, Qt::Key_Escape);
         QTRY_VERIFY(!window->property("popupOpen").toBool());
         QVERIFY(!handlersEnabled().isEmpty());
+    }
+
+    // The compose window lists the working tree's hunks and puts them into
+    // clusters, whichever concept of its view is built, without a warning.
+    void composesClusters()
+    {
+        // Changes of its own: the tests before may have committed all
+        const QString path = QDir(m_dir.path()).filePath(u"compose.txt"_s);
+        {
+            QFile file(path);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write("first\nsecond\n");
+        }
+        const auto remove = qScopeGuard([&] { QFile::remove(path); });
+
+        QQmlApplicationEngine engine;
+        QList<QQmlError> warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &w) { warnings += w; });
+        engine.setInitialProperties({{u"initialPath"_s, m_dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+
+        click(window, u"composeButton"_s);
+        QQuickWindow *compose = nullptr;
+        QTRY_VERIFY([&] {
+            for (QWindow *w : QGuiApplication::topLevelWindows()) {
+                if (w != window && w->isVisible() && w->findChild<ChangeClusters *>())
+                    compose = qobject_cast<QQuickWindow *>(w);
+            }
+            return compose != nullptr;
+        }());
+        QVERIFY(QTest::qWaitForWindowExposed(compose));
+        auto *clusters = compose->findChild<ChangeClusters *>();
+        QVERIFY(clusters->unassignedCount() > 0);
+        QCOMPARE(clusters->unassignedCount(), clusters->hunks().size());
+
+        const int cluster = clusters->addCluster(u"Feature"_s);
+        clusters->assign(clusters->hunks().first().toMap().value(u"id"_s).toString(), cluster);
+        QTRY_COMPARE(clusters->unassignedCount(), clusters->hunks().size() - 1);
+        screenshot(compose, u"compose"_s);
+        compose->close();
+
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.value(0).toString()));
     }
 
     // Every theme reaches the window, the graph and the controls without a
