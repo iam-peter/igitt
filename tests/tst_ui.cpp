@@ -886,7 +886,20 @@ private slots:
         QVERIFY(!composeHunk.isEmpty());
         clusters->assign(composeHunk, cluster);
         QTRY_COMPARE(clusters->unassignedCount(), clusters->hunks().size() - 1);
-        screenshot(compose, u"compose"_s);
+
+        // Each concept shows the same clusters
+        auto *tabs = compose->findChild<QQuickItem *>(u"conceptTabs"_s);
+        auto *view = compose->findChild<QQuickItem *>(u"conceptView"_s);
+        QVERIFY(tabs && view);
+        const QStringList concepts{u"groups"_s, u"graph"_s, u"canvas"_s, u"stack"_s};
+        for (int i = 0; i < concepts.size(); ++i) {
+            tabs->setProperty("currentIndex", i);
+            QTRY_VERIFY(view->property("item").value<QQuickItem *>());
+            QTest::qWait(50);
+            screenshot(compose, u"compose-"_s + concepts[i]);
+        }
+        QCOMPARE(clusters->clusters().size(), 1);
+        tabs->setProperty("currentIndex", 0);
 
         // While planning, the cluster's commit goes into the plan, and the
         // changes are read against it

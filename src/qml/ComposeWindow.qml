@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 
+import QtCore
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -13,9 +14,11 @@ import IgittStyle as Styles
 // a cluster leaves the other changes where they are. While planning, the
 // commits go into the plan, and the changes are read against it.
 //
-// How the clusters are shown and built is ClusterView's, which differs
-// between the concepts tried here. It calls back here (composer) to commit
-// and to open the dialogs.
+// How the clusters are shown and built is up to one of four views, the
+// concepts tried here, switched in the tool bar: groups to drag into, a
+// node graph, a canvas, a stack of planned commits. They share the
+// clusters, so switching keeps them, and call back here (composer) to
+// commit and to open the dialogs.
 ApplicationWindow {
     id: window
 
@@ -72,6 +75,19 @@ ApplicationWindow {
     height: 850
     visible: true
     title: qsTr("Compose commits — %1").arg(repo.path)
+
+    // The concept shown, kept between sessions
+    Settings {
+        id: settings
+        category: "compose"
+        property int concept: 0
+    }
+    readonly property var concepts: [
+        {name: qsTr("Groups"), view: groupsView},
+        {name: qsTr("Graph"), view: graphView},
+        {name: qsTr("Canvas"), view: canvasView},
+        {name: qsTr("Stack"), view: stackView},
+    ]
 
     ChangeClusters {
         id: clusters
@@ -139,6 +155,25 @@ ApplicationWindow {
             Item {
                 Layout.fillWidth: true
             }
+            // Which concept shows the clusters
+            TabBar {
+                id: conceptTabs
+                objectName: "conceptTabs"
+                Layout.preferredWidth: 340
+                currentIndex: Math.max(0, Math.min(window.concepts.length - 1, settings.concept))
+                onCurrentIndexChanged: settings.concept = currentIndex
+                Repeater {
+                    model: window.concepts
+                    delegate: TabButton {
+                        required property var modelData
+                        styles: [Styles.TabStyle.small]
+                        text: modelData.name
+                    }
+                }
+            }
+            Item {
+                Layout.fillWidth: true
+            }
             BusyIndicator {
                 implicitWidth: 20
                 implicitHeight: 20
@@ -195,13 +230,12 @@ ApplicationWindow {
             }
         }
 
-        ClusterView {
+        Loader {
+            id: view
+            objectName: "conceptView"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            clusters: clusters
-            composer: window
-            monoFont: window.monoFont
-            colorOf: window.clusterColor
+            sourceComponent: window.concepts[conceptTabs.currentIndex].view
         }
 
         Pane {
@@ -218,6 +252,43 @@ ApplicationWindow {
                 text: clusters.error
                 color: Styles.TokenInterface.semantics.danger_default
             }
+        }
+    }
+
+    Component {
+        id: groupsView
+        ClusterGroupsView {
+            clusters: clusters
+            composer: window
+            monoFont: window.monoFont
+            colorOf: window.clusterColor
+        }
+    }
+    Component {
+        id: graphView
+        ClusterGraphView {
+            clusters: clusters
+            composer: window
+            monoFont: window.monoFont
+            colorOf: window.clusterColor
+        }
+    }
+    Component {
+        id: canvasView
+        ClusterCanvasView {
+            clusters: clusters
+            composer: window
+            monoFont: window.monoFont
+            colorOf: window.clusterColor
+        }
+    }
+    Component {
+        id: stackView
+        ClusterStackView {
+            clusters: clusters
+            composer: window
+            monoFont: window.monoFont
+            colorOf: window.clusterColor
         }
     }
 }

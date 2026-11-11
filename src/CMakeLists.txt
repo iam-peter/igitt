@@ -97,7 +97,10 @@ qt_add_qml_module(igitt_ui
         qml/BoundedScrollView.qml
         qml/SplitterHandle.qml
         qml/ComposeWindow.qml
-        qml/ClusterView.qml
+        qml/ClusterGroupsView.qml
+        qml/ClusterGraphView.qml
+        qml/ClusterCanvasView.qml
+        qml/ClusterStackView.qml
         qml/HunkCard.qml
         qml/HunkLinesDialog.qml
         qml/ClusterMessageDialog.qml
