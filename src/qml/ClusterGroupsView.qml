@@ -25,7 +25,17 @@ Item {
     required property var colorOf
 
     readonly property Styles.Semantics s: Styles.TokenInterface.semantics
-    readonly property int columnWidth: 280
+    // The groups share the board, each between these widths; past the
+    // narrowest, the board scrolls
+    readonly property int newGroupWidth: 200
+    readonly property int columnWidth: {
+        const count = clusters.clusters.length
+        if (count === 0)
+            return 320
+        const free = board.availableWidth - newGroupWidth - 8 * count
+        return Math.max(320, Math.min(600, Math.floor(free / count)))
+    }
+    readonly property int chainHeight: 40
     // The change being dragged, and where the pointer is
     property var dragged: null
     property point dragPoint
@@ -192,7 +202,8 @@ Item {
         }
 
         // The groups, side by side in the order they are committed, and a
-        // place for a new one
+        // place for a new one; above them the commits they make, as a chain
+        // on HEAD
         ScrollView {
             id: board
 
@@ -201,209 +212,295 @@ Item {
             contentHeight: availableHeight
             ScrollBar.vertical.policy: ScrollBar.AlwaysOff
 
-            Row {
-                id: groups
+            Column {
+                spacing: 0
 
-                height: board.availableHeight
-                spacing: 8
+                // HEAD, then a dot above each group, filled once it has changes,
+                // and a dashed end at the new group
+                Item {
+                    id: chain
 
-                Repeater {
-                    model: view.clusters.clusters
-                    delegate: Frame {
-                        id: group
+                    readonly property int count: view.clusters.clusters.length
+                    function centerOf(index: int): real {
+                        return index * (view.columnWidth + 8) + view.columnWidth / 2
+                    }
 
-                        required property var modelData
-                        required property int index
-                        readonly property color tint: view.colorOf(modelData.color)
+                    width: groups.width
+                    height: view.chainHeight
 
-                        width: view.columnWidth
-                        height: parent.height
-                        padding: 0
-                        opacity: view.movedGroup === modelData.id ? 0.5 : 1
-                        background: Rectangle {
-                            radius: 6
-                            color: drop.containsDrag ? Qt.alpha(group.tint, 0.12) : view.s.background_muted
-                            border.width: drop.containsDrag ? 2 : 1
-                            border.color: drop.containsDrag ? group.tint : view.s.stroke_subtle
+                    Rectangle {
+                        x: 8
+                        y: chain.height / 2 - 1
+                        width: (chain.count > 0 ? chain.centerOf(chain.count - 1) : 8) - 8
+                        height: 2
+                        color: view.s.stroke_field
+                    }
+                    // Toward the group a dropped change would make
+                    Repeater {
+                        model: Math.max(0, Math.floor((chain.count * (view.columnWidth + 8) + view.newGroupWidth / 2
+                                                       - (chain.count > 0 ? chain.centerOf(chain.count - 1) : 8)) / 10))
+                        delegate: Rectangle {
+                            required property int index
+                            x: (chain.count > 0 ? chain.centerOf(chain.count - 1) : 8) + 4 + index * 10
+                            y: chain.height / 2 - 1
+                            width: 5
+                            height: 2
+                            color: view.s.stroke_field
                         }
+                    }
+                    Rectangle {
+                        x: 0
+                        y: chain.height / 2 - 8
+                        width: 16
+                        height: 16
+                        radius: 8
+                        color: view.s.background_elevated
+                        border.width: 2
+                        border.color: view.s.text_muted
+                    }
+                    Label {
+                        x: 24
+                        width: (chain.count > 0 ? chain.centerOf(0) - 12 : view.columnWidth) - x
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: qsTr("HEAD %1 %2").arg(view.clusters.headSha).arg(view.clusters.headSubject)
+                        textFormat: Text.PlainText
+                        elide: Text.ElideRight
+                        color: view.s.text_muted
+                        font.pixelSize: 11
+                    }
+                    Repeater {
+                        model: view.clusters.clusters
+                        delegate: Rectangle {
+                            required property var modelData
+                            required property int index
+                            readonly property color tint: view.colorOf(modelData.color)
 
-                        // Where a moved group would go
-                        Rectangle {
-                            visible: view.movedGroup >= 0 && view.moveTarget === group.index
-                                     && view.movedGroup !== group.modelData.id
-                            x: -6
-                            width: 3
-                            height: parent.height
-                            radius: 1.5
-                            color: view.s.primary_default
+                            x: chain.centerOf(index) - 8
+                            y: chain.height / 2 - 8
+                            width: 16
+                            height: 16
+                            radius: 8
+                            color: modelData.hunks.length === 0 ? view.s.background_elevated : tint
+                            border.width: 2
+                            border.color: tint
                         }
-
-                        DropArea {
-                            id: drop
-                            anchors.fill: parent
-                            keys: ["hunk"]
-                            onDropped: view.dropOn(group.modelData.id)
-                        }
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 8
-                            spacing: 6
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 4
-
-                                // The grip moves the group in the order. Its
-                                // handlers are on an item of their own: Icon is
-                                // a disabled button, which takes no events.
-                                Item {
-                                    implicitWidth: 16
-                                    implicitHeight: 20
-                                    Icon {
-                                        anchors.centerIn: parent
-                                        name: "grip-vertical"
-                                        size: 14
-                                        color: view.s.text_muted
-                                    }
-                                    HoverHandler {
-                                        cursorShape: Qt.SizeHorCursor
-                                    }
-                                    DragHandler {
-                                        target: null
-                                        enabled: !(parent.Window.window?.popupOpen ?? false)
-                                        onActiveChanged: {
-                                            if (active) {
-                                                view.movedGroup = group.modelData.id
-                                            } else {
-                                                if (view.moveTarget >= 0)
-                                                    view.clusters.moveCluster(view.movedGroup, view.moveTarget)
-                                                view.movedGroup = -1
-                                                view.moveTarget = -1
-                                            }
-                                        }
-                                        onCentroidChanged: {
-                                            if (active)
-                                                view.moveTarget = view.groupIndexAt(
-                                                    parent.mapToItem(groups, centroid.position).x)
-                                        }
-                                    }
-                                }
-                                Rectangle {
-                                    implicitWidth: 20
-                                    implicitHeight: 20
-                                    radius: 10
-                                    color: group.tint
-                                    Label {
-                                        anchors.centerIn: parent
-                                        text: group.index + 1
-                                        color: Styles.TokenInterface.textOn(group.tint)
-                                        font.pixelSize: 11
-                                        font.bold: true
-                                    }
-                                    ToolTip.visible: orderHover.hovered
-                                    ToolTip.text: qsTr("Committed as number %1").arg(group.index + 1)
-                                    HoverHandler {
-                                        id: orderHover
-                                    }
-                                }
-                                TextField {
-                                    Layout.fillWidth: true
-                                    styles: [Styles.FieldStyle.small]
-                                    text: group.modelData.name
-                                    selectByMouse: true
-                                    // The start of the title, not its end
-                                    Component.onCompleted: cursorPosition = 0
-                                    onEditingFinished: {
-                                        view.clusters.renameCluster(group.modelData.id, text)
-                                        cursorPosition = 0
-                                    }
-                                }
-                                IconButton {
-                                    iconName: "message-square"
-                                    onClicked: view.composer.editMessage(group.modelData.id)
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: qsTr("Write the whole message")
-                                }
-                                IconButton {
-                                    iconName: "trash-2"
-                                    onClicked: view.clusters.removeCluster(group.modelData.id)
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: qsTr("Remove the group; its changes go back to the left")
-                                }
-                            }
-                            Label {
-                                text: group.modelData.hunks.length === 0
-                                      ? qsTr("Drag changes here")
-                                      : qsTr("%n change(s) in %1 file(s)", "", group.modelData.hunks.length)
-                                            .arg(group.modelData.files.length)
-                                      + `  +${group.modelData.added} −${group.modelData.removed}`
-                                color: view.s.text_muted
-                                font.pixelSize: 11
-                            }
-                            ListView {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                clip: true
-                                spacing: 6
-                                model: group.modelData.hunks.map(id => view.hunkById(id)).filter(hunk => hunk)
-                                delegate: DraggableCard {
-                                    width: ListView.view.width
-                                    maxLines: 2
-                                    tint: group.tint
-                                }
-                            }
-                            Button {
-                                Layout.fillWidth: true
-                                styles: [Styles.ButtonStyle.small]
-                                highlighted: true
-                                icon.source: Icons.source("git-commit-horizontal")
-                                icon.width: 16
-                                icon.height: 16
-                                text: qsTr("Commit “%1”").arg(group.modelData.name)
-                                enabled: group.modelData.hunks.length > 0 && !view.composer.committing
-                                onClicked: view.composer.commitCluster(group.modelData.id)
-                            }
-                        }
+                    }
+                    Rectangle {
+                        x: chain.count * (view.columnWidth + 8) + view.newGroupWidth / 2 - 7
+                        y: chain.height / 2 - 7
+                        width: 14
+                        height: 14
+                        radius: 7
+                        color: view.s.background_default
+                        border.width: 1
+                        border.color: view.s.stroke_field
                     }
                 }
 
-                // Dropping here makes a group of the change
-                Rectangle {
-                    objectName: "newGroupDrop"
-                    width: 220
-                    height: parent.height
-                    radius: 6
-                    color: newDrop.containsDrag ? Qt.alpha(view.s.primary_default, 0.08) : Styles.TokenInterface.transparent
-                    border.width: 1
-                    border.color: newDrop.containsDrag ? view.s.primary_default : view.s.stroke_field
+                Row {
+                    id: groups
 
-                    DropArea {
-                        id: newDrop
-                        anchors.fill: parent
-                        keys: ["hunk"]
-                        onDropped: {
-                            const piece = view.dragged
-                            view.composer.place(piece, view.clusters.addCluster(""))
+                    height: board.availableHeight - view.chainHeight
+                    spacing: 8
+
+                    Repeater {
+                        model: view.clusters.clusters
+                        delegate: Frame {
+                            id: group
+
+                            required property var modelData
+                            required property int index
+                            readonly property color tint: view.colorOf(modelData.color)
+
+                            width: view.columnWidth
+                            height: parent.height
+                            padding: 0
+                            opacity: view.movedGroup === modelData.id ? 0.5 : 1
+                            background: Rectangle {
+                                radius: 6
+                                color: drop.containsDrag ? Qt.alpha(group.tint, 0.12) : view.s.background_muted
+                                border.width: drop.containsDrag ? 2 : 1
+                                border.color: drop.containsDrag ? group.tint : view.s.stroke_subtle
+                            }
+
+                            // Where a moved group would go
+                            Rectangle {
+                                visible: view.movedGroup >= 0 && view.moveTarget === group.index
+                                         && view.movedGroup !== group.modelData.id
+                                x: -6
+                                width: 3
+                                height: parent.height
+                                radius: 1.5
+                                color: view.s.primary_default
+                            }
+
+                            DropArea {
+                                id: drop
+                                anchors.fill: parent
+                                keys: ["hunk"]
+                                onDropped: view.dropOn(group.modelData.id)
+                            }
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                spacing: 6
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 4
+
+                                    // The grip moves the group in the order. Its
+                                    // handlers are on an item of their own: Icon is
+                                    // a disabled button, which takes no events.
+                                    Item {
+                                        implicitWidth: 16
+                                        implicitHeight: 20
+                                        Icon {
+                                            anchors.centerIn: parent
+                                            name: "grip-vertical"
+                                            size: 14
+                                            color: view.s.text_muted
+                                        }
+                                        HoverHandler {
+                                            cursorShape: Qt.SizeHorCursor
+                                        }
+                                        DragHandler {
+                                            target: null
+                                            enabled: !(parent.Window.window?.popupOpen ?? false)
+                                            onActiveChanged: {
+                                                if (active) {
+                                                    view.movedGroup = group.modelData.id
+                                                } else {
+                                                    if (view.moveTarget >= 0)
+                                                        view.clusters.moveCluster(view.movedGroup, view.moveTarget)
+                                                    view.movedGroup = -1
+                                                    view.moveTarget = -1
+                                                }
+                                            }
+                                            onCentroidChanged: {
+                                                if (active)
+                                                    view.moveTarget = view.groupIndexAt(
+                                                        parent.mapToItem(groups, centroid.position).x)
+                                            }
+                                        }
+                                    }
+                                    Rectangle {
+                                        implicitWidth: 20
+                                        implicitHeight: 20
+                                        radius: 10
+                                        color: group.tint
+                                        Label {
+                                            anchors.centerIn: parent
+                                            text: group.index + 1
+                                            color: Styles.TokenInterface.textOn(group.tint)
+                                            font.pixelSize: 11
+                                            font.bold: true
+                                        }
+                                        ToolTip.visible: orderHover.hovered
+                                        ToolTip.text: qsTr("Committed as number %1").arg(group.index + 1)
+                                        HoverHandler {
+                                            id: orderHover
+                                        }
+                                    }
+                                    TextField {
+                                        Layout.fillWidth: true
+                                        styles: [Styles.FieldStyle.small]
+                                        text: group.modelData.name
+                                        selectByMouse: true
+                                        // The start of the title, not its end
+                                        Component.onCompleted: cursorPosition = 0
+                                        onEditingFinished: {
+                                            view.clusters.renameCluster(group.modelData.id, text)
+                                            cursorPosition = 0
+                                        }
+                                    }
+                                    IconButton {
+                                        iconName: "message-square"
+                                        onClicked: view.composer.editMessage(group.modelData.id)
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: qsTr("Write the whole message")
+                                    }
+                                    IconButton {
+                                        iconName: "trash-2"
+                                        onClicked: view.clusters.removeCluster(group.modelData.id)
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: qsTr("Remove the group; its changes go back to the left")
+                                    }
+                                }
+                                Label {
+                                    text: group.modelData.hunks.length === 0
+                                          ? qsTr("Drag changes here")
+                                          : qsTr("%n change(s) in %1 file(s)", "", group.modelData.hunks.length)
+                                                .arg(group.modelData.files.length)
+                                          + `  +${group.modelData.added} −${group.modelData.removed}`
+                                    color: view.s.text_muted
+                                    font.pixelSize: 11
+                                }
+                                ListView {
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    clip: true
+                                    spacing: 6
+                                    model: group.modelData.hunks.map(id => view.hunkById(id)).filter(hunk => hunk)
+                                    delegate: DraggableCard {
+                                        width: ListView.view.width
+                                        maxLines: 2
+                                        tint: group.tint
+                                    }
+                                }
+                                Button {
+                                    Layout.fillWidth: true
+                                    styles: [Styles.ButtonStyle.small]
+                                    highlighted: true
+                                    icon.source: Icons.source("git-commit-horizontal")
+                                    icon.width: 16
+                                    icon.height: 16
+                                    text: qsTr("Commit “%1”").arg(group.modelData.name)
+                                    enabled: group.modelData.hunks.length > 0 && !view.composer.committing
+                                    onClicked: view.composer.commitCluster(group.modelData.id)
+                                }
+                            }
                         }
                     }
-                    ColumnLayout {
-                        anchors.centerIn: parent
-                        spacing: 8
-                        Button {
-                            Layout.alignment: Qt.AlignHCenter
-                            styles: [Styles.ButtonStyle.small]
-                            icon.source: Icons.source("plus")
-                            icon.width: 16
-                            icon.height: 16
-                            text: qsTr("New group")
-                            onClicked: view.clusters.addCluster("")
+
+                    // Dropping here makes a group of the change
+                    Rectangle {
+                        objectName: "newGroupDrop"
+                        width: view.newGroupWidth
+                        height: parent.height
+                        radius: 6
+                        color: newDrop.containsDrag ? Qt.alpha(view.s.primary_default, 0.08) : Styles.TokenInterface.transparent
+                        border.width: 1
+                        border.color: newDrop.containsDrag ? view.s.primary_default : view.s.stroke_field
+
+                        DropArea {
+                            id: newDrop
+                            anchors.fill: parent
+                            keys: ["hunk"]
+                            onDropped: {
+                                const piece = view.dragged
+                                view.composer.place(piece, view.clusters.addCluster(""))
+                            }
                         }
-                        Label {
-                            Layout.alignment: Qt.AlignHCenter
-                            text: qsTr("or drop a change here")
-                            color: view.s.text_muted
-                            font.pixelSize: 11
+                        ColumnLayout {
+                            anchors.centerIn: parent
+                            spacing: 8
+                            Button {
+                                Layout.alignment: Qt.AlignHCenter
+                                styles: [Styles.ButtonStyle.small]
+                                icon.source: Icons.source("plus")
+                                icon.width: 16
+                                icon.height: 16
+                                text: qsTr("New group")
+                                onClicked: view.clusters.addCluster("")
+                            }
+                            Label {
+                                Layout.alignment: Qt.AlignHCenter
+                                text: qsTr("or drop a change here")
+                                color: view.s.text_muted
+                                font.pixelSize: 11
+                            }
                         }
                     }
                 }

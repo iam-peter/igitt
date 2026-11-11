@@ -1110,6 +1110,9 @@ private slots:
         QVERIFY(QQuickTest::qWaitForPolish(compose));
         QVERIFY(openCard());
         screenshot(compose, u"split-stack"_s);
+        tabs->setProperty("currentIndex", 0);
+        QVERIFY(QQuickTest::qWaitForPolish(compose));
+        screenshot(compose, u"split-groups"_s);
 
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.value(0).toString()));
     }
