@@ -73,6 +73,13 @@ ApplicationWindow {
         if (busy)
             return
         const from = piece.commit ?? ""
+        // A commit a remote branch has stays as it is, for now: changing it
+        // would need a force push
+        const pushed = sha => sha !== "" && (clusters.commits.find(commit => commit.sha === sha)?.published ?? false)
+        if (pushed(from) || pushed(to)) {
+            clusters.setError(qsTr("A remote branch has that commit; changing it would need a force push."))
+            return
+        }
         const lines = piece.pick ?? piece.lines.map(line => line.index)
         const patch = from !== "" ? clusters.commitPatch(from, piece.hunk, lines)
                                   : clusters.linesPatch(piece.hunk, lines)

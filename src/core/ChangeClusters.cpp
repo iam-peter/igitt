@@ -503,6 +503,7 @@ QVariantList ChangeClusters::clusters() const
             {QStringLiteral("name"), title(cluster.message)},
             {QStringLiteral("message"), cluster.message},
             {QStringLiteral("color"), cluster.color},
+            {QStringLiteral("pinned"), cluster.pinned},
             {QStringLiteral("hunks"), ids},
             {QStringLiteral("files"), files},
             {QStringLiteral("added"), added},
@@ -595,6 +596,15 @@ QString ChangeClusters::clusterMessage(int id) const
 {
     const int index = clusterIndex(id);
     return index < 0 ? QString() : m_clusters[index].message;
+}
+
+void ChangeClusters::setClusterPinned(int id, bool pinned)
+{
+    const int index = clusterIndex(id);
+    if (index < 0 || m_clusters[index].pinned == pinned)
+        return;
+    m_clusters[index].pinned = pinned;
+    emit changed();
 }
 
 void ChangeClusters::moveCluster(int id, int index)

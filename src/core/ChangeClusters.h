@@ -40,8 +40,9 @@ class ChangeClusters : public QObject
     // added, removed, lines: [{index, kind, text}], split, cluster}; split
     // says the hunk's other lines are in other pieces
     Q_PROPERTY(QVariantList hunks READ hunks NOTIFY changed FINAL)
-    // {id, name, message, color, hunks: [piece ids], added, removed,
-    // files}, in the order they are committed; name is the message's title
+    // {id, name, message, color, pinned, hunks: [piece ids], added,
+    // removed, files}, in the order they are committed; name is the
+    // message's title
     Q_PROPERTY(QVariantList clusters READ clusters NOTIFY changed FINAL)
     // The commits of the branch not merged yet, oldest first, the newest
     // being the base: {sha, shortSha, subject, published, added, removed,
@@ -87,6 +88,8 @@ public:
     // The whole message: title, body and trailers.
     Q_INVOKABLE void setClusterMessage(int id, const QString &message);
     Q_INVOKABLE QString clusterMessage(int id) const;
+    // A pinned cluster stays in sight while the view scrolls.
+    Q_INVOKABLE void setClusterPinned(int id, bool pinned);
     // Places the cluster at `index` in the order its commits are made.
     Q_INVOKABLE void moveCluster(int id, int index);
 
@@ -166,6 +169,7 @@ private:
         int id = 0;
         QString message;
         int color = 0;
+        bool pinned = false;
     };
 
     int clusterIndex(int id) const;

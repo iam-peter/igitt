@@ -1071,7 +1071,8 @@ private slots:
     // The commits not merged yet stand before the groups: a change dropped
     // onto one is folded into it, a change of one dragged onto the place
     // for a new group leaves it for the working tree, in that group, and
-    // Undo takes that back.
+    // Undo takes that back. A commit a remote branch has refuses changes;
+    // a pinned group stays in sight while the board scrolls.
     void foldsChangesIntoTheHistory()
     {
         const auto text = [](const QHash<int, QByteArray> &changes) {
@@ -1191,6 +1192,64 @@ private slots:
         QVERIFY(settle(*repo));
         QTRY_COMPARE(gitOut({"show", "HEAD:hist.txt"}), text({{2, "two"}, {15, "fifteen"}}));
         QVERIFY(gitOut({"diff", "HEAD", "--", "hist.txt"}).isEmpty());
+
+        // A commit a remote branch has stays as it is: a change held over
+        // it is refused, and the column says why
+        git({"update-ref", "refs/remotes/origin/feature", "HEAD~1"});
+        write(text({{2, "two"}, {15, "fifteen"}, {18, "eighteen"}}));
+        QVERIFY(QMetaObject::invokeMethod(clusters, "reload"));
+        QQuickItem *pushed = nullptr;
+        QTRY_VERIFY([&] {
+            for (QQuickItem *column : findItems(compose->contentItem(), u"commitColumn"_s)) {
+                const QVariantMap commit = column->property("modelData").toMap();
+                if (commit.value(u"subject"_s) == "Add hist"_L1 && commit.value(u"published"_s).toBool())
+                    pushed = column;
+            }
+            return pushed != nullptr;
+        }());
+        QVERIFY(findItem(pushed, u"pushedTag"_s));
+        // Scrolled to it, as the board does: by the column shown first
+        auto *groupsView = findItem(compose->contentItem(), u"groupsView"_s);
+        const auto scrollTo = [&](int column) {
+            groupsView->setProperty("firstColumn", column);
+            QVERIFY(QMetaObject::invokeMethod(groupsView, "placeBoard"));
+            QTest::qWait(30);
+            QVERIFY(QQuickTest::qWaitForPolish(compose));
+        };
+        scrollTo(pushed->property("index").toInt());
+        QVERIFY(QRectF(0, 0, compose->width(), compose->height())
+                    .contains(pushed->mapToScene({pushed->width() / 2, pushed->height() / 2})));
+        const QByteArray before = gitOut({"rev-parse", "HEAD~1"});
+        {
+            QQuickItem *card = cardOf(compose->contentItem(), u"eighteen"_s);
+            QVERIFY(card);
+            const QPoint start = card->mapToScene({card->width() / 2, 12}).toPoint();
+            const QPoint end = pushed->mapToScene({pushed->width() / 2, pushed->height() / 2}).toPoint();
+            QTest::mousePress(compose, Qt::LeftButton, {}, start);
+            for (int i = 1; i <= 10; ++i)
+                QTest::mouseMove(compose, start + (end - start) * i / 10);
+            QTRY_VERIFY(findItem(pushed, u"refusedNote"_s));
+            screenshot(compose, u"compose-refused"_s);
+            QTest::mouseRelease(compose, Qt::LeftButton, {}, end);
+        }
+        QVERIFY(settle(*repo));
+        QCOMPARE(gitOut({"rev-parse", "HEAD~1"}), before);
+        QVERIFY(gitOut({"diff", "HEAD", "--", "hist.txt"}).contains("+eighteen"));
+        QVERIFY(!findItem(pushed, u"refusedNote"_s));
+
+        // A pinned group stays in sight, the board scrolled back to the
+        // oldest commit
+        scrollTo(clusters->commits().size());
+        QQuickItem *groupColumn = findItem(compose->contentItem(), u"groupColumn"_s);
+        QVERIFY(groupColumn);
+        clickItem(compose, findItem(groupColumn, u"pinButton"_s));
+        QTRY_VERIFY(clusters->clusters().first().toMap().value(u"pinned"_s).toBool());
+        scrollTo(0);
+        groupColumn = findItem(compose->contentItem(), u"groupColumn"_s);
+        QVERIFY(groupColumn);
+        const QRectF shown = groupColumn->mapRectToScene({0, 0, groupColumn->width(), groupColumn->height()});
+        QVERIFY(QRectF(0, 0, compose->width(), compose->height()).contains(shown));
+        screenshot(compose, u"compose-pinned"_s);
 
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.value(0).toString()));
     }

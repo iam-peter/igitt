@@ -149,6 +149,7 @@ qt_add_qml_module(igitt_ui
         icons/plus.svg
         icons/refresh-cw.svg
         icons/regex.svg
+        icons/pin.svg
         icons/scissors.svg
         icons/search.svg
         icons/settings.svg
