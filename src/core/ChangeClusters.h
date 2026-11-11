@@ -38,8 +38,8 @@ class ChangeClusters : public QObject
     // planning
     Q_PROPERTY(QString base READ base WRITE setBase NOTIFY baseChanged FINAL)
     // The pieces: {id, hunk, path, isNew, isDeleted, header, section, line,
-    // added, removed, lines: [{kind, text}], split, cluster, x, y}; split
-    // says the hunk's other lines are in other pieces
+    // added, removed, lines: [{index, kind, text}], split, cluster, x,
+    // y}; split says the hunk's other lines are in other pieces
     Q_PROPERTY(QVariantList hunks READ hunks NOTIFY changed FINAL)
     // {id, name, message, color, hunks: [piece ids], added, removed, files,
     // x, y, width, height}, in the order they are committed; name is the
@@ -90,9 +90,6 @@ public:
     Q_INVOKABLE void assignFile(const QString &path, int clusterId);
     // Some changed lines of a hunk, by their index in it, into a cluster.
     Q_INVOKABLE void assignLines(const QString &hunkId, const QList<int> &lines, int clusterId);
-    // A hunk with every line and the cluster each changed line is in:
-    // {id, path, line, lines: [{index, kind, text, cluster, oldLine, newLine}]}
-    Q_INVOKABLE QVariantMap hunkLines(const QString &hunkId) const;
 
     Q_INVOKABLE void setHunkPosition(const QString &pieceId, qreal x, qreal y);
     Q_INVOKABLE void setClusterGeometry(int id, qreal x, qreal y, qreal width, qreal height);

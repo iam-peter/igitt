@@ -102,7 +102,6 @@ qt_add_qml_module(igitt_ui
         qml/ClusterCanvasView.qml
         qml/ClusterStackView.qml
         qml/HunkCard.qml
-        qml/HunkLinesDialog.qml
         qml/ClusterMessageDialog.qml
     SOURCES
         ui/CommitGraph.h ui/CommitGraph.cpp

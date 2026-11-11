@@ -27,6 +27,8 @@
 #include <QTest>
 #include <QtQml/qqmlextensionplugin.h>
 
+#include <functional>
+
 Q_IMPORT_QML_PLUGIN(Igitt_CorePlugin)
 Q_IMPORT_QML_PLUGIN(IgittPlugin)
 Q_IMPORT_QML_PLUGIN(IgittStylePlugin)
@@ -930,6 +932,158 @@ private slots:
         QVERIFY(settle(*repo));
         QTRY_VERIFY(!stillChanged());
         compose->close();
+
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.value(0).toString()));
+    }
+
+    // A card split open picks lines by dragging over them, and dragging
+    // what is picked carries those lines onto a cluster: in the groups,
+    // onto the column that makes a new one; on the canvas, into a frame;
+    // in the graph, under the clusters into a new one.
+    void splitsACardInPlace()
+    {
+        const QString path = QDir(m_dir.path()).filePath(u"split.txt"_s);
+        {
+            QFile file(path);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write("one\ntwo\nthree\nfour\n");
+        }
+        const auto remove = qScopeGuard([&] { QFile::remove(path); });
+
+        QQmlApplicationEngine engine;
+        QList<QQmlError> warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &w) { warnings += w; });
+        engine.setInitialProperties({{u"initialPath"_s, m_dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QVERIFY(settle(*window->findChild<Repository *>()));
+
+        click(window, u"composeButton"_s);
+        QQuickWindow *compose = nullptr;
+        QTRY_VERIFY([&] {
+            for (QWindow *w : QGuiApplication::topLevelWindows()) {
+                if (w != window && w->isVisible() && w->findChild<ChangeClusters *>())
+                    compose = qobject_cast<QQuickWindow *>(w);
+            }
+            return compose != nullptr;
+        }());
+        QVERIFY(QTest::qWaitForWindowExposed(compose));
+        auto *clusters = compose->findChild<ChangeClusters *>();
+        auto *tabs = compose->findChild<QQuickItem *>(u"conceptTabs"_s);
+        QVERIFY(clusters && tabs);
+        const auto close = qScopeGuard([compose] { compose->close(); });
+
+        // The pieces of split.txt: {cluster: added}
+        const auto pieces = [clusters] {
+            QMap<int, int> added;
+            for (const QVariant &piece : clusters->hunks()) {
+                const QVariantMap map = piece.toMap();
+                if (map.value(u"path"_s) == "split.txt"_L1)
+                    added.insert(map.value(u"cluster"_s).toInt(), map.value(u"added"_s).toInt());
+            }
+            return added;
+        };
+        QCOMPARE(pieces(), (QMap<int, int>{{-1, 4}}));
+        QString hunk;
+        for (const QVariant &piece : clusters->hunks()) {
+            if (piece.toMap().value(u"path"_s) == "split.txt"_L1)
+                hunk = piece.toMap().value(u"hunk"_s).toString();
+        }
+
+        // The one card split open, and the point of one of its lines
+        const auto openCard = [compose] {
+            QQuickItem *card = nullptr;
+            const std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+                if (!item->isVisible())
+                    return;
+                if (item->property("splitting").toBool() && item->property("carrying").isValid())
+                    card = item;
+                for (QQuickItem *child : item->childItems())
+                    walk(child);
+            };
+            walk(compose->contentItem());
+            return card;
+        };
+        const auto linePoint = [](QQuickItem *card, int row) {
+            QQuickItem *lines = findItem(card, u"hunkLines"_s);
+            const qreal height = card->property("lineHeight").toReal();
+            return lines->mapToScene({40, height * row + height / 2}).toPoint();
+        };
+        const auto drag = [compose](QPoint from, QPoint to) {
+            QTest::mousePress(compose, Qt::LeftButton, {}, from);
+            constexpr int steps = 10;
+            for (int i = 1; i <= steps; ++i)
+                QTest::mouseMove(compose, from + (to - from) * i / steps);
+            QTest::qWait(30);
+            QTest::mouseRelease(compose, Qt::LeftButton, {}, to);
+        };
+
+        // Groups: two lines picked and carried into a new group
+        tabs->setProperty("currentIndex", 0);
+        QVERIFY(QMetaObject::invokeMethod(compose, "splitHunk", Q_ARG(QString, hunk + u"/none"_s)));
+        QVERIFY(QQuickTest::qWaitForPolish(compose));
+        QQuickItem *card = openCard();
+        QVERIFY(card);
+        drag(linePoint(card, 0), linePoint(card, 1));
+        QTRY_COMPARE(card->property("picked").toList().size(), 2);
+        screenshot(compose, u"split-picked"_s);
+        auto *newGroup = findItem(compose->contentItem(), u"newGroupDrop"_s);
+        QVERIFY(newGroup);
+        drag(linePoint(card, 0), newGroup->mapToScene({newGroup->width() / 2, newGroup->height() / 2}).toPoint());
+        QTRY_COMPARE(clusters->clusters().size(), 1);
+        const int group = clusters->clusters().first().toMap().value(u"id"_s).toInt();
+        QTRY_COMPARE(pieces(), (QMap<int, int>{{-1, 2}, {group, 2}}));
+        // The rest stays open, to split further
+        QCOMPARE(compose->property("splitPiece").toString(), hunk + u"/none"_s);
+
+        // Canvas: one more line, carried into the group's frame
+        tabs->setProperty("currentIndex", 2);
+        QTRY_VERIFY(clusters->clusters().first().toMap().value(u"width"_s).toReal() > 0);
+        QVERIFY(QQuickTest::qWaitForPolish(compose));
+        card = openCard();
+        QVERIFY(card);
+        QTest::mouseClick(compose, Qt::LeftButton, {}, linePoint(card, 0));
+        QTRY_COMPARE(card->property("picked").toList().size(), 1);
+        auto *world = findItem(compose->contentItem(), u"world"_s);
+        const QVariantMap frame = clusters->clusters().first().toMap();
+        const QPointF inFrame(frame.value(u"x"_s).toReal() + frame.value(u"width"_s).toReal() - 40,
+                              frame.value(u"y"_s).toReal() + frame.value(u"height"_s).toReal() - 30);
+        drag(linePoint(card, 0), world->mapToScene(inFrame).toPoint());
+        QTRY_COMPARE(pieces(), (QMap<int, int>{{-1, 1}, {group, 3}}));
+        screenshot(compose, u"split-canvas"_s);
+
+        // Graph: the last line, carried under the clusters into a new one
+        tabs->setProperty("currentIndex", 1);
+        QVERIFY(QQuickTest::qWaitForPolish(compose));
+        card = openCard();
+        QVERIFY(card);
+        QTest::mouseClick(compose, Qt::LeftButton, {}, linePoint(card, 0));
+        QTRY_COMPARE(card->property("picked").toList().size(), 1);
+        const QPoint from = linePoint(card, 0);
+        QTest::mousePress(compose, Qt::LeftButton, {}, from);
+        for (int i = 1; i <= 4; ++i)
+            QTest::mouseMove(compose, from + QPoint(10 * i, 0));
+        QQuickItem *newCluster = nullptr;
+        QTRY_VERIFY((newCluster = findItem(compose->contentItem(), u"newClusterDrop"_s)));
+        const QPoint to = newCluster->mapToScene({newCluster->width() / 2, newCluster->height() / 2}).toPoint();
+        for (int i = 1; i <= 10; ++i)
+            QTest::mouseMove(compose, from + QPoint(40, 0) + (to - from - QPoint(40, 0)) * i / 10);
+        QTest::qWait(30);
+        screenshot(compose, u"split-graph"_s);
+        QTest::mouseRelease(compose, Qt::LeftButton, {}, to);
+        QTRY_COMPARE(clusters->clusters().size(), 2);
+        const int second = clusters->clusters().last().toMap().value(u"id"_s).toInt();
+        QTRY_COMPARE(pieces(), (QMap<int, int>{{group, 3}, {second, 1}}));
+
+        // Stack: a card of a commit, split open, takes the commit's row
+        tabs->setProperty("currentIndex", 3);
+        QVERIFY(QMetaObject::invokeMethod(compose, "splitHunk", Q_ARG(QString, hunk + u'/' + QString::number(group))));
+        QVERIFY(QQuickTest::qWaitForPolish(compose));
+        QVERIFY(openCard());
+        screenshot(compose, u"split-stack"_s);
 
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.value(0).toString()));
     }

@@ -225,6 +225,7 @@ QVariantList ChangeClusters::hunks() const
                 if (first < 0)
                     first = diffLine.newLine > 0 ? diffLine.newLine : diffLine.oldLine;
                 lines.append(QVariantMap{
+                    {QStringLiteral("index"), line.index},
                     {QStringLiteral("kind"), QString(QChar::fromLatin1(diffLine.kind))},
                     {QStringLiteral("text"), decode(diffLine.content)},
                 });
@@ -252,39 +253,6 @@ QVariantList ChangeClusters::hunks() const
         }
     }
     return list;
-}
-
-QVariantMap ChangeClusters::hunkLines(const QString &hunkId) const
-{
-    const Hunk *h = hunk(hunkId);
-    if (!h)
-        return {};
-    const FileDiff &file = m_diff[h->file];
-    const DiffHunk &diff = file.hunks[h->index];
-    QHash<int, int> clusterOfLine;
-    for (const Line &line : h->lines)
-        clusterOfLine.insert(line.index, line.cluster);
-    QVariantList lines;
-    for (int l = 0; l < diff.lines.size(); ++l) {
-        const DiffLine &line = diff.lines[l];
-        if (line.kind == DiffLine::NoNewline)
-            continue;
-        lines.append(QVariantMap{
-            {QStringLiteral("index"), l},
-            {QStringLiteral("kind"), QString(QChar::fromLatin1(line.kind))},
-            {QStringLiteral("text"), decode(line.content)},
-            {QStringLiteral("changed"), isChange(line)},
-            {QStringLiteral("cluster"), clusterOfLine.value(l, -1)},
-            {QStringLiteral("oldLine"), line.oldLine},
-            {QStringLiteral("newLine"), line.newLine},
-        });
-    }
-    return {
-        {QStringLiteral("id"), h->id},
-        {QStringLiteral("path"), file.path()},
-        {QStringLiteral("line"), diff.newStart},
-        {QStringLiteral("lines"), lines},
-    };
 }
 
 QVariantList ChangeClusters::clusters() const

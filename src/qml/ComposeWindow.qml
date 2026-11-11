@@ -18,7 +18,7 @@ import IgittStyle as Styles
 // concepts tried here, switched in the tool bar: groups to drag into, a
 // node graph, a canvas, a stack of planned commits. They share the
 // clusters, so switching keeps them, and call back here (composer) to
-// commit and to open the dialogs.
+// commit, to open the message dialog, and to split a card open.
 ApplicationWindow {
     id: window
 
@@ -32,6 +32,9 @@ ApplicationWindow {
     property var queue: []
     property int pending: -1
     readonly property bool committing: pending >= 0
+    // The piece whose card is split open, to pick lines from; kept here,
+    // as the views make their cards anew whenever the clusters change
+    property string splitPiece
 
     // A cluster's color, from the theme's lanes.
     function clusterColor(index: int): color {
@@ -41,8 +44,17 @@ ApplicationWindow {
     function editMessage(clusterId: int) {
         messageDialog.edit(clusterId)
     }
-    function splitHunk(hunkId: string) {
-        linesDialog.edit(hunkId)
+    // The scissors of a card: open it, or close it again
+    function splitHunk(pieceId: string) {
+        splitPiece = splitPiece === pieceId ? "" : pieceId
+    }
+    // A piece dropped onto a cluster, -1 for none: all of it, or the lines
+    // picked from it (pick)
+    function place(piece: var, clusterId: int) {
+        if (piece.pick)
+            clusters.assignLines(piece.hunk, piece.pick, clusterId)
+        else
+            clusters.assign(piece.id, clusterId)
     }
     // A commit of the cluster, through the repository: right away, or
     // planned while planning
@@ -159,14 +171,11 @@ ApplicationWindow {
         monoFont: window.monoFont
         anchors.centerIn: parent
     }
-    HunkLinesDialog {
-        id: linesDialog
-        clusters: clusters
-        monoFont: window.monoFont
-        colorOf: window.clusterColor
-        anchors.centerIn: parent
+    Shortcut {
+        sequences: [StandardKey.Cancel]
+        enabled: window.splitPiece !== "" && !window.popupOpen
+        onActivated: window.splitPiece = ""
     }
-
     Shortcut {
         sequences: [StandardKey.Refresh]
         enabled: !window.popupOpen

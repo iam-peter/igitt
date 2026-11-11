@@ -168,18 +168,18 @@ private slots:
         ChangeClusters clusters;
         clusters.setPath(m_dir->path());
         QString hunkId;
+        QVariantList rows;
         for (const QVariant &value : clusters.hunks()) {
-            if (value.toMap().value(u"path"_s) == "ui.txt"_L1)
+            if (value.toMap().value(u"path"_s) == "ui.txt"_L1) {
                 hunkId = value.toMap().value(u"hunk"_s).toString();
+                rows = value.toMap().value(u"lines"_s).toList();
+            }
         }
         QVERIFY(!hunkId.isEmpty());
-        const QVariantList rows = clusters.hunkLines(hunkId).value(u"lines"_s).toList();
         QList<int> feature;
         QList<int> fix;
         for (const QVariant &value : rows) {
             const QVariantMap line = value.toMap();
-            if (!line.value(u"changed"_s).toBool())
-                continue;
             (line.value(u"text"_s).toString().contains(u"dark"_s) || line.value(u"text"_s) == "line 9"_L1
                  ? feature : fix).append(line.value(u"index"_s).toInt());
         }

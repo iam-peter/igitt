@@ -13,13 +13,15 @@ import IgittStyle as Styles
 // card does not take it in. The canvas pans by dragging its empty space
 // and zooms with the wheel, so a large change set can be laid out and
 // found again where it was put. The chips at the top are the clusters in
-// the order they are committed, dragged to change it; the scissors put
-// some of a card's lines elsewhere.
+// the order they are committed, dragged to change it; the scissors open a
+// card, so some of its lines can be picked and dragged into another frame
+// or out of every frame.
 Item {
     id: view
 
     required property ChangeClusters clusters
-    // The window: commitCluster(), commitAll(), editMessage(), splitHunk()
+    // The window: commitCluster(), commitAll(), editMessage(), splitHunk(),
+    // splitPiece, place()
     required property var composer
     required property font monoFont
     required property var colorOf
@@ -30,6 +32,10 @@ Item {
     // A frame being dragged, and how far: its cards follow at once
     property int movingFrame: -1
     property point moveOffset
+    // Lines carried out of a card split open, and where the pointer is in
+    // the world
+    property var carried: null
+    property point carryPoint
     // A chip of the order being dragged, and where it would go
     property int movedChip: -1
     property int chipTarget: -1
@@ -109,6 +115,17 @@ Item {
         const cluster = frameAt(Qt.point(x + cardWidth / 2, y + cardHeight / 2))
         if (cluster !== hunk.cluster)
             clusters.assign(hunk.id, cluster)
+    }
+    // Carried lines land in the frame under the pointer, or out of every
+    // frame; a card of their own shows where they were let go
+    function dropCarried() {
+        const piece = carried
+        carried = null
+        const cluster = frameAt(carryPoint)
+        const id = piece.hunk + "/" + (cluster < 0 ? "none" : cluster)
+        if (!clusters.hunks.some(hunk => hunk.id === id))
+            clusters.setHunkPosition(id, carryPoint.x - 20, carryPoint.y - 12)
+        composer.place(piece, cluster)
     }
     // A frame moved or changed its size: its cards move along
     function placeFrame(cluster: var, index: int, x: real, y: real, width: real, height: real) {
@@ -195,6 +212,7 @@ Item {
 
     Item {
         id: world
+        objectName: "world"
 
         transformOrigin: Item.TopLeft
 
@@ -234,10 +252,12 @@ Item {
                 // Its cards follow while it is dragged
                 onXChanged: if (frameDrag.active) view.moveOffset = Qt.point(x - area.x, y - area.y)
                 onYChanged: if (frameDrag.active) view.moveOffset = Qt.point(x - area.x, y - area.y)
+                // Where carried lines would go
+                readonly property bool target: view.carried !== null && view.frameAt(view.carryPoint) === modelData.id
                 radius: 10
-                color: Qt.alpha(tint, 0.08)
-                border.width: 2
-                border.color: Qt.alpha(tint, 0.7)
+                color: Qt.alpha(tint, target ? 0.18 : 0.08)
+                border.width: target ? 3 : 2
+                border.color: Qt.alpha(tint, target ? 1 : 0.7)
 
                 // The title bar moves the frame
                 Rectangle {
@@ -377,26 +397,33 @@ Item {
 
                 x: shown.x
                 y: shown.y
-                z: cardDrag.active ? 2 : 1
+                // Split open, it grows over the cards below it
+                z: splitting ? 3 : cardDrag.active ? 2 : 1
                 width: view.cardWidth
-                height: view.cardHeight
+                height: splitting ? Math.max(view.cardHeight, implicitHeight) : view.cardHeight
                 clip: true
                 hunk: modelData
                 monoFont: view.monoFont
                 maxLines: 2
                 tint: cluster ? view.colorOf(cluster.color) : Styles.TokenInterface.transparent
-                onSplitRequested: view.composer.splitHunk(modelData.hunk)
+                splitting: view.composer.splitPiece === modelData.id
+                onSplitRequested: view.composer.splitHunk(modelData.id)
+                onCarryStarted: piece => view.carried = piece
+                onCarryMoved: position => view.carryPoint = card.mapToItem(world, position)
+                onCarryEnded: view.dropCarried()
 
                 // A shadow while it is lifted
-                border.width: cardDrag.active ? 2 : 1
-                border.color: cardDrag.active ? view.s.stroke_focus : view.s.stroke_subtle
+                border.width: cardDrag.active || splitting ? 2 : 1
+                border.color: cardDrag.active || splitting ? view.s.stroke_focus : view.s.stroke_subtle
 
                 HoverHandler {
+                    enabled: !card.splitting
                     cursorShape: Qt.OpenHandCursor
                 }
                 DragHandler {
                     id: cardDrag
-                    enabled: !view.blocked
+                    // A card split open picks and carries its lines itself
+                    enabled: !view.blocked && !card.splitting
                     cursorShape: Qt.ClosedHandCursor
                     grabPermissions: PointerHandler.CanTakeOverFromAnything
                     onActiveChanged: {
@@ -416,6 +443,20 @@ Item {
             y: 76
             text: qsTr("Inbox: put each card into a frame, anywhere on the canvas")
             color: view.s.text_muted
+        }
+
+        // What follows the pointer while lines are carried
+        HunkCard {
+            visible: view.carried !== null
+            hunk: view.carried ?? {path: "", line: 0, added: 0, removed: 0, section: "", lines: []}
+            monoFont: view.monoFont
+            splittable: false
+            width: view.cardWidth
+            maxLines: 2
+            x: view.carryPoint.x - 20
+            y: view.carryPoint.y - 12
+            z: 10
+            opacity: 0.9
         }
     }
 

@@ -11,13 +11,15 @@ import IgittStyle as Styles
 // with its message and its hunks, and are made together in their order.
 // Hunks are dragged from the unplanned ones onto a commit, or between
 // commits; a commit moves up or down the stack by its grip or the arrows.
-// The scissors put some of a hunk's lines into another commit. Suggest
-// makes a first stack of what is unplanned, by kind of change.
+// The scissors open a hunk, so some of its lines can be picked and
+// dragged into another commit the same way. Suggest makes a first stack
+// of what is unplanned, by kind of change.
 Item {
     id: view
 
     required property ChangeClusters clusters
-    // The window: commitCluster(), commitAll(), editMessage(), splitHunk()
+    // The window: commitCluster(), commitAll(), editMessage(), splitHunk(),
+    // splitPiece, place()
     required property var composer
     required property font monoFont
     required property var colorOf
@@ -40,7 +42,7 @@ Item {
     }
     function dropOn(clusterId: int) {
         if (dragged)
-            clusters.assign(dragged.id, clusterId)
+            composer.place(dragged, clusterId)
     }
 
     // A first stack of what is unplanned, by kind: tests, documentation,
@@ -74,8 +76,9 @@ Item {
         required property var hunk
 
         target: null
-        // Not under a dialog or menu (ApplicationWindow.popupOpen)
-        enabled: !(parent.Window.window?.popupOpen ?? false)
+        // Not under a dialog or menu (ApplicationWindow.popupOpen); a card
+        // split open picks and carries its lines itself
+        enabled: !parent.splitting && !(parent.Window.window?.popupOpen ?? false)
         // A list does not take the drag over to scroll
         grabPermissions: PointerHandler.CanTakeOverFromAnything
         onActiveChanged: {
@@ -89,6 +92,33 @@ Item {
         onCentroidChanged: {
             if (active)
                 view.dragPoint = parent.mapToItem(view, centroid.position)
+        }
+    }
+
+    // A hunk on a card: dragged whole, or split open to carry some of its
+    // lines out the same way
+    component DraggableCard: HunkCard {
+        id: card
+
+        required property var modelData
+
+        hunk: modelData
+        monoFont: view.monoFont
+        splitting: view.composer.splitPiece === modelData.id
+        opacity: view.dragged?.id === modelData.id && !view.dragged.pick ? 0.4 : 1
+        onSplitRequested: view.composer.splitHunk(modelData.id)
+        onCarryStarted: piece => view.dragged = piece
+        onCarryMoved: position => view.dragPoint = card.mapToItem(view, position)
+        onCarryEnded: {
+            ghost.Drag.drop()
+            view.dragged = null
+        }
+        HoverHandler {
+            enabled: !card.splitting
+            cursorShape: Qt.OpenHandCursor
+        }
+        Draggable {
+            hunk: card.modelData
         }
     }
 
@@ -137,23 +167,9 @@ Item {
                     leftMargin: 8
                     rightMargin: 8
                     model: view.unplanned
-                    delegate: HunkCard {
-                        id: loose
-
-                        required property var modelData
-
+                    delegate: DraggableCard {
                         width: ListView.view.width - 16
-                        hunk: modelData
-                        monoFont: view.monoFont
                         maxLines: 2
-                        opacity: view.dragged?.id === modelData.id ? 0.4 : 1
-                        onSplitRequested: view.composer.splitHunk(modelData.hunk)
-                        HoverHandler {
-                            cursorShape: Qt.OpenHandCursor
-                        }
-                        Draggable {
-                            hunk: loose.modelData
-                        }
                     }
                     Label {
                         anchors.centerIn: parent
@@ -415,24 +431,11 @@ Item {
                                 spacing: 6
                                 Repeater {
                                     model: commit.modelData.hunks.map(id => view.hunkById(id)).filter(hunk => hunk)
-                                    delegate: HunkCard {
-                                        id: member
-
-                                        required property var modelData
-
-                                        width: 230
-                                        hunk: modelData
-                                        monoFont: view.monoFont
+                                    // Split open, a card takes the whole row
+                                    delegate: DraggableCard {
+                                        width: splitting ? parent.width : 230
                                         maxLines: 0
                                         tint: commit.tint
-                                        onSplitRequested: view.composer.splitHunk(modelData.hunk)
-                                        opacity: view.dragged?.id === modelData.id ? 0.4 : 1
-                                        HoverHandler {
-                                            cursorShape: Qt.OpenHandCursor
-                                        }
-                                        Draggable {
-                                            hunk: member.modelData
-                                        }
                                     }
                                 }
                                 Label {

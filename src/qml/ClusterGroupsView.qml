@@ -11,13 +11,15 @@ import IgittStyle as Styles
 // committed. A change is dragged onto a group to go into it, onto another
 // group to move, and back onto the files to leave its group; a change is
 // in one place only, so what is in a group is gone from the left. The
-// scissors put some lines of a change into another group. A group is
-// moved by its grip, and committed on its own with its whole message.
+// scissors open a change, so some of its lines can be picked and dragged
+// into another group the same way. A group is moved by its grip, and
+// committed on its own with its whole message.
 Item {
     id: view
 
     required property ChangeClusters clusters
-    // The window: commitCluster(), commitAll(), editMessage(), splitHunk()
+    // The window: commitCluster(), commitAll(), editMessage(), splitHunk(),
+    // splitPiece, place()
     required property var composer
     required property font monoFont
     required property var colorOf
@@ -36,7 +38,7 @@ Item {
     }
     function dropOn(clusterId: int) {
         if (dragged)
-            clusters.assign(dragged.id, clusterId)
+            composer.place(dragged, clusterId)
     }
     // Where a group lands for a pointer over the board's row
     function groupIndexAt(x: real): int {
@@ -51,7 +53,8 @@ Item {
         required property var hunk
 
         target: null
-        enabled: !(parent.Window.window?.popupOpen ?? false)
+        // A card split open picks and carries its lines itself
+        enabled: !parent.splitting && !(parent.Window.window?.popupOpen ?? false)
         // A list does not take the drag over to scroll
         grabPermissions: PointerHandler.CanTakeOverFromAnything
         onActiveChanged: {
@@ -65,6 +68,33 @@ Item {
         onCentroidChanged: {
             if (active)
                 view.dragPoint = parent.mapToItem(view, centroid.position)
+        }
+    }
+
+    // A change on a card: dragged whole, or split open to carry some of
+    // its lines out the same way
+    component DraggableCard: HunkCard {
+        id: card
+
+        required property var modelData
+
+        hunk: modelData
+        monoFont: view.monoFont
+        splitting: view.composer.splitPiece === modelData.id
+        opacity: view.dragged?.id === modelData.id && !view.dragged.pick ? 0.4 : 1
+        onSplitRequested: view.composer.splitHunk(modelData.id)
+        onCarryStarted: piece => view.dragged = piece
+        onCarryMoved: position => view.dragPoint = card.mapToItem(view, position)
+        onCarryEnded: {
+            ghost.Drag.drop()
+            view.dragged = null
+        }
+        HoverHandler {
+            enabled: !card.splitting
+            cursorShape: Qt.OpenHandCursor
+        }
+        Draggable {
+            hunk: card.modelData
         }
     }
 
@@ -141,24 +171,10 @@ Item {
                         }
                         Repeater {
                             model: file.modelData.hunks
-                            delegate: HunkCard {
-                                id: card
-
-                                required property var modelData
-
+                            delegate: DraggableCard {
                                 Layout.fillWidth: true
-                                hunk: modelData
-                                monoFont: view.monoFont
                                 showPath: false
                                 maxLines: 3
-                                opacity: view.dragged?.id === modelData.id ? 0.4 : 1
-                                onSplitRequested: view.composer.splitHunk(modelData.hunk)
-                                HoverHandler {
-                                    cursorShape: Qt.OpenHandCursor
-                                }
-                                Draggable {
-                                    hunk: card.modelData
-                                }
                             }
                         }
                     }
@@ -329,24 +345,10 @@ Item {
                                 clip: true
                                 spacing: 6
                                 model: group.modelData.hunks.map(id => view.hunkById(id)).filter(hunk => hunk)
-                                delegate: HunkCard {
-                                    id: member
-
-                                    required property var modelData
-
+                                delegate: DraggableCard {
                                     width: ListView.view.width
-                                    hunk: modelData
-                                    monoFont: view.monoFont
                                     maxLines: 2
                                     tint: group.tint
-                                    opacity: view.dragged?.id === modelData.id ? 0.4 : 1
-                                    onSplitRequested: view.composer.splitHunk(modelData.hunk)
-                                    HoverHandler {
-                                        cursorShape: Qt.OpenHandCursor
-                                    }
-                                    Draggable {
-                                        hunk: member.modelData
-                                    }
                                 }
                             }
                             Button {
@@ -366,6 +368,7 @@ Item {
 
                 // Dropping here makes a group of the change
                 Rectangle {
+                    objectName: "newGroupDrop"
                     width: 220
                     height: parent.height
                     radius: 6
@@ -378,9 +381,8 @@ Item {
                         anchors.fill: parent
                         keys: ["hunk"]
                         onDropped: {
-                            const hunk = view.dragged
-                            const id = view.clusters.addCluster("")
-                            view.clusters.assign(hunk.id, id)
+                            const piece = view.dragged
+                            view.composer.place(piece, view.clusters.addCluster(""))
                         }
                     }
                     ColumnLayout {

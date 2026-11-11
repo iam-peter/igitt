@@ -17,12 +17,14 @@ import IgittStyle as Styles
 // wire off a connected hunk and letting it go over nothing takes the hunk
 // out of its cluster. Pointing at a node draws the wires it touches
 // stronger. The clusters stand in the order they are committed and move
-// by their grip; the scissors put some of a hunk's lines elsewhere.
+// by their grip; the scissors open a hunk, so some of its lines can be
+// picked and dragged onto another cluster.
 Item {
     id: view
 
     required property ChangeClusters clusters
-    // The window: commitCluster(), commitAll(), editMessage(), splitHunk()
+    // The window: commitCluster(), commitAll(), editMessage(), splitHunk(),
+    // splitPiece, place()
     required property var composer
     required property font monoFont
     required property var colorOf
@@ -62,7 +64,8 @@ Item {
             clusterY[cluster.id] = c
             c += clusterHeight + gap * 2
         }
-        return {hunk: hunkY, file: fileY, cluster: clusterY, height: Math.max(y, c + 60)}
+        return {hunk: hunkY, file: fileY, cluster: clusterY, newCluster: c,
+                height: Math.max(y, c + clusterHeight + 20)}
     }
 
     // What the pointer is over, to light up what it touches
@@ -71,6 +74,9 @@ Item {
     property int hoveredCluster: -1
     // A wire being drawn: from a port to the pointer
     property var wire: null
+    // Lines carried out of a card split open, and where the pointer is
+    property var carried: null
+    property point carryPoint
     // A cluster moved by its grip, and where it would go in the order
     property int movedCluster: -1
     property int moveTarget: -1
@@ -92,6 +98,21 @@ Item {
                 return cluster.id
         }
         return -1
+    }
+    // Where carried lines land: on a cluster, or under the clusters in a
+    // new one
+    function dropCarried() {
+        const piece = carried
+        carried = null
+        const target = clusterAt(carryPoint)
+        if (target >= 0)
+            composer.place(piece, target)
+        else if (inNewCluster(carryPoint))
+            composer.place(piece, clusters.addCluster(""))
+    }
+    function inNewCluster(point: point): bool {
+        return point.x >= clusterX && point.x <= clusterX + clusterWidth
+               && point.y >= layout.newCluster && point.y <= layout.newCluster + clusterHeight
     }
     // Lit: what the pointer is over, and what is wired to it
     function hunkLit(hunk: var): bool {
@@ -316,22 +337,29 @@ Item {
 
                     x: view.hunkX
                     y: view.layout.hunk[modelData.id] ?? 0
+                    // Split open, it grows over the hunks below it
+                    z: splitting ? 3 : 0
                     width: view.hunkWidth
-                    height: view.hunkHeight
+                    height: splitting ? Math.max(view.hunkHeight, implicitHeight) : view.hunkHeight
                     clip: true
                     hunk: modelData
+                    splitting: view.composer.splitPiece === modelData.id
+                    onCarryStarted: piece => view.carried = piece
+                    onCarryMoved: position => view.carryPoint = hunkNode.mapToItem(canvas, position)
+                    onCarryEnded: view.dropCarried()
                     monoFont: view.monoFont
                     showPath: false
                     maxLines: 1
                     tint: cluster ? view.colorOf(cluster.color) : Styles.TokenInterface.transparent
                     border.width: view.hunkLit(modelData) ? 2 : 1
                     border.color: view.hunkLit(modelData) ? view.s.stroke_focus : view.s.stroke_subtle
-                    onSplitRequested: view.composer.splitHunk(modelData.hunk)
+                    onSplitRequested: view.composer.splitHunk(modelData.id)
 
                     HoverHandler {
                         onHoveredChanged: view.hoveredHunk = hovered ? hunkNode.modelData.id : ""
                     }
                     Port {
+                        visible: !hunkNode.splitting
                         x: parent.width - 6
                         anchors.verticalCenter: parent.verticalCenter
                         hunkId: hunkNode.modelData.id
@@ -350,7 +378,9 @@ Item {
                     required property var modelData
                     required property int index
                     readonly property color tint: view.colorOf(modelData.color)
-                    readonly property bool target: view.wire !== null && view.clusterAt(view.wire.to) === modelData.id
+                    readonly property bool target: (view.wire !== null && view.clusterAt(view.wire.to) === modelData.id)
+                                                   || (view.carried !== null
+                                                       && view.clusterAt(view.carryPoint) === modelData.id)
                     readonly property bool lit: view.hoveredCluster === modelData.id
                                                 || view.clusters.hunks.some(h => h.cluster === modelData.id
                                                                                  && view.hunkLit(h))
@@ -492,6 +522,42 @@ Item {
                         }
                     }
                 }
+            }
+
+            // Where carried lines make a cluster of their own
+            Rectangle {
+                objectName: "newClusterDrop"
+                readonly property bool target: view.carried !== null && view.inNewCluster(view.carryPoint)
+
+                visible: view.carried !== null
+                x: view.clusterX
+                y: view.layout.newCluster
+                width: view.clusterWidth
+                height: view.clusterHeight
+                radius: 8
+                color: target ? Qt.alpha(view.s.primary_default, 0.08) : Styles.TokenInterface.transparent
+                border.width: 1
+                border.color: target ? view.s.primary_default : view.s.stroke_field
+                Label {
+                    anchors.centerIn: parent
+                    text: qsTr("Drop here for a new cluster")
+                    color: view.s.text_muted
+                }
+            }
+
+            // What follows the pointer while lines are carried
+            HunkCard {
+                visible: view.carried !== null
+                hunk: view.carried ?? {path: "", line: 0, added: 0, removed: 0, section: "", lines: []}
+                monoFont: view.monoFont
+                splittable: false
+                showPath: false
+                width: 240
+                maxLines: 1
+                x: view.carryPoint.x - 20
+                y: view.carryPoint.y - 12
+                z: 10
+                opacity: 0.9
             }
         }
     }
