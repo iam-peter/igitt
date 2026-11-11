@@ -62,6 +62,10 @@ public:
                           const QString &head = QStringLiteral("HEAD"), bool moveHead = true) const;
 
 private:
+    // foldChange() once blocker() and the change are checked
+    FoldResult foldTrees(const QString &target, const QString &baseTree, const QString &changedTree,
+                         const QString &head, bool moveHead) const;
+
     const GitRunner &m_git;
     CommitRewriter m_objects;
 };

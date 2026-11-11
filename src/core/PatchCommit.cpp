@@ -32,7 +32,8 @@ QStringList patchPaths(const QByteArray &patch)
     return paths;
 }
 
-QString treeWithPatch(const GitRunner &git, const QString &base, const QByteArray &patch, QString &error)
+QString treeWithPatch(const GitRunner &git, const QString &base, const QByteArray &patch, QString &error,
+                      bool threeWay)
 {
     QTemporaryDir scratch;
     if (!scratch.isValid()) {
@@ -48,8 +49,10 @@ QString treeWithPatch(const GitRunner &git, const QString &base, const QByteArra
         error = read.errorText();
         return {};
     }
-    const GitResult applied = git.run({QStringLiteral("apply"), QStringLiteral("--cached"),
-                                       QStringLiteral("--whitespace=nowarn")}, patch, env);
+    QStringList apply{QStringLiteral("apply"), QStringLiteral("--cached"), QStringLiteral("--whitespace=nowarn")};
+    if (threeWay)
+        apply.append(QStringLiteral("--3way"));
+    const GitResult applied = git.run(apply, patch, env);
     if (!applied.ok()) {
         error = applied.errorText();
         return {};

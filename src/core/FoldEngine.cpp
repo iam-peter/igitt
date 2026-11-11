@@ -89,7 +89,7 @@ FoldResult FoldEngine::fold(const QString &target, const QByteArray &patch, Fold
     if (changedTree == baseTree)
         return fail(tr("The selection contains no changes."));
 
-    result = foldChange(target, baseTree, changedTree, head, moveHead);
+    result = foldTrees(target, baseTree, changedTree, head, moveHead);
     if (!result.ok)
         return result;
 
@@ -110,15 +110,23 @@ FoldResult FoldEngine::foldChange(const QString &target, const QString &baseTree
                                   const QString &head, bool moveHead) const
 {
     FoldResult result;
+    if (const QString reason = blocker(target, head); !reason.isEmpty())
+        result.error = reason;
+    else if (baseTree == changedTree)
+        result.error = tr("The selection contains no changes.");
+    else
+        return foldTrees(target, baseTree, changedTree, head, moveHead);
+    return result;
+}
+
+FoldResult FoldEngine::foldTrees(const QString &target, const QString &baseTree, const QString &changedTree,
+                                 const QString &head, bool moveHead) const
+{
+    FoldResult result;
     const auto fail = [&result](const QString &error) {
         result.error = error;
         return result;
     };
-
-    if (const QString reason = blocker(target, head); !reason.isEmpty())
-        return fail(reason);
-    if (baseTree == changedTree)
-        return fail(tr("The selection contains no changes."));
 
     result.oldHead = m_objects.revParse(head);
     CommitRewriter::Commit targetCommit;

@@ -316,6 +316,7 @@ private slots:
         const FoldResult moved = moveChange(m_git, dark.value(u"sha"_s).toString(), {}, patch);
         QVERIFY2(moved.ok, qPrintable(moved.error));
         clusters.reload();
+        clusters.placeExpected();
 
         QCOMPARE(git({"show", "HEAD~1:ui.txt"}), lines({{2, "dark mode toggle"}}));
         const QVariantList pieces = clusters.hunks();
@@ -325,6 +326,45 @@ private slots:
         for (const QVariant &line : pieces.first().toMap().value(u"lines"_s).toList())
             own.append(line.toMap().value(u"index"_s).toInt());
         QVERIFY(clusters.linesPatch(pieces.first().toMap().value(u"hunk"_s).toString(), own).contains("+timeout label"));
+    }
+
+    // A line taken out of a commit goes into its cluster even where the
+    // working tree has the same change already, such as a blank line: the
+    // one that was there stays where it was.
+    void placesAMovedLineAmongTheSameChanges()
+    {
+        git({"add", "."});
+        git({"commit", "-q", "-m", "Base"});
+        QByteArray spaced = lines({{2, "dark mode toggle"}, {18, "timeout label"}});
+        spaced.replace("line 10\n", "line 10\n\n");
+        write("ui.txt", spaced);
+        git({"commit", "-q", "-am", "Space ten"});
+        QByteArray both = spaced;
+        both.replace("line 3\n", "line 3\n\n");
+        write("ui.txt", both);
+
+        ChangeClusters clusters;
+        clusters.setPath(m_dir->path());
+        QCOMPARE(clusters.hunks().size(), 1);
+        const QVariantMap commit = clusters.commits().last().toMap();
+        QCOMPARE(commit.value(u"subject"_s), "Space ten"_L1);
+        const QVariantMap piece = commit.value(u"pieces"_s).toList().first().toMap();
+        const int group = clusters.addCluster(u"Space it"_s);
+        clusters.expect(commit.value(u"sha"_s).toString(), piece.value(u"hunk"_s).toString(), {}, group);
+        const FoldResult moved = moveChange(m_git, commit.value(u"sha"_s).toString(), {},
+                                            clusters.commitPatch(commit.value(u"sha"_s).toString(),
+                                                                 piece.value(u"hunk"_s).toString(), {}));
+        QVERIFY2(moved.ok, qPrintable(moved.error));
+        clusters.reload();
+        clusters.placeExpected();
+
+        // The blank after line 3 is not in the group, the one after 10 is
+        QMap<int, int> clusterAt;
+        for (const QVariant &value : clusters.hunks()) {
+            const QVariantMap map = value.toMap();
+            clusterAt.insert(map.value(u"line"_s).toInt(), map.value(u"cluster"_s).toInt());
+        }
+        QCOMPARE(clusterAt, (QMap<int, int>{{4, -1}, {12, group}}));
     }
 
     void refusesAnEmptyCluster()

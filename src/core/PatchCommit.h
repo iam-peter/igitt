@@ -12,10 +12,13 @@
 // The paths a patch changes.
 QStringList patchPaths(const QByteArray &patch);
 
-// The tree of `base` (a commit; empty for none) with `patch` applied, built
-// in an index of its own. Empty, with `error` set, if the patch does not
-// apply.
-QString treeWithPatch(const GitRunner &git, const QString &base, const QByteArray &patch, QString &error);
+// The tree of `base` (a commit or a tree; empty for none) with `patch`
+// applied, built in an index of its own. With `threeWay`, a patch made on
+// a slightly different state is merged in through its preimage, as a plan
+// replaying it after an earlier entry went may need. Empty, with `error`
+// set, if the patch does not apply.
+QString treeWithPatch(const GitRunner &git, const QString &base, const QByteArray &patch, QString &error,
+                      bool threeWay = false);
 
 // Commits `patch` on HEAD with `message`. The commit is made by git commit
 // on a scratch index holding HEAD and the patch, so hooks and signing apply

@@ -55,7 +55,9 @@ FoldResult moveChange(const GitRunner &git, const QString &from, const QString &
     const QString madeOn = parent.isEmpty()
         ? QString::fromLatin1(git.run({QStringLiteral("mktree")}, QByteArray()).out).trimmed()
         : objects.revParse(parent + QStringLiteral("^{tree}"));
-    const QString with = treeWithPatch(git, madeOn, patch, error);
+    // --3way, as for a fold: in a plan, the patch may stem from a state
+    // that earlier entries no longer produce
+    const QString with = treeWithPatch(git, madeOn, patch, error, true);
     if (with.isEmpty())
         return fail(tr("The change does not apply where it was made: %1").arg(error));
 

@@ -36,7 +36,7 @@ Item {
     readonly property int newGroupWidth: 200
     readonly property int filesWidth: 380
     readonly property int columnWidth: {
-        const count = clusters.clusters.length + (clusters.commits.length > 0 ? 1 : 0)
+        const count = clusters.clusters.length + (clusters.commitCount > 0 ? 1 : 0)
         if (count === 0)
             return 320
         // From the view, not the board, whose size follows its columns
@@ -45,8 +45,8 @@ Item {
     }
     // The board's columns side by side, known before they are laid out
     readonly property int pinnedCount: clusters.clusters.filter(cluster => cluster.pinned).length
-    readonly property real boardWidth: (clusters.commits.length + clusters.clusters.length - pinnedCount)
-                                       * (columnWidth + 8) + (clusters.commits.length > 0 ? 10 : 0) + newGroupWidth
+    readonly property real boardWidth: (clusters.commitCount + clusters.clusters.length - pinnedCount)
+                                       * (columnWidth + 8) + (clusters.commitCount > 0 ? 10 : 0) + newGroupWidth
     // How many commits the board showed, and the column it shows first,
     // to keep its place as commits come and go and columns change width
     property int shownCommits: -1
@@ -64,7 +64,7 @@ Item {
     // Whether a commit is one a remote branch has: changing it would need
     // a force push, so nothing goes in or out of it
     function isLocked(sha: string): bool {
-        return sha !== "" && (clusters.commits.find(commit => commit.sha === sha)?.published ?? false)
+        return sha !== "" && clusters.isPublished(sha)
     }
     function hunkById(id: string): var {
         return clusters.hunks.find(hunk => hunk.id === id) ?? null
@@ -133,7 +133,7 @@ Item {
     // the first column shown, a commit made from a group moves the board
     // along by its column, and columns changing width keep the first one
     function followHistory() {
-        const count = clusters.commits.length
+        const count = clusters.commitCount
         const before = shownCommits
         if (before === count)
             return
@@ -207,8 +207,9 @@ Item {
 
         objectName: "groupColumn"
         required property var modelData
-        required property int index
         required property Item lane
+        // Its place in the order the groups are committed, pinned or not
+        readonly property int order: view.clusters.clusters.findIndex(cluster => cluster.id === modelData.id)
         readonly property color tint: view.colorOf(modelData.color)
 
         width: view.columnWidth
@@ -224,7 +225,7 @@ Item {
 
         // Where a moved group would go
         Rectangle {
-            visible: view.movedGroup >= 0 && view.moveTarget === group.index
+            visible: view.movedGroup >= 0 && view.moveTarget === group.order
                      && view.movedGroup !== group.modelData.id
             x: -6
             width: 3
@@ -291,13 +292,13 @@ Item {
                     color: group.tint
                     Label {
                         anchors.centerIn: parent
-                        text: group.index + 1
+                        text: group.order + 1
                         color: Styles.TokenInterface.textOn(group.tint)
                         font.pixelSize: 11
                         font.bold: true
                     }
                     ToolTip.visible: orderHover.hovered
-                    ToolTip.text: qsTr("Committed as number %1").arg(group.index + 1)
+                    ToolTip.text: qsTr("Committed as number %1").arg(group.order + 1)
                     HoverHandler {
                         id: orderHover
                     }
@@ -498,7 +499,7 @@ Item {
 
                             required property var modelData
                             required property int index
-                            readonly property bool isHead: index === view.clusters.commits.length - 1
+                            readonly property bool isHead: index === view.clusters.commitCount - 1
                             readonly property bool locked: modelData.published
                             readonly property bool dropping: commitDrop.containsDrag && view.dragged?.commit !== modelData.sha
                             readonly property bool target: dropping && !locked
@@ -626,7 +627,7 @@ Item {
 
                 // Where the history ends and what is still to commit begins
                 Rectangle {
-                    visible: view.clusters.commits.length > 0
+                    visible: view.clusters.commitCount > 0
                     width: 2
                     height: parent.height
                     radius: 1
@@ -639,11 +640,11 @@ Item {
                     height: parent.height
                     spacing: 8
 
+                    // Only those not pinned: the dock has the others
                     Repeater {
-                        model: view.clusters.clusters
+                        model: view.clusters.clusters.filter(cluster => !cluster.pinned)
                         delegate: GroupColumn {
                             lane: groups
-                            visible: !modelData.pinned
                         }
                     }
 
@@ -699,10 +700,9 @@ Item {
             spacing: 8
 
             Repeater {
-                model: view.clusters.clusters
+                model: view.clusters.clusters.filter(cluster => cluster.pinned)
                 delegate: GroupColumn {
                     lane: dock
-                    visible: modelData.pinned
                 }
             }
         }

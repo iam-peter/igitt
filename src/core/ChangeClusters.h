@@ -50,6 +50,7 @@ class ChangeClusters : public QObject
     // the remote's default branch, or else the upstream; down to the last
     // merge, MaxCommits at most. Published: on a remote-tracking branch.
     Q_PROPERTY(QVariantList commits READ commits NOTIFY changed FINAL)
+    Q_PROPERTY(int commitCount READ commitCount NOTIFY changed FINAL)
     // The changed files, each with the ids of its pieces: {path, hunks}
     Q_PROPERTY(QVariantList files READ files NOTIFY changed FINAL)
     Q_PROPERTY(int unassignedCount READ unassignedCount NOTIFY changed FINAL)
@@ -70,6 +71,7 @@ public:
     QVariantList clusters() const;
     QVariantList files() const;
     QVariantList commits() const;
+    int commitCount() const { return m_commits.size(); }
     static constexpr int MaxCommits = 30;
     int unassignedCount() const;
     QString error() const { return m_error; }
@@ -109,10 +111,16 @@ public:
     // The same for a hunk of a commit, against the commit's parent; no
     // lines are all of them.
     Q_INVOKABLE QByteArray commitPatch(const QString &sha, const QString &hunkId, const QList<int> &lines) const;
-    // Lines of a commit on their way into the working tree: once they show
-    // up there, they go into `cluster`. Until then, or dropExpected().
+    // Lines of a commit on their way into the working tree, to go into
+    // `cluster`: placeExpected(), once the move is done and the changes
+    // are read again, puts the lines that were not there before into it.
+    // Either that or dropExpected() forgets them.
     Q_INVOKABLE void expect(const QString &sha, const QString &hunkId, const QList<int> &lines, int cluster);
+    Q_INVOKABLE void placeExpected();
     Q_INVOKABLE void dropExpected();
+    // Whether a remote-tracking branch has the commit, so changing it
+    // would need a force push.
+    Q_INVOKABLE bool isPublished(const QString &sha) const;
 
     // Makes a commit of the cluster's lines on HEAD with its message, and
     // removes the cluster. Returns false and sets error if git refuses.
@@ -157,12 +165,14 @@ private:
         bool published = false;
         QList<FileDiff> diff;
     };
-    // A line expected in the working tree, by its file and change
+    // Lines expected in the working tree, by their file and change, and
+    // what the file's changes were before
     struct Expected
     {
         QString path;
-        QByteArray content;
+        QList<QByteArray> contents;
         int cluster = -1;
+        QHash<QByteArray, int> before;
     };
     struct Cluster
     {
@@ -174,6 +184,7 @@ private:
 
     int clusterIndex(int id) const;
     void readCommits();
+    QVariantList buildCommitList() const;
     const Commit *commit(const QString &sha) const;
     // A commit hunk's file and hunk index, from its id
     static std::pair<int, int> commitHunk(const QString &hunkId);
@@ -188,6 +199,10 @@ private:
     void setLineCluster(Line &line, int cluster);
     static QString lineKey(const QString &path, const QByteArray &content, int occurrence);
     QByteArray lineContent(const Hunk &hunk, const Line &line) const;
+    // A line by where it is in the working tree and its change, and how
+    // often each is among a file's changes
+    QByteArray lineIdentity(const Hunk &hunk, const Line &line) const;
+    QHash<QByteArray, int> linesOf(const QString &path) const;
 
     GitRunner m_git;
     QString m_base = QStringLiteral("HEAD");
@@ -196,6 +211,8 @@ private:
     QList<Cluster> m_clusters;
     QList<Commit> m_commits;
     QList<Expected> m_expected;
+    // commits(), built once per reading
+    QVariantList m_commitList;
     // What reload() keeps of lines and pieces that come and go
     QHash<QString, int> m_clusterOf;
     int m_nextId = 1;

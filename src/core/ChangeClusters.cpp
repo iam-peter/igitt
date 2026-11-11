@@ -50,6 +50,7 @@ void ChangeClusters::setPath(const QString &path)
     m_git.setWorkDir(path);
     m_clusters.clear();
     m_clusterOf.clear();
+    m_expected.clear();
     emit pathChanged();
     reload();
 }
@@ -76,6 +77,9 @@ void ChangeClusters::reload()
 {
     m_diff.clear();
     m_hunks.clear();
+    // Nothing of an earlier reading stays, should this one fail
+    m_commits.clear();
+    m_commitList.clear();
     if (m_git.workDir().isEmpty()) {
         emit changed();
         return;
@@ -160,24 +164,6 @@ void ChangeClusters::reload()
             m_hunks.append(hunk);
         }
     }
-    // Lines moved here out of a commit, into the cluster they were meant for
-    for (auto it = m_expected.begin(); it != m_expected.end();) {
-        bool placed = false;
-        for (Hunk &hunk : m_hunks) {
-            if (m_diff[hunk.file].path() != it->path || clusterIndex(it->cluster) < 0)
-                continue;
-            for (Line &line : hunk.lines) {
-                if (line.cluster < 0 && lineContent(hunk, line) == it->content) {
-                    setLineCluster(line, it->cluster);
-                    placed = true;
-                    break;
-                }
-            }
-            if (placed)
-                break;
-        }
-        it = placed ? m_expected.erase(it) : it + 1;
-    }
     readCommits();
     setError({});
     emit changed();
@@ -185,7 +171,6 @@ void ChangeClusters::reload()
 
 void ChangeClusters::readCommits()
 {
-    m_commits.clear();
     // What the branch is merged into: the remote's default branch, or the
     // upstream; without either, every commit down to the last merge
     const QString branch = QString::fromUtf8(m_git.run({QStringLiteral("symbolic-ref"), QStringLiteral("-q"),
@@ -204,22 +189,36 @@ void ChangeClusters::readCommits()
     if (!exists(merged))
         merged = exists(QStringLiteral("@{upstream}")) ? QStringLiteral("@{upstream}") : QString();
 
-    QStringList args{QStringLiteral("log"), QStringLiteral("--first-parent"),
-                     QStringLiteral("--max-count=%1").arg(MaxCommits),
-                     QStringLiteral("--format=%H%x1f%h%x1f%P%x1f%s"), m_base};
-    if (!merged.isEmpty())
-        args << QStringLiteral("--not") << merged;
-    const GitResult log = m_git.run(args);
+    // The commits and their changes in one reading, each record after a
+    // separator of its own: the ids, parents and subject, then the diff
+    const auto limited = [&](QStringList args) {
+        args.append(m_base);
+        if (!merged.isEmpty())
+            args << QStringLiteral("--not") << merged;
+        return args;
+    };
+    const GitResult log = m_git.run(limited({QStringLiteral("log"), QStringLiteral("--first-parent"),
+                                             QStringLiteral("--max-count=%1").arg(MaxCommits), QStringLiteral("-p"),
+                                             QStringLiteral("--no-color"), QStringLiteral("--no-ext-diff"),
+                                             QStringLiteral("--no-renames"), QStringLiteral("--src-prefix=a/"),
+                                             QStringLiteral("--dst-prefix=b/"),
+                                             QStringLiteral("--format=%x1e%H%x1f%h%x1f%P%x1f%s")}));
     if (!log.ok())
         return;
-    const GitResult unpublished = m_git.run({QStringLiteral("rev-list"), QStringLiteral("--max-count=%1").arg(MaxCommits),
-                                             m_base, QStringLiteral("--not"), QStringLiteral("--remotes")});
+    // The same commits, those no remote-tracking branch has
+    QStringList onNoRemote{QStringLiteral("rev-list"), QStringLiteral("--first-parent"),
+                           QStringLiteral("--max-count=%1").arg(MaxCommits), m_base, QStringLiteral("--not"),
+                           QStringLiteral("--remotes")};
+    if (!merged.isEmpty())
+        onNoRemote.append(merged);
+    const GitResult unpublished = m_git.run(onNoRemote);
     const QSet<QByteArray> local = [&] {
         const QList<QByteArray> ids = unpublished.out.split('\n');
         return QSet<QByteArray>(ids.cbegin(), ids.cend());
     }();
-    for (const QByteArray &entry : log.out.split('\n')) {
-        const QList<QByteArray> fields = entry.split('\x1f');
+    for (const QByteArray &record : log.out.split('\x1e')) {
+        const qsizetype end = record.indexOf('\n');
+        const QList<QByteArray> fields = record.left(end).split('\x1f');
         if (fields.size() < 4)
             continue;
         // A merge cannot be folded into, nor anything before it
@@ -230,13 +229,16 @@ void ChangeClusters::readCommits()
         commit.shortSha = QString::fromLatin1(fields[1]);
         commit.subject = decode(fields[3]);
         commit.published = !local.contains(fields[0]);
-        const GitResult diff = m_git.run({QStringLiteral("show"), QStringLiteral("--format="), QStringLiteral("--no-color"),
-                                          QStringLiteral("--no-ext-diff"), QStringLiteral("--no-renames"),
-                                          QStringLiteral("--src-prefix=a/"), QStringLiteral("--dst-prefix=b/"),
-                                          commit.sha});
-        commit.diff = parseDiff(diff.out);
+        commit.diff = end < 0 ? QList<FileDiff>() : parseDiff(record.mid(end + 1));
         m_commits.prepend(commit);
     }
+    m_commitList = buildCommitList();
+}
+
+bool ChangeClusters::isPublished(const QString &sha) const
+{
+    const Commit *c = commit(sha);
+    return c && c->published;
 }
 
 const ChangeClusters::Commit *ChangeClusters::commit(const QString &sha) const
@@ -291,17 +293,79 @@ QByteArray ChangeClusters::commitPatch(const QString &sha, const QString &hunkId
     return selectedPatch(c->diff[file], index, lines);
 }
 
+QHash<QByteArray, int> ChangeClusters::linesOf(const QString &path) const
+{
+    QHash<QByteArray, int> lines;
+    for (const Hunk &hunk : m_hunks) {
+        if (m_diff[hunk.file].path() == path) {
+            for (const Line &line : hunk.lines)
+                ++lines[lineIdentity(hunk, line)];
+        }
+    }
+    return lines;
+}
+
+QByteArray ChangeClusters::lineIdentity(const Hunk &hunk, const Line &line) const
+{
+    // Where the line is in the working tree, which a move between commits
+    // and the working tree does not touch: an added line's own number, a
+    // removed one's the number of the line it comes before
+    const QList<DiffLine> &lines = m_diff[hunk.file].hunks[hunk.index].lines;
+    int at = m_diff[hunk.file].hunks[hunk.index].newStart;
+    for (int l = 0; l < line.index; ++l) {
+        if (lines[l].newLine > 0)
+            at = lines[l].newLine + 1;
+    }
+    if (lines[line.index].newLine > 0)
+        at = lines[line.index].newLine;
+    return QByteArray::number(at) + '\0' + lineContent(hunk, line);
+}
+
 void ChangeClusters::expect(const QString &sha, const QString &hunkId, const QList<int> &lines, int cluster)
 {
     const Commit *c = commit(sha);
     const auto [file, index] = commitHunk(hunkId);
     if (!c || file < 0 || file >= c->diff.size() || index < 0 || index >= c->diff[file].hunks.size())
         return;
+    Expected expected;
+    expected.path = c->diff[file].path();
+    expected.cluster = cluster;
+    expected.before = linesOf(expected.path);
     const QList<DiffLine> &diffLines = c->diff[file].hunks[index].lines;
     for (int l = 0; l < diffLines.size(); ++l) {
         if (isChange(diffLines[l]) && (lines.isEmpty() || lines.contains(l)))
-            m_expected.append({c->diff[file].path(), char(diffLines[l].kind) + diffLines[l].content, cluster});
+            expected.contents.append(char(diffLines[l].kind) + diffLines[l].content);
     }
+    m_expected.append(expected);
+}
+
+void ChangeClusters::placeExpected()
+{
+    bool any = false;
+    for (Expected &expected : m_expected) {
+        if (clusterIndex(expected.cluster) < 0)
+            continue;
+        // Only lines that were not there before the move are its own
+        QHash<QByteArray, int> before = expected.before;
+        for (Hunk &hunk : m_hunks) {
+            if (m_diff[hunk.file].path() != expected.path)
+                continue;
+            for (Line &line : hunk.lines) {
+                int &known = before[lineIdentity(hunk, line)];
+                if (known > 0) {
+                    --known;
+                    continue;
+                }
+                if (line.cluster < 0 && expected.contents.removeOne(lineContent(hunk, line))) {
+                    setLineCluster(line, expected.cluster);
+                    any = true;
+                }
+            }
+        }
+    }
+    m_expected.clear();
+    if (any)
+        emit changed();
 }
 
 void ChangeClusters::dropExpected()
@@ -310,6 +374,11 @@ void ChangeClusters::dropExpected()
 }
 
 QVariantList ChangeClusters::commits() const
+{
+    return m_commitList;
+}
+
+QVariantList ChangeClusters::buildCommitList() const
 {
     QVariantList list;
     for (const Commit &commit : m_commits) {

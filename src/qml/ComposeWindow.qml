@@ -75,8 +75,7 @@ ApplicationWindow {
         const from = piece.commit ?? ""
         // A commit a remote branch has stays as it is, for now: changing it
         // would need a force push
-        const pushed = sha => sha !== "" && (clusters.commits.find(commit => commit.sha === sha)?.published ?? false)
-        if (pushed(from) || pushed(to)) {
+        if ((from !== "" && clusters.isPublished(from)) || (to !== "" && clusters.isPublished(to))) {
             clusters.setError(qsTr("A remote branch has that commit; changing it would need a force push."))
             return
         }
@@ -190,6 +189,8 @@ ApplicationWindow {
                 clusters.setError(error)
             }
             window.followRepository()
+            // Read again: what came out of a commit goes into its group
+            clusters.placeExpected()
         }
         function onHeadChanged() {
             window.followRepository()
