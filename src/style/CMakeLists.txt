@@ -28,6 +28,7 @@ qt_add_qml_module(igitt_style
         StyledBackground.qml
         ButtonLabel.qml
         Shadow.qml
+        PopupHold.qml
         ApplicationWindow.qml
         Button.qml
         CheckBox.qml

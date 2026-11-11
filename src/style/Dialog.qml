@@ -11,6 +11,10 @@ T.Dialog {
     // that has nothing to confirm
     property bool closeButton: false
     readonly property alias styleCascade: _style
+    // Keeps the drag handlers of the window behind off while shown
+    readonly property PopupHold popupHold: PopupHold {
+        popup: control
+    }
 
     StyleCascade {
         id: _style

@@ -300,6 +300,8 @@ Control {
 
         objectName: "commitDrag"
         target: null
+        // Not under a dialog, menu or popup (ApplicationWindow.popupOpen).
+        enabled: !(parent.Window.window?.popupOpen ?? false)
         yAxis.enabled: true
         xAxis.enabled: false
         cursorShape: Qt.ClosedHandCursor

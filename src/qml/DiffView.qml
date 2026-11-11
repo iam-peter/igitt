@@ -172,6 +172,8 @@ Pane {
                     DragHandler {
                         id: foldDrag
                         target: null
+                        // Not under a dialog, menu or popup (ApplicationWindow.popupOpen).
+                        enabled: !(parent.Window.window?.popupOpen ?? false)
                         cursorShape: Qt.ClosedHandCursor
                         onCentroidChanged: {
                             if (!active)

@@ -719,6 +719,123 @@ private slots:
         QVERIFY(warnings.isEmpty());
     }
 
+    // While a modal dialog is open, nothing behind it takes the pointer:
+    // not where the dialog has nothing of its own to press, and not beside
+    // it. No row is dragged or chosen.
+    void blocksThePointerBehindModalDialogs()
+    {
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, m_dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        auto *list = window->findChild<QQuickItem *>(u"historyList"_s);
+        QVERIFY(list);
+        list->setProperty("currentIndex", 0);
+
+        // Every drag handler of the window, delegates' too: they are no
+        // QObject children of the window, only of their items.
+        const auto dragHandlers = [window] {
+            QList<QObject *> handlers;
+            QList<QQuickItem *> items{window->contentItem()};
+            while (!items.isEmpty()) {
+                QQuickItem *item = items.takeLast();
+                for (QObject *child : item->children()) {
+                    if (child->inherits("QQuickDragHandler"))
+                        handlers.append(child);
+                }
+                items += item->childItems();
+            }
+            return handlers;
+        };
+        const auto anyActive = [&](const QString &name) {
+            for (QObject *handler : dragHandlers()) {
+                if (handler->objectName() == name && handler->property("active").toBool())
+                    return true;
+            }
+            return false;
+        };
+        // Presses at `start` and drags down over the history.
+        const auto drag = [&](QPoint start) {
+            // As a mouse does: it comes to the place before it presses.
+            for (int i = 5; i >= 0; --i)
+                QTest::mouseMove(window, start + QPoint(8 * i, 0));
+            QTest::mousePress(window, Qt::LeftButton, {}, start);
+            bool dragged = false;
+            for (int i = 1; i <= 10; ++i) {
+                QTest::mouseMove(window, start + QPoint(0, 12 * i));
+                dragged = dragged || anyActive(u"commitDrag"_s);
+            }
+            QTest::mouseRelease(window, Qt::LeftButton, {}, start + QPoint(0, 120));
+            QTest::mouseClick(window, Qt::LeftButton, {}, start + QPoint(0, 60));
+            return dragged;
+        };
+
+        // A commit was chosen with the mouse before: its handlers must not
+        // keep the pointer.
+        QQuickItem *chosen = historyRow(window, 0);
+        QVERIFY(chosen);
+        QTest::mouseClick(window, Qt::LeftButton, {}, chosen->mapToScene({600, chosen->height() / 2}).toPoint());
+
+        QVERIFY(QMetaObject::invokeMethod(window, "openSettings"));
+        auto *dialog = window->findChild<QObject *>(u"settingsDialog"_s);
+        QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        // Where the dialog has nothing to press: its padding at the right
+        // edge, and a spot of its content beside a button; both over the
+        // history.
+        auto *background = dialog->property("background").value<QQuickItem *>();
+        auto *content = dialog->property("contentItem").value<QQuickItem *>();
+        QVERIFY(background && content);
+        for (const QPoint inside : {background->mapToScene({background->width() - 6, 60}).toPoint(),
+                                    content->mapToScene({content->width() - 20, 150}).toPoint()}) {
+            QVERIFY(list->contains(list->mapFromScene(inside)));
+            QVERIFY2(!drag(inside), qPrintable(u"a commit was dragged from %1,%2 in the settings"_s
+                                                   .arg(inside.x()).arg(inside.y())));
+            QCOMPARE(list->property("currentIndex").toInt(), 0);
+            QVERIFY(dialog->property("opened").toBool());
+        }
+
+        // Qt still offers a press that something in the dialog takes to the
+        // handlers beneath it, so they are off while it is open.
+        const auto handlersEnabled = [&] {
+            QStringList on;
+            for (QObject *handler : dragHandlers()) {
+                if (handler->property("enabled").toBool())
+                    on.append(handler->objectName().isEmpty() ? QString::fromLatin1(handler->metaObject()->className())
+                                                              : handler->objectName());
+            }
+            return on;
+        };
+        QCOMPARE(handlersEnabled(), QStringList());
+
+        // Beside the dialog: it closes, and the press is spent on that.
+        QQuickItem *row = historyRow(window, 1);
+        QVERIFY(row);
+        QVERIFY2(!drag(row->mapToScene({20, row->height() / 2}).toPoint()),
+                 "a commit was dragged beside the settings");
+        QTRY_VERIFY(!dialog->property("opened").toBool());
+        QVERIFY(!handlersEnabled().isEmpty());
+
+        // A menu holds them off as well, and so does a combo box's list.
+        rightClickCommit(window, 2);
+        QTRY_VERIFY(window->property("popupOpen").toBool());
+        QCOMPARE(handlersEnabled(), QStringList());
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!window->property("popupOpen").toBool());
+        QVERIFY(!handlersEnabled().isEmpty());
+
+        click(window, u"branchScope"_s);
+        QTRY_VERIFY(window->property("popupOpen").toBool());
+        QCOMPARE(handlersEnabled(), QStringList());
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!window->property("popupOpen").toBool());
+        QVERIFY(!handlersEnabled().isEmpty());
+    }
+
     // Every theme reaches the window, the graph and the controls without a
     // warning, and a theme written into the user's folder is shown as soon
     // as it is saved.

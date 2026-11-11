@@ -204,6 +204,7 @@ ApplicationWindow {
 
     SettingsDialog {
         id: settingsDialog
+        objectName: "settingsDialog"
         anchors.centerIn: parent
     }
 
@@ -375,12 +376,16 @@ ApplicationWindow {
         onAccepted: repo.open(selectedFolder)
     }
 
+    // Not while a dialog asks something about the repository as it is, or
+    // a menu or popup is open.
     Shortcut {
         sequences: [StandardKey.Refresh, "Ctrl+R"]
+        enabled: !root.popupOpen
         onActivated: repo.refresh()
     }
     Shortcut {
         sequences: [StandardKey.Open]
+        enabled: !root.popupOpen
         onActivated: openDialog.open()
     }
 

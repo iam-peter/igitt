@@ -7,6 +7,12 @@ import QtQuick.Templates as T
 T.ApplicationWindow {
     readonly property Semantics s: TokenInterface.semantics
 
+    // Dialogs, popups and menus shown over the window (PopupHold). While
+    // there are any, the window's drag handlers stay off: Qt lets them take
+    // a press that something in a popup above them took.
+    property int popupsOpen: 0
+    readonly property bool popupOpen: popupsOpen > 0
+
     color: s.background_default
 
     palette.window: s.background_default
