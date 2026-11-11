@@ -17,11 +17,16 @@ ModalDialog {
     }
 
     title: qsTr("Settings")
-    standardButtons: Dialog.Close
+    // Every setting takes effect at once, so there is nothing to confirm.
+    closeButton: true
 
     contentItem: BoundedScrollView {
+        id: scroller
+
         implicitWidth: 520
         implicitHeight: Math.min(form.implicitHeight, 560)
+        // The scroll bar beside the controls, not over them.
+        rightPadding: scroller.ScrollBar.vertical.visible ? scroller.ScrollBar.vertical.width + 8 : 0
         contentWidth: availableWidth
 
         ColumnLayout {

@@ -7,6 +7,9 @@ T.Dialog {
     id: control
 
     property list<Style> styles
+    // A cross at the top right that closes the dialog (reject()), for one
+    // that has nothing to confirm
+    property bool closeButton: false
     readonly property alias styleCascade: _style
 
     StyleCascade {
@@ -73,8 +76,24 @@ T.Dialog {
         color: _titleStyle.text.color
         leftPadding: _titleStyle.padding.left
         rightPadding: _titleStyle.padding.right
+                      + (control.closeButton ? _close.width + Primitives.spacing.sp100 : 0)
         topPadding: _titleStyle.padding.top
         bottomPadding: _titleStyle.padding.bottom
+
+        ToolButton {
+            id: _close
+            objectName: "dialogCloseButton"
+            visible: control.closeButton
+            styles: [ButtonStyle.small]
+            // Its cross under the title's right edge, centered on its line
+            anchors.right: parent.right
+            anchors.rightMargin: _titleStyle.padding.right - (width - icon.width) / 2
+            anchors.verticalCenter: parent.top
+            anchors.verticalCenterOffset: parent.topPadding
+                                          + (parent.height - parent.topPadding - parent.bottomPadding) / 2
+            icon.source: "qrc:/qt/qml/IgittStyle/images/x.svg"
+            onClicked: control.reject()
+        }
     }
 
     footer: DialogButtonBox {

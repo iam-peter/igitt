@@ -61,6 +61,7 @@ qt_add_qml_module(igitt_style
         images/check.svg
         images/chevron-down.svg
         images/chevron-right.svg
+        images/x.svg
         themes/light.json
         themes/dark.json
         themes/alucard.json
