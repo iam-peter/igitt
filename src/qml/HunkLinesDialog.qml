@@ -146,8 +146,11 @@ ModalDialog {
                         color: dialog.s.text_muted
                         font.pixelSize: 11
                     }
+                    // The handler's own point has the modifiers; the
+                    // event point it passes does not
                     TapHandler {
-                        onTapped: (point, button) => dialog.toggle(row.index, point.modifiers & Qt.ShiftModifier)
+                        id: tap
+                        onTapped: dialog.toggle(row.index, (tap.point.modifiers & Qt.ShiftModifier) !== 0)
                     }
                 }
             }

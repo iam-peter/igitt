@@ -70,6 +70,31 @@ ApplicationWindow {
         clusters.setError("")
         repo.commitPatch(patch, clusters.clusterMessage(pending))
     }
+    // What the changes are read against: the planned HEAD while planning
+    function currentBase(): string {
+        return repo.planning && repo.headSha !== "" ? repo.headSha : "HEAD"
+    }
+    // The changes again, after they moved outside this window: a commit
+    // from the main window or a terminal, a checkout, a plan begun or
+    // ended. Not while committing, which reads them itself.
+    function followRepository() {
+        if (committing)
+            return
+        const base = currentBase()
+        if (clusters.base !== base)
+            clusters.base = base
+        else
+            clusters.reload()
+    }
+    // A commit on its way that will not report back: the repository was
+    // replaced, or the plan began or ended, and its result was dropped
+    function abandonCommits(reason: string) {
+        if (!committing)
+            return
+        queue = []
+        pending = -1
+        clusters.setError(reason)
+    }
 
     width: 1300
     height: 850
@@ -89,11 +114,17 @@ ApplicationWindow {
         {name: qsTr("Stack"), view: stackView},
     ]
 
+    // The base is set here, not bound: after a commit it changes together
+    // with the committed cluster (committed()), in one reading
     ChangeClusters {
         id: clusters
         path: window.repo.path
-        // The planned HEAD while planning
-        base: window.repo.planning && window.repo.headSha !== "" ? window.repo.headSha : "HEAD"
+        Component.onCompleted: base = window.currentBase()
+    }
+
+    onActiveChanged: {
+        if (active)
+            followRepository()
     }
 
     Connections {
@@ -107,13 +138,18 @@ ApplicationWindow {
                 window.pending = -1
                 return
             }
-            clusters.committed(window.pending)
+            clusters.committed(window.pending, window.currentBase())
             window.next()
         }
-        // Planning began or ended: the changes are read against the other
-        // HEAD
+        function onHeadChanged() {
+            window.followRepository()
+        }
         function onPlanningChanged() {
-            clusters.reload()
+            window.abandonCommits(qsTr("Planning began or ended before the commits were made; look at the history."))
+            window.followRepository()
+        }
+        function onPathChanged() {
+            window.abandonCommits("")
         }
     }
 

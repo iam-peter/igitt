@@ -921,6 +921,14 @@ private slots:
                  "Add the compose notes\n\nWhy they are needed."_ba);
         repo->discardPlan();
         QVERIFY(settle(*repo));
+        QTRY_VERIFY(stillChanged());
+
+        // A commit from outside the window: it reads the changes again
+        git({"add", "compose.txt"});
+        git({"commit", "-q", "-m", "Add the compose notes elsewhere"});
+        repo->refresh();
+        QVERIFY(settle(*repo));
+        QTRY_VERIFY(!stillChanged());
         compose->close();
 
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.value(0).toString()));

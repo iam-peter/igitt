@@ -5,6 +5,7 @@
 
 #include <QCryptographicHash>
 #include <QDir>
+#include <QFile>
 #include <QTemporaryDir>
 #include <QSet>
 
@@ -82,25 +83,31 @@ void ChangeClusters::reload()
 
     // Everything in the working tree against the base, staged or not and
     // untracked files too: clusters take the place of the staging area.
-    // Read through an index of its own holding the base and the working
-    // tree, which also holds when the base is a planned commit that the
-    // real index knows nothing of.
+    // Read through an index of its own holding the working tree, which
+    // also holds when the base is a planned commit that the real index
+    // knows nothing of.
     QTemporaryDir scratch;
+    const QString scratchIndex = QDir(scratch.path()).filePath(QStringLiteral("index"));
     QProcessEnvironment env;
-    env.insert(QStringLiteral("GIT_INDEX_FILE"), QDir(scratch.path()).filePath(QStringLiteral("index")));
+    env.insert(QStringLiteral("GIT_INDEX_FILE"), scratchIndex);
     const bool unborn = !m_git.run({QStringLiteral("rev-parse"), QStringLiteral("-q"), QStringLiteral("--verify"),
                                     m_base + QStringLiteral("^{commit}")}).ok();
-    const GitResult read = m_git.run(unborn ? QStringList{QStringLiteral("read-tree"), QStringLiteral("--empty")}
-                                            : QStringList{QStringLiteral("read-tree"), m_base},
-                                     {}, env);
+    // A copy of the real index holds what git knows of every file (its
+    // stat data), so adding the working tree to it only reads the files
+    // that changed; against the base, its own content does not matter
+    const QString realIndex = QDir(m_git.workDir()).absoluteFilePath(
+        QString::fromUtf8(m_git.run({QStringLiteral("rev-parse"), QStringLiteral("--git-path"),
+                                     QStringLiteral("index")}).out.trimmed()));
+    if (QFile::exists(realIndex))
+        QFile::copy(realIndex, scratchIndex);
     const GitResult added = m_git.run({QStringLiteral("add"), QStringLiteral("-A")}, {}, env);
     QStringList diffArgs{QStringLiteral("diff"), QStringLiteral("--cached"), QStringLiteral("--no-color"),
                          QStringLiteral("--no-ext-diff"), QStringLiteral("--no-renames")};
     if (!unborn)
         diffArgs.append(m_base);
     const GitResult diff = m_git.run(diffArgs, {}, env);
-    if (!scratch.isValid() || !read.ok() || !added.ok() || !diff.ok()) {
-        setError(!read.ok() ? read.errorText() : !added.ok() ? added.errorText() : diff.errorText());
+    if (!scratch.isValid() || !added.ok() || !diff.ok()) {
+        setError(!added.ok() ? added.errorText() : diff.errorText());
         emit changed();
         return;
     }
@@ -133,7 +140,7 @@ void ChangeClusters::reload()
                 const int occurrence = seen[content]++;
                 Line line;
                 line.index = l;
-                line.key = hash(path + '\0' + content + '\0' + QByteArray::number(occurrence));
+                line.key = lineKey(file.path(), content, occurrence);
                 line.cluster = m_clusterOf.value(line.key, -1);
                 if (clusterIndex(line.cluster) < 0)
                     line.cluster = -1;
@@ -539,6 +546,15 @@ bool ChangeClusters::commitCluster(int id)
     const int index = clusterIndex(id);
     if (index < 0)
         return false;
+    // The patch is against the base; committed on HEAD, it has to be HEAD
+    const auto commitOf = [this](const QString &rev) {
+        return m_git.run({QStringLiteral("rev-parse"), QStringLiteral("-q"), QStringLiteral("--verify"),
+                          rev + QStringLiteral("^{commit}")}).out.trimmed();
+    };
+    if (m_base != QLatin1String("HEAD") && commitOf(m_base) != commitOf(QStringLiteral("HEAD"))) {
+        setError(tr("The changes are read against %1, not HEAD; commit them through the plan.").arg(m_base));
+        return false;
+    }
     const QByteArray patch = clusterPatch(id);
     if (patch.isEmpty()) {
         setError(tr("“%1” has no changes to commit.").arg(title(m_clusters[index].message)));
@@ -552,20 +568,56 @@ bool ChangeClusters::commitCluster(int id)
         return false;
     }
     committed(id);
+    // Committed, but something after it went wrong
+    if (!error.isEmpty())
+        setError(error);
     emit clusterCommitted(sha);
     return true;
 }
 
-void ChangeClusters::committed(int id)
+QString ChangeClusters::lineKey(const QString &path, const QByteArray &content, int occurrence)
+{
+    return hash(path.toUtf8() + '\0' + content + '\0' + QByteArray::number(occurrence));
+}
+
+QByteArray ChangeClusters::lineContent(const Hunk &hunk, const Line &line) const
+{
+    const DiffLine &diffLine = m_diff[hunk.file].hunks[hunk.index].lines[line.index];
+    return char(diffLine.kind) + diffLine.content;
+}
+
+void ChangeClusters::committed(int id, const QString &base)
 {
     const int index = clusterIndex(id);
     if (index >= 0)
         m_clusters.removeAt(index);
-    for (auto it = m_clusterOf.begin(); it != m_clusterOf.end();) {
-        if (it.value() == id)
-            it = m_clusterOf.erase(it);
-        else
-            ++it;
+
+    // A line is known by how often the same change came before it in its
+    // file. Once the committed lines are gone, a line after one of them
+    // with the same change counts one less: its key is made anew from
+    // the lines that stay, so it keeps its cluster.
+    QHash<QString, int> kept;
+    int file = -1;
+    QHash<QByteArray, int> seen;
+    for (const Hunk &hunk : std::as_const(m_hunks)) {
+        if (hunk.file != file) {
+            file = hunk.file;
+            seen.clear();
+        }
+        for (const Line &line : hunk.lines) {
+            if (line.cluster == id)
+                continue;
+            const QByteArray content = lineContent(hunk, line);
+            const int occurrence = seen[content]++;
+            if (line.cluster >= 0)
+                kept.insert(lineKey(m_diff[hunk.file].path(), content, occurrence), line.cluster);
+        }
+    }
+    m_clusterOf = kept;
+
+    if (!base.isEmpty() && base != m_base) {
+        m_base = base;
+        emit baseChanged();
     }
     reload();
 }

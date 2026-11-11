@@ -21,6 +21,10 @@ QString treeWithPatch(const GitRunner &git, const QString &base, const QByteArra
 // on a scratch index holding HEAD and the patch, so hooks and signing apply
 // as in a terminal, and nothing else of the index or the working tree goes
 // into it. Afterwards the index entries of the patch's paths follow the new
-// HEAD; what else is staged stays staged. Returns the new commit's id, or
-// an empty string with `error` set.
+// HEAD; what else is staged stays staged. Refuses while a merge, a
+// cherry-pick or a revert is in progress, which git commit would conclude
+// with the patch alone.
+//
+// Returns the new commit's id, or an empty string with `error` set. With
+// an id, `error` may still say that the index could not follow.
 QString commitPatch(const GitRunner &git, const QByteArray &patch, const QString &message, QString &error);

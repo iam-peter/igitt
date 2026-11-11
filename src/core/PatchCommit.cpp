@@ -68,6 +68,16 @@ QString commitPatch(const GitRunner &git, const QByteArray &patch, const QString
         error = tr("There are no changes to commit.");
         return {};
     }
+    // git commit would make the patch the merge's or cherry-pick's result
+    const QList<std::pair<const char *, QString>> operations{
+        {"MERGE_HEAD", tr("a merge")}, {"CHERRY_PICK_HEAD", tr("a cherry-pick")}, {"REVERT_HEAD", tr("a revert")}};
+    for (const auto &[ref, what] : operations) {
+        if (git.run({QStringLiteral("rev-parse"), QStringLiteral("-q"), QStringLiteral("--verify"),
+                     QString::fromLatin1(ref)}).ok()) {
+            error = tr("Finish %1 first: committing now would conclude it with these changes alone.").arg(what);
+            return {};
+        }
+    }
     QTemporaryDir scratch;
     if (!scratch.isValid()) {
         error = tr("Cannot make a scratch index: %1").arg(scratch.errorString());
@@ -96,7 +106,12 @@ QString commitPatch(const GitRunner &git, const QByteArray &patch, const QString
         error = r.errorText();
         return {};
     }
-    git.run(QStringList{QStringLiteral("reset"), QStringLiteral("-q"), QStringLiteral("HEAD"), QStringLiteral("--")}
-            + patchPaths(patch));
-    return firstLine(git.run({QStringLiteral("rev-parse"), QStringLiteral("HEAD")}).out);
+    const QString sha = firstLine(git.run({QStringLiteral("rev-parse"), QStringLiteral("HEAD")}).out);
+    // Without this, the index would still hold the files as they were, and
+    // the next commit from it would take the patch back
+    const GitResult reset = git.run(QStringList{QStringLiteral("reset"), QStringLiteral("-q"), QStringLiteral("HEAD"),
+                                                QStringLiteral("--")} + patchPaths(patch));
+    if (!reset.ok())
+        error = tr("Committed, but the index of its files could not follow: %1").arg(reset.errorText());
+    return sha;
 }

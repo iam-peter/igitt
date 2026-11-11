@@ -621,6 +621,8 @@ void Repository::commitPatch(const QByteArray &patch, const QString &message)
             outcome.error = tr("Committing “%1” failed: %2").arg(subject, error);
             outcome.patchCommitted = error;
         } else {
+            // Committed; error may say what went wrong after it
+            outcome.error = error;
             outcome.patchCommitted = QString();
         }
         outcome.state = loadState(sourceFor(git, nullptr), request, history);

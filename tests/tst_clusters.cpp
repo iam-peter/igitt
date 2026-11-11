@@ -221,6 +221,59 @@ private slots:
                  "Add the notes\n\nThey say what dark mode is.\n\nTask-number: QTBUG-1"_ba);
     }
 
+    // The same change twice in a file, in two clusters: committing the
+    // first one's cluster leaves the second one in its own.
+    void keepsARepeatedLineInItsCluster()
+    {
+        write("ui.txt", lines({{3, "}"}, {16, "}"}}));
+        ChangeClusters clusters;
+        clusters.setPath(m_dir->path());
+        const int first = clusters.addCluster(u"Close the top"_s);
+        const int second = clusters.addCluster(u"Close the bottom"_s);
+        for (const QVariant &value : clusters.hunks()) {
+            const QVariantMap hunk = value.toMap();
+            if (hunk.value(u"path"_s) == "ui.txt"_L1)
+                clusters.assign(hunk.value(u"id"_s).toString(), hunk.value(u"line"_s).toInt() < 10 ? first : second);
+        }
+        QVERIFY2(clusters.commitCluster(first), qPrintable(clusters.error()));
+        const QVariantList left = clusters.clusters();
+        QCOMPARE(left.size(), 1);
+        QCOMPARE(left.first().toMap().value(u"hunks"_s).toList().size(), 1);
+        QVERIFY2(clusters.commitCluster(second), qPrintable(clusters.error()));
+        QCOMPARE(git({"show", "HEAD:ui.txt"}), lines({{3, "}"}, {16, "}"}}));
+    }
+
+    // git commit would conclude a merge with the cluster alone.
+    void refusesWhileAMergeIsInProgress()
+    {
+        const QByteArray head = git({"rev-parse", "HEAD"}).trimmed();
+        QFile mergeHead(m_dir->filePath(u".git/MERGE_HEAD"_s));
+        QVERIFY(mergeHead.open(QIODevice::WriteOnly));
+        mergeHead.write(head + '\n');
+        mergeHead.close();
+        ChangeClusters clusters;
+        clusters.setPath(m_dir->path());
+        const int cluster = clusters.addCluster(u"UI"_s);
+        clusters.assignFile(u"ui.txt"_s, cluster);
+        QVERIFY(!clusters.commitCluster(cluster));
+        QVERIFY(clusters.error().contains(u"merge"_s));
+        QCOMPARE(git({"log", "--format=%s"}), "Start\n"_ba);
+    }
+
+    // The changes against another commit than HEAD, a planned one, are
+    // not committed on HEAD.
+    void refusesToCommitAgainstAnotherBase()
+    {
+        git({"commit", "-q", "--allow-empty", "-m", "Later"});
+        ChangeClusters clusters;
+        clusters.setPath(m_dir->path());
+        clusters.setBase(u"HEAD~1"_s);
+        const int cluster = clusters.addCluster(u"UI"_s);
+        clusters.assignFile(u"ui.txt"_s, cluster);
+        QVERIFY(!clusters.commitCluster(cluster));
+        QCOMPARE(git({"log", "-1", "--format=%s"}), "Later\n"_ba);
+    }
+
     void refusesAnEmptyCluster()
     {
         ChangeClusters clusters;

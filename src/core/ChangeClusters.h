@@ -107,8 +107,10 @@ public:
     // before.
     Q_INVOKABLE bool commitAll();
     // A cluster was committed some other way (Repository::commitPatch()):
-    // it goes, and the changes are read again.
-    Q_INVOKABLE void committed(int id);
+    // it goes, and the changes are read again, against `base` if given (a
+    // planned commit). The other clusters keep their lines, also where the
+    // committed one had the same change earlier in a file.
+    Q_INVOKABLE void committed(int id, const QString &base = {});
     Q_INVOKABLE void setError(const QString &error);
 
 signals:
@@ -150,6 +152,8 @@ private:
     // A piece id's hunk and cluster
     static std::pair<QString, int> parsePiece(const QString &pieceId);
     void setLineCluster(Line &line, int cluster);
+    static QString lineKey(const QString &path, const QByteArray &content, int occurrence);
+    QByteArray lineContent(const Hunk &hunk, const Line &line) const;
     // A piece's position goes with its lines to the piece they make up now
     void movePosition(const QString &from, const QString &to);
 

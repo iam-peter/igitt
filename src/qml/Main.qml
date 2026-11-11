@@ -128,6 +128,9 @@ ApplicationWindow {
     onClosing: {
         for (const timelapse of Array.from(timelapses))
             timelapse.close()
+        // They work on this window's repository, which goes with it
+        for (const composer of Array.from(composers))
+            composer.close()
     }
 
     function openSettings() {
