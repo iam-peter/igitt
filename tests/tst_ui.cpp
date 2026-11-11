@@ -877,9 +877,37 @@ private slots:
         QCOMPARE(clusters->unassignedCount(), clusters->hunks().size());
 
         const int cluster = clusters->addCluster(u"Feature"_s);
-        clusters->assign(clusters->hunks().first().toMap().value(u"id"_s).toString(), cluster);
+        clusters->setClusterMessage(cluster, u"Add the compose notes\n\nWhy they are needed."_s);
+        QString composeHunk;
+        for (const QVariant &hunk : clusters->hunks()) {
+            if (hunk.toMap().value(u"path"_s) == "compose.txt"_L1)
+                composeHunk = hunk.toMap().value(u"id"_s).toString();
+        }
+        QVERIFY(!composeHunk.isEmpty());
+        clusters->assign(composeHunk, cluster);
         QTRY_COMPARE(clusters->unassignedCount(), clusters->hunks().size() - 1);
         screenshot(compose, u"compose"_s);
+
+        // While planning, the cluster's commit goes into the plan, and the
+        // changes are read against it
+        repo->startPlanning();
+        QVERIFY(settle(*repo));
+        QTRY_VERIFY(repo->planning());
+        QVERIFY(QMetaObject::invokeMethod(compose, "commitCluster", Q_ARG(int, cluster)));
+        QVERIFY(settle(*repo));
+        QTRY_COMPARE(repo->plan()->count(), 1);
+        QTRY_VERIFY(clusters->clusters().isEmpty());
+        const auto stillChanged = [clusters] {
+            const QVariantList hunks = clusters->hunks();
+            return std::any_of(hunks.cbegin(), hunks.cend(), [](const QVariant &hunk) {
+                return hunk.toMap().value(u"path"_s) == "compose.txt"_L1;
+            });
+        };
+        QTRY_VERIFY(!stillChanged());
+        QCOMPARE(gitOut({"log", "-1", "--format=%B", repo->headSha()}).trimmed(),
+                 "Add the compose notes\n\nWhy they are needed."_ba);
+        repo->discardPlan();
+        QVERIFY(settle(*repo));
         compose->close();
 
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.value(0).toString()));

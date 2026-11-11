@@ -84,7 +84,7 @@ private slots:
         clusters.moveCluster(fix, 0);
 
         const QByteArray tree = git({"status", "--porcelain"});
-        QSignalSpy committed(&clusters, &ChangeClusters::committed);
+        QSignalSpy committed(&clusters, &ChangeClusters::clusterCommitted);
         QVERIFY2(clusters.commitAll(), qPrintable(clusters.error()));
         QCOMPARE(committed.size(), 2);
 
@@ -124,7 +124,8 @@ private slots:
         }
         clusters.setHunkPosition(bottomHunk, 40, 50);
 
-        QVERIFY2(clusters.commitCluster(first, u"Change the tops"_s), qPrintable(clusters.error()));
+        clusters.renameCluster(first, u"Change the tops"_s);
+        QVERIFY2(clusters.commitCluster(first), qPrintable(clusters.error()));
         QCOMPARE(git({"log", "-1", "--format=%s"}), "Change the tops\n"_ba);
         // Still changed in the working tree, and no longer staged
         QCOMPARE(git({"diff", "--cached", "--name-only"}), QByteArray());
@@ -151,10 +152,73 @@ private slots:
         clusters.setPath(m_dir->path());
         const int cluster = clusters.addCluster(u"UI"_s);
         clusters.assignFile(u"ui.txt"_s, cluster);
-        QVERIFY2(clusters.commitCluster(cluster, {}), qPrintable(clusters.error()));
+        QVERIFY2(clusters.commitCluster(cluster), qPrintable(clusters.error()));
         QCOMPARE(git({"log", "-1", "--format=%s"}), "UI\n"_ba);
         QCOMPARE(git({"show", "HEAD", "--format=", "--name-only"}), "ui.txt\n"_ba);
         QCOMPARE(git({"diff", "--cached", "--name-only"}), "other.txt\n"_ba);
+    }
+
+    // The lines of one hunk go to two clusters: each commit has its own
+    // line, whatever the other cluster did to the hunk before.
+    void splitsAHunkByLines()
+    {
+        // One line apart, so one hunk; lines replaced side by side would
+        // leave the order of their halves open, as in git add -p
+        write("ui.txt", lines({{9, "dark mode toggle"}, {11, "timeout label"}}));
+        ChangeClusters clusters;
+        clusters.setPath(m_dir->path());
+        QString hunkId;
+        for (const QVariant &value : clusters.hunks()) {
+            if (value.toMap().value(u"path"_s) == "ui.txt"_L1)
+                hunkId = value.toMap().value(u"hunk"_s).toString();
+        }
+        QVERIFY(!hunkId.isEmpty());
+        const QVariantList rows = clusters.hunkLines(hunkId).value(u"lines"_s).toList();
+        QList<int> feature;
+        QList<int> fix;
+        for (const QVariant &value : rows) {
+            const QVariantMap line = value.toMap();
+            if (!line.value(u"changed"_s).toBool())
+                continue;
+            (line.value(u"text"_s).toString().contains(u"dark"_s) || line.value(u"text"_s) == "line 9"_L1
+                 ? feature : fix).append(line.value(u"index"_s).toInt());
+        }
+        QCOMPARE(feature.size(), 2);
+        QCOMPARE(fix.size(), 2);
+
+        const int first = clusters.addCluster(u"Add dark mode"_s);
+        const int second = clusters.addCluster(u"Label the timeout"_s);
+        clusters.assignLines(hunkId, feature, first);
+        clusters.assignLines(hunkId, fix, second);
+        // One hunk, two pieces
+        const QVariantList pieces = clusters.hunks();
+        QCOMPARE(std::count_if(pieces.cbegin(), pieces.cend(), [&](const QVariant &piece) {
+                     return piece.toMap().value(u"hunk"_s) == hunkId && piece.toMap().value(u"split"_s).toBool();
+                 }),
+                 2);
+
+        clusters.assignFile(u"core.txt"_s, second);
+        clusters.removeCluster(clusters.addCluster(u"Unused"_s));
+        QVERIFY2(clusters.commitAll(), qPrintable(clusters.error()));
+        QCOMPARE(git({"log", "--format=%s"}), "Label the timeout\nAdd dark mode\nStart\n"_ba);
+        QCOMPARE(git({"show", "HEAD~1:ui.txt"}), lines({{9, "dark mode toggle"}}));
+        QCOMPARE(git({"show", "HEAD:ui.txt"}), lines({{9, "dark mode toggle"}, {11, "timeout label"}}));
+    }
+
+    // A cluster's whole message goes into its commit: title, body and
+    // trailers; renaming changes only the title.
+    void commitsTheWholeMessage()
+    {
+        ChangeClusters clusters;
+        clusters.setPath(m_dir->path());
+        const int cluster = clusters.addCluster({});
+        clusters.setClusterMessage(cluster, u"Add notes\n\nThey say what dark mode is.\n\nTask-number: QTBUG-1"_s);
+        clusters.renameCluster(cluster, u"Add the notes"_s);
+        QCOMPARE(clusters.clusters().first().toMap().value(u"name"_s).toString(), u"Add the notes"_s);
+        clusters.assignFile(u"notes.txt"_s, cluster);
+        QVERIFY2(clusters.commitCluster(cluster), qPrintable(clusters.error()));
+        QCOMPARE(git({"log", "-1", "--format=%B"}).trimmed(),
+                 "Add the notes\n\nThey say what dark mode is.\n\nTask-number: QTBUG-1"_ba);
     }
 
     void refusesAnEmptyCluster()
@@ -162,7 +226,7 @@ private slots:
         ChangeClusters clusters;
         clusters.setPath(m_dir->path());
         const int cluster = clusters.addCluster(u"Nothing"_s);
-        QVERIFY(!clusters.commitCluster(cluster, {}));
+        QVERIFY(!clusters.commitCluster(cluster));
         QVERIFY(!clusters.error().isEmpty());
         QCOMPARE(git({"log", "--format=%s"}), "Start\n"_ba);
     }

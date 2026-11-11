@@ -1,0 +1,26 @@
+#pragma once
+
+#include "GitRunner.h"
+
+#include <QByteArray>
+#include <QString>
+#include <QStringList>
+
+// Commits a patch on its own, apart from the index: what composing commits
+// from clusters of changes does with each cluster.
+
+// The paths a patch changes.
+QStringList patchPaths(const QByteArray &patch);
+
+// The tree of `base` (a commit; empty for none) with `patch` applied, built
+// in an index of its own. Empty, with `error` set, if the patch does not
+// apply.
+QString treeWithPatch(const GitRunner &git, const QString &base, const QByteArray &patch, QString &error);
+
+// Commits `patch` on HEAD with `message`. The commit is made by git commit
+// on a scratch index holding HEAD and the patch, so hooks and signing apply
+// as in a terminal, and nothing else of the index or the working tree goes
+// into it. Afterwards the index entries of the patch's paths follow the new
+// HEAD; what else is staged stays staged. Returns the new commit's id, or
+// an empty string with `error` set.
+QString commitPatch(const GitRunner &git, const QByteArray &patch, const QString &message, QString &error);

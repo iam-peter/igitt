@@ -9,6 +9,7 @@ qt_add_qml_module(igitt_core
         core/LogParser.h core/LogParser.cpp
         core/GraphLayout.h core/GraphLayout.cpp
         core/LaneColors.h core/LaneColors.cpp
+        core/PatchCommit.h core/PatchCommit.cpp
         core/ChangeClusters.h core/ChangeClusters.cpp
         core/StatusParser.h core/StatusParser.cpp
         core/DiffParser.h core/DiffParser.cpp
@@ -98,6 +99,8 @@ qt_add_qml_module(igitt_ui
         qml/ComposeWindow.qml
         qml/ClusterView.qml
         qml/HunkCard.qml
+        qml/HunkLinesDialog.qml
+        qml/ClusterMessageDialog.qml
     SOURCES
         ui/CommitGraph.h ui/CommitGraph.cpp
         ui/DiffLineText.h ui/DiffLineText.cpp
@@ -146,6 +149,7 @@ qt_add_qml_module(igitt_ui
         icons/plus.svg
         icons/refresh-cw.svg
         icons/regex.svg
+        icons/scissors.svg
         icons/search.svg
         icons/settings.svg
         icons/skip-back.svg

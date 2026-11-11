@@ -23,6 +23,7 @@ struct PlanEntry
         Commit,
         Fold,
         EditHistory, // reword, move, squash or drop commits
+        CommitPatch, // a commit of a patch on HEAD alone, apart from the index
     };
 
     int id = 0;
@@ -31,9 +32,9 @@ struct PlanEntry
 
     QStringList paths;    // StagePaths (empty: everything), UnstagePaths
     QByteArray indexInfo; // StagePaths, after the first simulation
-    QByteArray patch;     // ApplyPatch, Fold
+    QByteArray patch;     // ApplyPatch, Fold, CommitPatch
     bool reverse = false; // ApplyPatch
-    QString message;      // Commit
+    QString message;      // Commit, CommitPatch
     bool amend = false;   // Commit
     QString target;       // Fold: a commit id from before the plan, or "plan:<id>"
     FoldBase base = FoldBase::Index;
@@ -85,7 +86,9 @@ public:
 
 private:
     bool simulate(PlanEntry &entry, QString &error);
-    bool simulateCommit(PlanEntry &entry, QString &error);
+    // Commits the index, or `tree` when it is given.
+    bool simulateCommit(PlanEntry &entry, QString &error, const QString &tree = {});
+    bool simulateCommitPatch(PlanEntry &entry, QString &error);
     bool simulateFold(PlanEntry &entry, QString &error);
     bool simulateEdit(PlanEntry &entry, QString &error);
     GitResult run(PlanEntry &entry, const QStringList &args, const QByteArray &input = {},

@@ -64,6 +64,45 @@ private slots:
         QVERIFY(git({"reflog", "-1"}).contains("igitt: execute plan"));
     }
 
+    // A planned commit of a patch on HEAD alone: what is staged stays out of
+    // it and staged, and its file follows the planned commit in the index.
+    void plansACommitOfAPatchAloneThenPublishesIt()
+    {
+        write("f.txt", lines({{2, "two"}, {5, "five"}, {9, "nine (B)"}}));
+        write("g.txt", "staged\n");
+        git({"add", "g.txt"});
+        const QByteArray realState = repoState();
+
+        PlanSession plan;
+        QString error;
+        QVERIFY2(plan.begin(m_git, error), qPrintable(error));
+        // Against HEAD, as the compose window reads the changes
+        const QList<FileDiff> files = parseDiff(m_git.run({u"diff"_s, u"HEAD"_s, u"--"_s, u"f.txt"_s}).out);
+        QCOMPARE(files.size(), 1);
+        LineSelection selection;
+        for (const DiffHunk &hunk : files.first().hunks) {
+            QList<bool> chosen;
+            for (const DiffLine &line : hunk.lines)
+                chosen.append(line.kind != DiffLine::Context && (line.content == "two" || line.content == "2"));
+            selection.append(chosen);
+        }
+        PlanEntry commit = entry(PlanEntry::CommitPatch);
+        commit.patch = buildPatch(files.first(), selection, PatchDirection::Forward);
+        commit.message = u"Change two"_s;
+        QVERIFY2(plan.add(commit, error), qPrintable(error));
+
+        QCOMPARE(repoState(), realState);
+        QCOMPARE(git({"show", plan.head() + u":f.txt"_s}), lines({{2, "two"}, {9, "nine (B)"}}));
+        QCOMPARE(git({"show", "--format=", "--name-only", plan.head()}), "f.txt\n"_ba);
+
+        QVERIFY2(plan.execute(error), qPrintable(error));
+        QCOMPARE(rev("HEAD"), plan.head());
+        QCOMPARE(git({"log", "-1", "--format=%s"}), "Change two\n"_ba);
+        // Line 5 still to commit, g.txt still staged
+        QCOMPARE(git({"diff", "--name-only"}), "f.txt\n"_ba);
+        QCOMPARE(git({"diff", "--cached", "--name-only"}), "g.txt\n"_ba);
+    }
+
     void seesEditsMadeInTheSameSecondAsTheIndex()
     {
         // A same-size edit carrying exactly the timestamp git cached for the

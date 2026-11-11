@@ -18,6 +18,11 @@ Rectangle {
     property bool showPath: true
     // A label in the title row, such as the group the hunk is in
     property string badge
+    // Whether the scissors show, for a hunk of more than one changed line
+    property bool splittable: (hunk.changedLines ?? 0) > 1
+
+    // The scissors: the hunk's lines are to go to different clusters
+    signal splitRequested()
 
     readonly property Styles.Semantics s: Styles.TokenInterface.semantics
     // The changed lines first: the context around them says little here.
@@ -60,7 +65,8 @@ Rectangle {
 
             Label {
                 Layout.fillWidth: true
-                text: card.showPath ? `${card.hunk.path}:${card.hunk.line}` : qsTr("line %1").arg(card.hunk.line)
+                text: (card.showPath ? `${card.hunk.path}:${card.hunk.line}` : qsTr("line %1").arg(card.hunk.line))
+                      + (card.hunk.split ? qsTr(" (part)") : "")
                 textFormat: Text.PlainText
                 elide: Text.ElideMiddle
                 font.bold: true
@@ -82,6 +88,17 @@ Rectangle {
                     color: Styles.TokenInterface.textOn(card.tint)
                     font.pixelSize: 10
                 }
+            }
+            IconButton {
+                objectName: "splitButton"
+                visible: card.splittable
+                iconName: "scissors"
+                implicitWidth: 20
+                implicitHeight: 20
+                onClicked: card.splitRequested()
+                ToolTip.visible: hovered
+                ToolTip.text: card.hunk.split ? qsTr("Its other lines are in other clusters; choose the lines of each")
+                                              : qsTr("Put some of its lines into another cluster")
             }
             Label {
                 visible: card.hunk.added > 0

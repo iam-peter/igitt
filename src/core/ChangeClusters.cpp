@@ -1,11 +1,12 @@
 #include "ChangeClusters.h"
 
 #include "PatchBuilder.h"
+#include "PatchCommit.h"
 
 #include <QCryptographicHash>
 #include <QDir>
-#include <QSet>
 #include <QTemporaryDir>
+#include <QSet>
 
 #include <algorithm>
 
@@ -14,24 +15,24 @@ namespace {
 // The palette views pick their colors from, by Cluster::color.
 constexpr int kColors = 8;
 
-QString hunkKey(const QString &path, const DiffHunk &hunk)
+bool isChange(const DiffLine &line)
 {
-    QCryptographicHash hash(QCryptographicHash::Sha1);
-    hash.addData(path.toUtf8());
-    for (const DiffLine &line : hunk.lines) {
-        if (line.kind == DiffLine::Added || line.kind == DiffLine::Removed) {
-            const char kind = char(line.kind);
-            hash.addData(QByteArrayView(&kind, 1));
-            hash.addData(line.content);
-            hash.addData("\n");
-        }
-    }
-    return QString::fromLatin1(hash.result().toHex().left(16));
+    return line.kind == DiffLine::Added || line.kind == DiffLine::Removed;
+}
+
+QString hash(const QByteArray &data)
+{
+    return QString::fromLatin1(QCryptographicHash::hash(data, QCryptographicHash::Sha1).toHex().left(16));
 }
 
 QString decode(const QByteArray &bytes)
 {
     return QString::fromUtf8(bytes);
+}
+
+QString title(const QString &message)
+{
+    return message.section(QLatin1Char('\n'), 0, 0).trimmed();
 }
 
 } // namespace
@@ -52,6 +53,16 @@ void ChangeClusters::setPath(const QString &path)
     reload();
 }
 
+void ChangeClusters::setBase(const QString &base)
+{
+    const QString value = base.isEmpty() ? QStringLiteral("HEAD") : base;
+    if (m_base == value)
+        return;
+    m_base = value;
+    emit baseChanged();
+    reload();
+}
+
 void ChangeClusters::setError(const QString &error)
 {
     if (m_error == error)
@@ -69,50 +80,73 @@ void ChangeClusters::reload()
         return;
     }
 
-    // Tracked changes against HEAD, staged or not: clusters take the place
-    // of the staging area. Then each untracked file as a new one.
-    QByteArray text;
-    const GitResult tracked = m_git.run({QStringLiteral("diff"), QStringLiteral("HEAD"), QStringLiteral("--no-color"),
-                                         QStringLiteral("--no-ext-diff"), QStringLiteral("--no-renames")});
-    if (!tracked.ok()) {
-        setError(tracked.errorText());
+    // Everything in the working tree against the base, staged or not and
+    // untracked files too: clusters take the place of the staging area.
+    // Read through an index of its own holding the base and the working
+    // tree, which also holds when the base is a planned commit that the
+    // real index knows nothing of.
+    QTemporaryDir scratch;
+    QProcessEnvironment env;
+    env.insert(QStringLiteral("GIT_INDEX_FILE"), QDir(scratch.path()).filePath(QStringLiteral("index")));
+    const bool unborn = !m_git.run({QStringLiteral("rev-parse"), QStringLiteral("-q"), QStringLiteral("--verify"),
+                                    m_base + QStringLiteral("^{commit}")}).ok();
+    const GitResult read = m_git.run(unborn ? QStringList{QStringLiteral("read-tree"), QStringLiteral("--empty")}
+                                            : QStringList{QStringLiteral("read-tree"), m_base},
+                                     {}, env);
+    const GitResult added = m_git.run({QStringLiteral("add"), QStringLiteral("-A")}, {}, env);
+    QStringList diffArgs{QStringLiteral("diff"), QStringLiteral("--cached"), QStringLiteral("--no-color"),
+                         QStringLiteral("--no-ext-diff"), QStringLiteral("--no-renames")};
+    if (!unborn)
+        diffArgs.append(m_base);
+    const GitResult diff = m_git.run(diffArgs, {}, env);
+    if (!scratch.isValid() || !read.ok() || !added.ok() || !diff.ok()) {
+        setError(!read.ok() ? read.errorText() : !added.ok() ? added.errorText() : diff.errorText());
         emit changed();
         return;
     }
-    text = tracked.out;
-    const GitResult others = m_git.run({QStringLiteral("ls-files"), QStringLiteral("--others"),
-                                        QStringLiteral("--exclude-standard"), QStringLiteral("-z")});
-    for (const QByteArray &name : others.out.split('\0')) {
-        if (name.isEmpty())
-            continue;
-        // --no-index exits 1 when the files differ, which they always do
-        const GitResult added = m_git.run({QStringLiteral("diff"), QStringLiteral("--no-index"), QStringLiteral("--no-color"),
-                                           QStringLiteral("--"), QStringLiteral("/dev/null"), QString::fromUtf8(name)});
-        text += added.out;
-    }
-    setError({});
+    const QByteArray text = diff.out;
     m_diff = parseDiff(text);
+    const QList<QByteArray> head = m_git.run({QStringLiteral("log"), QStringLiteral("-1"),
+                                              QStringLiteral("--format=%h%n%s"), m_base}).out.split('\n');
+    m_headSha = QString::fromUtf8(head.value(0));
+    m_headSubject = QString::fromUtf8(head.value(1));
 
-    QHash<QString, int> seen;
     for (int f = 0; f < m_diff.size(); ++f) {
         const FileDiff &file = m_diff[f];
         if (file.isBinary)
             continue;
+        // A line is known by its file, its change and how often the same
+        // change came before it in the file; a hunk by its lines' keys
+        QHash<QByteArray, int> seen;
+        QHash<QString, int> hunksSeen;
+        const QByteArray path = file.path().toUtf8();
         for (int h = 0; h < file.hunks.size(); ++h) {
-            const QString key = hunkKey(file.path(), file.hunks[h]);
-            // The same change twice in a file: tell them apart by order
-            const int occurrence = seen[key]++;
             Hunk hunk;
-            hunk.id = occurrence == 0 ? key : key + u'-' + QString::number(occurrence);
             hunk.file = f;
             hunk.index = h;
-            hunk.cluster = m_clusterOf.value(hunk.id, -1);
-            if (clusterIndex(hunk.cluster) < 0)
-                hunk.cluster = -1;
-            hunk.position = m_positionOf.value(hunk.id, QPointF(-1, -1));
+            QByteArray keys = path;
+            const QList<DiffLine> &lines = file.hunks[h].lines;
+            for (int l = 0; l < lines.size(); ++l) {
+                if (!isChange(lines[l]))
+                    continue;
+                const QByteArray content = char(lines[l].kind) + lines[l].content;
+                const int occurrence = seen[content]++;
+                Line line;
+                line.index = l;
+                line.key = hash(path + '\0' + content + '\0' + QByteArray::number(occurrence));
+                line.cluster = m_clusterOf.value(line.key, -1);
+                if (clusterIndex(line.cluster) < 0)
+                    line.cluster = -1;
+                keys += line.key.toLatin1();
+                hunk.lines.append(line);
+            }
+            const QString key = hash(keys);
+            const int occurrence = hunksSeen[key]++;
+            hunk.id = occurrence == 0 ? key : key + u'-' + QString::number(occurrence);
             m_hunks.append(hunk);
         }
     }
+    setError({});
     emit changed();
 }
 
@@ -125,13 +159,42 @@ int ChangeClusters::clusterIndex(int id) const
     return -1;
 }
 
-const ChangeClusters::Hunk *ChangeClusters::hunk(const QString &id) const
+ChangeClusters::Hunk *ChangeClusters::hunk(const QString &id)
 {
-    for (const Hunk &hunk : m_hunks) {
+    for (Hunk &hunk : m_hunks) {
         if (hunk.id == id)
             return &hunk;
     }
     return nullptr;
+}
+
+const ChangeClusters::Hunk *ChangeClusters::hunk(const QString &id) const
+{
+    return const_cast<ChangeClusters *>(this)->hunk(id);
+}
+
+QList<int> ChangeClusters::clustersOf(const Hunk &hunk)
+{
+    QList<int> clusters;
+    for (const Line &line : hunk.lines) {
+        if (!clusters.contains(line.cluster))
+            clusters.append(line.cluster);
+    }
+    return clusters;
+}
+
+QString ChangeClusters::pieceId(const QString &hunkId, int cluster)
+{
+    return hunkId + u'/' + (cluster < 0 ? QStringLiteral("none") : QString::number(cluster));
+}
+
+std::pair<QString, int> ChangeClusters::parsePiece(const QString &pieceId)
+{
+    const qsizetype slash = pieceId.lastIndexOf(u'/');
+    if (slash < 0)
+        return {pieceId, -2}; // a whole hunk
+    const QString cluster = pieceId.mid(slash + 1);
+    return {pieceId.left(slash), cluster == QLatin1String("none") ? -1 : cluster.toInt()};
 }
 
 QVariantList ChangeClusters::hunks() const
@@ -140,38 +203,81 @@ QVariantList ChangeClusters::hunks() const
     for (const Hunk &hunk : m_hunks) {
         const FileDiff &file = m_diff[hunk.file];
         const DiffHunk &diff = file.hunks[hunk.index];
-        int added = 0;
-        int removed = 0;
-        QVariantList lines;
-        for (const DiffLine &line : diff.lines) {
-            if (line.kind == DiffLine::Added)
-                ++added;
-            else if (line.kind == DiffLine::Removed)
-                ++removed;
-            if (line.kind == DiffLine::NoNewline)
-                continue;
-            lines.append(QVariantMap{
-                {QStringLiteral("kind"), QString(QChar::fromLatin1(line.kind))},
-                {QStringLiteral("text"), decode(line.content)},
+        const QList<int> pieces = clustersOf(hunk);
+        for (int cluster : pieces) {
+            int added = 0;
+            int removed = 0;
+            int first = -1;
+            QVariantList lines;
+            for (const Line &line : hunk.lines) {
+                if (line.cluster != cluster)
+                    continue;
+                const DiffLine &diffLine = diff.lines[line.index];
+                added += diffLine.kind == DiffLine::Added;
+                removed += diffLine.kind == DiffLine::Removed;
+                if (first < 0)
+                    first = diffLine.newLine > 0 ? diffLine.newLine : diffLine.oldLine;
+                lines.append(QVariantMap{
+                    {QStringLiteral("kind"), QString(QChar::fromLatin1(diffLine.kind))},
+                    {QStringLiteral("text"), decode(diffLine.content)},
+                });
+            }
+            const QString id = pieceId(hunk.id, cluster);
+            const QPointF position = m_positionOf.value(id, QPointF(-1, -1));
+            list.append(QVariantMap{
+                {QStringLiteral("id"), id},
+                {QStringLiteral("hunk"), hunk.id},
+                {QStringLiteral("path"), file.path()},
+                {QStringLiteral("isNew"), file.isNew},
+                {QStringLiteral("isDeleted"), file.isDeleted},
+                {QStringLiteral("header"), decode(diff.header())},
+                {QStringLiteral("section"), decode(diff.section).trimmed()},
+                {QStringLiteral("line"), first > 0 ? first : diff.newStart},
+                {QStringLiteral("added"), added},
+                {QStringLiteral("removed"), removed},
+                {QStringLiteral("lines"), lines},
+                {QStringLiteral("split"), pieces.size() > 1},
+                {QStringLiteral("changedLines"), hunk.lines.size()},
+                {QStringLiteral("cluster"), cluster},
+                {QStringLiteral("x"), position.x()},
+                {QStringLiteral("y"), position.y()},
             });
         }
-        list.append(QVariantMap{
-            {QStringLiteral("id"), hunk.id},
-            {QStringLiteral("path"), file.path()},
-            {QStringLiteral("isNew"), file.isNew},
-            {QStringLiteral("isDeleted"), file.isDeleted},
-            {QStringLiteral("header"), decode(diff.header())},
-            {QStringLiteral("section"), decode(diff.section).trimmed()},
-            {QStringLiteral("line"), diff.newCount > 0 ? diff.newStart : diff.oldStart},
-            {QStringLiteral("added"), added},
-            {QStringLiteral("removed"), removed},
-            {QStringLiteral("lines"), lines},
-            {QStringLiteral("cluster"), hunk.cluster},
-            {QStringLiteral("x"), hunk.position.x()},
-            {QStringLiteral("y"), hunk.position.y()},
-        });
     }
     return list;
+}
+
+QVariantMap ChangeClusters::hunkLines(const QString &hunkId) const
+{
+    const Hunk *h = hunk(hunkId);
+    if (!h)
+        return {};
+    const FileDiff &file = m_diff[h->file];
+    const DiffHunk &diff = file.hunks[h->index];
+    QHash<int, int> clusterOfLine;
+    for (const Line &line : h->lines)
+        clusterOfLine.insert(line.index, line.cluster);
+    QVariantList lines;
+    for (int l = 0; l < diff.lines.size(); ++l) {
+        const DiffLine &line = diff.lines[l];
+        if (line.kind == DiffLine::NoNewline)
+            continue;
+        lines.append(QVariantMap{
+            {QStringLiteral("index"), l},
+            {QStringLiteral("kind"), QString(QChar::fromLatin1(line.kind))},
+            {QStringLiteral("text"), decode(line.content)},
+            {QStringLiteral("changed"), isChange(line)},
+            {QStringLiteral("cluster"), clusterOfLine.value(l, -1)},
+            {QStringLiteral("oldLine"), line.oldLine},
+            {QStringLiteral("newLine"), line.newLine},
+        });
+    }
+    return {
+        {QStringLiteral("id"), h->id},
+        {QStringLiteral("path"), file.path()},
+        {QStringLiteral("line"), diff.newStart},
+        {QStringLiteral("lines"), lines},
+    };
 }
 
 QVariantList ChangeClusters::clusters() const
@@ -183,20 +289,26 @@ QVariantList ChangeClusters::clusters() const
         int added = 0;
         int removed = 0;
         for (const Hunk &hunk : m_hunks) {
-            if (hunk.cluster != cluster.id)
-                continue;
-            ids.append(hunk.id);
-            paths.insert(m_diff[hunk.file].path());
-            for (const DiffLine &line : m_diff[hunk.file].hunks[hunk.index].lines) {
-                added += line.kind == DiffLine::Added;
-                removed += line.kind == DiffLine::Removed;
+            bool any = false;
+            for (const Line &line : hunk.lines) {
+                if (line.cluster != cluster.id)
+                    continue;
+                any = true;
+                const DiffLine::Kind kind = m_diff[hunk.file].hunks[hunk.index].lines[line.index].kind;
+                added += kind == DiffLine::Added;
+                removed += kind == DiffLine::Removed;
+            }
+            if (any) {
+                ids.append(pieceId(hunk.id, cluster.id));
+                paths.insert(m_diff[hunk.file].path());
             }
         }
         QStringList files(paths.cbegin(), paths.cend());
         files.sort();
         list.append(QVariantMap{
             {QStringLiteral("id"), cluster.id},
-            {QStringLiteral("name"), cluster.name},
+            {QStringLiteral("name"), title(cluster.message)},
+            {QStringLiteral("message"), cluster.message},
             {QStringLiteral("color"), cluster.color},
             {QStringLiteral("hunks"), ids},
             {QStringLiteral("files"), files},
@@ -226,7 +338,8 @@ QVariantList ChangeClusters::files() const
             flush();
             current = hunk.file;
         }
-        ids.append(hunk.id);
+        for (int cluster : clustersOf(hunk))
+            ids.append(pieceId(hunk.id, cluster));
     }
     flush();
     return list;
@@ -234,14 +347,17 @@ QVariantList ChangeClusters::files() const
 
 int ChangeClusters::unassignedCount() const
 {
-    return int(std::count_if(m_hunks.cbegin(), m_hunks.cend(), [](const Hunk &hunk) { return hunk.cluster < 0; }));
+    int count = 0;
+    for (const Hunk &hunk : m_hunks)
+        count += clustersOf(hunk).contains(-1);
+    return count;
 }
 
 int ChangeClusters::addCluster(const QString &name)
 {
     Cluster cluster;
     cluster.id = m_nextId++;
-    cluster.name = name.isEmpty() ? tr("Cluster %1").arg(cluster.id) : name;
+    cluster.message = name.isEmpty() ? tr("Cluster %1").arg(cluster.id) : name;
     cluster.color = m_nextColor++ % kColors;
     m_clusters.append(cluster);
     emit changed();
@@ -255,9 +371,9 @@ void ChangeClusters::removeCluster(int id)
         return;
     m_clusters.removeAt(index);
     for (Hunk &hunk : m_hunks) {
-        if (hunk.cluster == id) {
-            hunk.cluster = -1;
-            m_clusterOf.remove(hunk.id);
+        for (Line &line : hunk.lines) {
+            if (line.cluster == id)
+                setLineCluster(line, -1);
         }
     }
     emit changed();
@@ -266,10 +382,30 @@ void ChangeClusters::removeCluster(int id)
 void ChangeClusters::renameCluster(int id, const QString &name)
 {
     const int index = clusterIndex(id);
-    if (index < 0 || m_clusters[index].name == name)
+    if (index < 0)
         return;
-    m_clusters[index].name = name;
+    QString &message = m_clusters[index].message;
+    const qsizetype newline = message.indexOf(u'\n');
+    const QString renamed = name.trimmed() + (newline < 0 ? QString() : message.mid(newline));
+    if (renamed == message)
+        return;
+    message = renamed;
     emit changed();
+}
+
+void ChangeClusters::setClusterMessage(int id, const QString &message)
+{
+    const int index = clusterIndex(id);
+    if (index < 0 || m_clusters[index].message == message)
+        return;
+    m_clusters[index].message = message;
+    emit changed();
+}
+
+QString ChangeClusters::clusterMessage(int id) const
+{
+    const int index = clusterIndex(id);
+    return index < 0 ? QString() : m_clusters[index].message;
 }
 
 void ChangeClusters::moveCluster(int id, int index)
@@ -284,23 +420,41 @@ void ChangeClusters::moveCluster(int id, int index)
     emit changed();
 }
 
-void ChangeClusters::assign(const QString &hunkId, int clusterId)
+void ChangeClusters::setLineCluster(Line &line, int cluster)
+{
+    line.cluster = cluster;
+    if (cluster < 0)
+        m_clusterOf.remove(line.key);
+    else
+        m_clusterOf.insert(line.key, cluster);
+}
+
+void ChangeClusters::movePosition(const QString &from, const QString &to)
+{
+    const auto it = m_positionOf.constFind(from);
+    if (it != m_positionOf.cend() && !m_positionOf.contains(to))
+        m_positionOf.insert(to, *it);
+}
+
+void ChangeClusters::assign(const QString &pieceId, int clusterId)
 {
     if (clusterId >= 0 && clusterIndex(clusterId) < 0)
         clusterId = -1;
-    for (Hunk &hunk : m_hunks) {
-        if (hunk.id != hunkId)
-            continue;
-        if (hunk.cluster == clusterId)
-            return;
-        hunk.cluster = clusterId;
-        if (clusterId < 0)
-            m_clusterOf.remove(hunk.id);
-        else
-            m_clusterOf.insert(hunk.id, clusterId);
-        emit changed();
+    const auto [hunkId, from] = parsePiece(pieceId);
+    Hunk *h = hunk(hunkId);
+    if (!h)
         return;
+    bool any = false;
+    for (Line &line : h->lines) {
+        if ((from == -2 || line.cluster == from) && line.cluster != clusterId) {
+            setLineCluster(line, clusterId);
+            any = true;
+        }
     }
+    if (!any)
+        return;
+    movePosition(pieceId, ChangeClusters::pieceId(hunkId, clusterId));
+    emit changed();
 }
 
 void ChangeClusters::assignFile(const QString &path, int clusterId)
@@ -309,29 +463,41 @@ void ChangeClusters::assignFile(const QString &path, int clusterId)
         return;
     bool any = false;
     for (Hunk &hunk : m_hunks) {
-        if (m_diff[hunk.file].path() != path || hunk.cluster == clusterId)
+        if (m_diff[hunk.file].path() != path)
             continue;
-        hunk.cluster = clusterId;
-        if (clusterId < 0)
-            m_clusterOf.remove(hunk.id);
-        else
-            m_clusterOf.insert(hunk.id, clusterId);
-        any = true;
+        for (Line &line : hunk.lines) {
+            if (line.cluster != clusterId) {
+                setLineCluster(line, clusterId);
+                any = true;
+            }
+        }
     }
     if (any)
         emit changed();
 }
 
-void ChangeClusters::setHunkPosition(const QString &hunkId, qreal x, qreal y)
+void ChangeClusters::assignLines(const QString &hunkId, const QList<int> &lines, int clusterId)
 {
-    for (Hunk &hunk : m_hunks) {
-        if (hunk.id == hunkId) {
-            hunk.position = QPointF(x, y);
-            m_positionOf.insert(hunk.id, hunk.position);
-            emit changed();
-            return;
+    if (clusterId >= 0 && clusterIndex(clusterId) < 0)
+        clusterId = -1;
+    Hunk *h = hunk(hunkId);
+    if (!h)
+        return;
+    bool any = false;
+    for (Line &line : h->lines) {
+        if (lines.contains(line.index) && line.cluster != clusterId) {
+            setLineCluster(line, clusterId);
+            any = true;
         }
     }
+    if (any)
+        emit changed();
+}
+
+void ChangeClusters::setHunkPosition(const QString &pieceId, qreal x, qreal y)
+{
+    m_positionOf.insert(pieceId, QPointF(x, y));
+    emit changed();
 }
 
 void ChangeClusters::setClusterGeometry(int id, qreal x, qreal y, qreal width, qreal height)
@@ -353,9 +519,14 @@ QByteArray ChangeClusters::clusterPatch(int id) const
         for (const Hunk &hunk : m_hunks) {
             if (hunk.file != f)
                 continue;
-            const bool chosen = hunk.cluster == id;
-            selection[hunk.index] = QList<bool>(file.hunks[hunk.index].lines.size(), chosen);
-            any = any || chosen;
+            QList<bool> chosen(file.hunks[hunk.index].lines.size(), false);
+            for (const Line &line : hunk.lines) {
+                if (line.cluster == id) {
+                    chosen[line.index] = true;
+                    any = true;
+                }
+            }
+            selection[hunk.index] = chosen;
         }
         if (any)
             patch += buildPatch(file, selection, PatchDirection::Forward);
@@ -363,61 +534,33 @@ QByteArray ChangeClusters::clusterPatch(int id) const
     return patch;
 }
 
-bool ChangeClusters::commitCluster(int id, const QString &message)
+bool ChangeClusters::commitCluster(int id)
 {
     const int index = clusterIndex(id);
     if (index < 0)
         return false;
     const QByteArray patch = clusterPatch(id);
     if (patch.isEmpty()) {
-        setError(tr("“%1” has no changes to commit.").arg(m_clusters[index].name));
+        setError(tr("“%1” has no changes to commit.").arg(title(m_clusters[index].message)));
         return false;
     }
-
-    // HEAD plus the cluster, in an index of its own: the real one and the
-    // working tree stay as they are
-    QTemporaryDir scratch;
-    if (!scratch.isValid()) {
-        setError(tr("Cannot make a scratch index: %1").arg(scratch.errorString()));
+    QString message = m_clusters[index].message.trimmed();
+    QString error;
+    const QString sha = commitPatch(m_git, patch, message, error);
+    if (sha.isEmpty()) {
+        setError(error);
         return false;
     }
-    QProcessEnvironment env;
-    env.insert(QStringLiteral("GIT_INDEX_FILE"), QDir(scratch.path()).filePath(QStringLiteral("index")));
-    const auto fail = [this](const GitResult &result) {
-        setError(result.errorText());
-        return false;
-    };
-    if (GitResult r = m_git.run({QStringLiteral("read-tree"), QStringLiteral("HEAD")}, {}, env); !r.ok())
-        return fail(r);
-    if (GitResult r = m_git.run({QStringLiteral("apply"), QStringLiteral("--cached"),
-                                 QStringLiteral("--whitespace=nowarn")}, patch, env);
-        !r.ok())
-        return fail(r);
-    // git commit rather than commit-tree, so hooks (a Change-Id) and
-    // signing apply as in a terminal
-    QString text = message.trimmed();
-    if (text.isEmpty())
-        text = m_clusters[index].name;
-    if (GitResult r = m_git.run({QStringLiteral("commit"), QStringLiteral("-q"), QStringLiteral("-F"), QStringLiteral("-")},
-                                text.toUtf8() + '\n', env);
-        !r.ok())
-        return fail(r);
+    committed(id);
+    emit clusterCommitted(sha);
+    return true;
+}
 
-    // The real index of the committed files follows HEAD; what else is
-    // staged stays staged
-    QStringList paths{QStringLiteral("reset"), QStringLiteral("-q"), QStringLiteral("HEAD"), QStringLiteral("--")};
-    QSet<QString> seen;
-    for (const Hunk &hunk : std::as_const(m_hunks)) {
-        const QString path = m_diff[hunk.file].path();
-        if (hunk.cluster == id && !seen.contains(path)) {
-            seen.insert(path);
-            paths.append(path);
-        }
-    }
-    m_git.run(paths);
-
-    const QString sha = QString::fromLatin1(m_git.run({QStringLiteral("rev-parse"), QStringLiteral("HEAD")}).out.trimmed());
-    m_clusters.removeAt(index);
+void ChangeClusters::committed(int id)
+{
+    const int index = clusterIndex(id);
+    if (index >= 0)
+        m_clusters.removeAt(index);
     for (auto it = m_clusterOf.begin(); it != m_clusterOf.end();) {
         if (it.value() == id)
             it = m_clusterOf.erase(it);
@@ -425,23 +568,18 @@ bool ChangeClusters::commitCluster(int id, const QString &message)
             ++it;
     }
     reload();
-    emit committed(sha);
-    return true;
 }
 
 bool ChangeClusters::commitAll()
 {
-    // By id, as each commit reloads and reorders nothing but its own
+    // By id, as each commit reloads
     QList<int> order;
     for (const Cluster &cluster : std::as_const(m_clusters)) {
-        const bool any = std::any_of(m_hunks.cbegin(), m_hunks.cend(),
-                                     [&](const Hunk &hunk) { return hunk.cluster == cluster.id; });
-        if (any)
+        if (!clusterPatch(cluster.id).isEmpty())
             order.append(cluster.id);
     }
     for (int id : std::as_const(order)) {
-        const int index = clusterIndex(id);
-        if (index < 0 || !commitCluster(id, m_clusters[index].name))
+        if (!commitCluster(id))
             return false;
     }
     return true;

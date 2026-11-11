@@ -13,6 +13,8 @@ Item {
     id: view
 
     required property ChangeClusters clusters
+    // The window: commitCluster(), commitAll(), editMessage(), splitHunk()
+    required property var composer
     required property font monoFont
     required property var colorOf
 
@@ -41,6 +43,7 @@ Item {
 
                 HunkCard {
                     Layout.fillWidth: true
+                    onSplitRequested: view.composer.splitHunk(row.modelData.hunk)
                     hunk: row.modelData
                     monoFont: view.monoFont
                     tint: row.modelData.cluster >= 0
@@ -84,11 +87,17 @@ Item {
                         text: clusterRow.modelData.name
                         onEditingFinished: view.clusters.renameCluster(clusterRow.modelData.id, text)
                     }
+                    IconButton {
+                        iconName: "message-square"
+                        onClicked: view.composer.editMessage(clusterRow.modelData.id)
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Write the whole message")
+                    }
                     Button {
                         styles: [Styles.ButtonStyle.small]
                         text: qsTr("Commit %n hunk(s)", "", clusterRow.modelData.hunks.length)
-                        enabled: clusterRow.modelData.hunks.length > 0
-                        onClicked: view.clusters.commitCluster(clusterRow.modelData.id, clusterRow.modelData.name)
+                        enabled: clusterRow.modelData.hunks.length > 0 && !view.composer.committing
+                        onClicked: view.composer.commitCluster(clusterRow.modelData.id)
                     }
                 }
             }

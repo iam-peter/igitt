@@ -255,6 +255,9 @@ public:
 
     // Emits committed() on success.
     Q_INVOKABLE void commit(const QString &message, bool amend);
+    // Commits `patch` on HEAD alone, apart from the index (see commitPatch()
+    // in PatchCommit.h); while planning, plans it. Emits patchCommitted().
+    Q_INVOKABLE void commitPatch(const QByteArray &patch, const QString &message);
 
     // Why the selected lines cannot be folded into `sha`, or an empty
     // string if they can.
@@ -303,6 +306,8 @@ signals:
     void reviewsChanged();
     void commitReviewChanged();
     void committed();
+    // After commitPatch(), whether it went through; error says why not.
+    void patchCommitted(bool ok, const QString &error);
     void messageLoaded(const QString &sha, const QString &message);
     void errorOccurred(const QString &message);
     // `links` are URLs the remote printed, such as Gerrit's changes.
@@ -336,6 +341,7 @@ private:
         RepositoryState state;
         std::optional<LastFold> fold;
         bool committed = false;
+        std::optional<QString> patchCommitted; // empty: it went through
         std::optional<std::pair<QString, QString>> message; // sha and message
         QString gitDir;
         QString pushRejected; // why the remote refused a push

@@ -4,6 +4,7 @@
 #include "core/GerritReview.h"
 #include "core/HistoryEditor.h"
 #include "core/LaneColors.h"
+#include "core/PatchCommit.h"
 #include "core/PatchBuilder.h"
 
 #include <QDir>
@@ -122,6 +123,8 @@ void Repository::finish(JobKind kind, Outcome outcome)
             endPlan();
         if (outcome.committed)
             emit committed();
+        if (outcome.patchCommitted)
+            emit patchCommitted(outcome.patchCommitted->isEmpty(), *outcome.patchCommitted);
         if (outcome.message)
             emit messageLoaded(outcome.message->first, outcome.message->second);
         if (!outcome.pushRejected.isEmpty())
@@ -598,6 +601,33 @@ void Repository::commit(const QString &message, bool amend)
     });
 }
 
+void Repository::commitPatch(const QByteArray &patch, const QString &message)
+{
+    const QString subject = message.section(QLatin1Char('\n'), 0, 0).trimmed();
+    if (m_plan) {
+        PlanEntry entry;
+        entry.kind = PlanEntry::CommitPatch;
+        entry.patch = patch;
+        entry.message = message;
+        entry.title = tr("Commit “%1”").arg(subject);
+        enqueuePlanEntry(entry);
+        return;
+    }
+    enqueue(JobKind::Write, [patch, message, subject, request = diffRequest(),
+                             history = historyRequest(true)](const GitRunner &git) {
+        Outcome outcome;
+        QString error;
+        if (::commitPatch(git, patch, message, error).isEmpty()) {
+            outcome.error = tr("Committing “%1” failed: %2").arg(subject, error);
+            outcome.patchCommitted = error;
+        } else {
+            outcome.patchCommitted = QString();
+        }
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
 QString Repository::foldBlocker(const QString &sha) const
 {
     if (m_diffSource != UnstagedDiff && m_diffSource != StagedDiff)
@@ -917,10 +947,13 @@ void Repository::enqueuePlanEntry(const PlanEntry &entry)
                              history = historyRequest(true)](const GitRunner &) {
         Outcome outcome;
         QString error;
-        if (plan->add(entry, error))
+        const bool added = plan->add(entry, error);
+        if (added)
             outcome.committed = entry.kind == PlanEntry::Commit;
         else
             outcome.error = tr("Could not plan “%1”: %2").arg(entry.title, error);
+        if (entry.kind == PlanEntry::CommitPatch)
+            outcome.patchCommitted = added ? QString() : error;
         outcome.plan = snapshot(*plan);
         outcome.state = loadState(plan->source(), request, history);
         return outcome;

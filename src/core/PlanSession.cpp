@@ -1,6 +1,7 @@
 #include "PlanSession.h"
 
 #include "MergeConflict.h"
+#include "PatchCommit.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -344,6 +345,9 @@ bool PlanSession::simulate(PlanEntry &entry, QString &error)
     case PlanEntry::EditHistory:
         ok = simulateEdit(entry, error);
         break;
+    case PlanEntry::CommitPatch:
+        ok = simulateCommitPatch(entry, error);
+        break;
     }
 
     if (!ok) {
@@ -354,9 +358,29 @@ bool PlanSession::simulate(PlanEntry &entry, QString &error)
     return ok;
 }
 
-bool PlanSession::simulateCommit(PlanEntry &entry, QString &error)
+// As commitPatch() does it: HEAD and the patch alone make the commit's
+// tree, and afterwards the planned index of the patch's paths follows it.
+bool PlanSession::simulateCommitPatch(PlanEntry &entry, QString &error)
 {
-    const QString tree = firstLine(m_git.run({QStringLiteral("write-tree")}).out);
+    const QString tree = treeWithPatch(m_git, m_head, entry.patch, error);
+    if (tree.isEmpty()) {
+        error = tr("The changes no longer apply: %1").arg(error);
+        return false;
+    }
+    if (!simulateCommit(entry, error, tree))
+        return false;
+    const GitResult reset = run(entry, QStringList{QStringLiteral("reset"), QStringLiteral("-q"), m_head,
+                                                   QStringLiteral("--")} + patchPaths(entry.patch));
+    if (!reset.ok()) {
+        error = reset.errorText();
+        return false;
+    }
+    return true;
+}
+
+bool PlanSession::simulateCommit(PlanEntry &entry, QString &error, const QString &givenTree)
+{
+    const QString tree = givenTree.isEmpty() ? firstLine(m_git.run({QStringLiteral("write-tree")}).out) : givenTree;
     QStringList parents;
     QProcessEnvironment author;
     if (entry.amend) {
@@ -380,7 +404,7 @@ bool PlanSession::simulateCommit(PlanEntry &entry, QString &error)
                                    QStringLiteral("--stdin")}).out)
             : firstLine(m_git.run({QStringLiteral("rev-parse"), m_head + QStringLiteral("^{tree}")}).out);
         if (tree == headTree) {
-            error = tr("Nothing is staged to commit.");
+            error = givenTree.isEmpty() ? tr("Nothing is staged to commit.") : tr("The changes are in HEAD already.");
             return false;
         }
         if (!m_head.isEmpty())
