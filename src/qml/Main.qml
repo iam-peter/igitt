@@ -99,7 +99,8 @@ ApplicationWindow {
     property list<Window> composers
 
     function openCompose() {
-        composers.push(composeWindow.createObject(null, {repo: repo, monoFont: root.monoFont, font: root.uiFont}))
+        composers.push(composeWindow.createObject(null, {repo: repo, monoFont: root.monoFont, font: root.uiFont,
+                                                        setPlanning: root.setPlanning}))
     }
 
     Component {

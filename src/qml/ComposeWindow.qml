@@ -21,6 +21,9 @@ ApplicationWindow {
 
     required property Repository repo
     required property font monoFont
+    // The main window's Plan button: starts planning, or ends it (asking
+    // first when the plan has entries)
+    required property var setPlanning
 
     // The clusters still to commit, in order, and the one on its way
     property var queue: []
@@ -143,6 +146,26 @@ ApplicationWindow {
                 running: window.committing
                 visible: running
             }
+            // Plan mode is the repository's, the same as in the main window
+            IconButton {
+                objectName: "composePlanButton"
+                iconName: "list-checks"
+                text: window.repo.planning ? qsTr("Planning (%n)", "", window.repo.plan.count) : qsTr("Plan")
+                checkable: true
+                checked: window.repo.planning
+                enabled: !window.repo.writing && !window.committing
+                onClicked: window.setPlanning(checked)
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: qsTr("Collect the commits in a plan, review the commands, and execute them together")
+            }
+            IconButton {
+                visible: window.repo.planning
+                iconName: "play"
+                text: qsTr("Execute plan")
+                enabled: window.repo.plan.count > 0 && !window.repo.writing && !window.committing
+                onClicked: window.repo.executePlan()
+            }
             IconButton {
                 iconName: "refresh-cw"
                 text: qsTr("Reload")
@@ -168,7 +191,7 @@ ApplicationWindow {
             Label {
                 anchors.fill: parent
                 wrapMode: Text.Wrap
-                text: qsTr("Planning: each commit goes into the plan, executed with the others from the main window.")
+                text: qsTr("Planning: each commit goes into the plan; Execute plan makes them all at once.")
             }
         }
 
