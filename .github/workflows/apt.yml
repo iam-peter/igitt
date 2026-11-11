@@ -59,7 +59,7 @@ jobs:
       - name: Start page
         run: |
           mkdir site
-          cp pages/index.html src/logo/igitt.svg docs/screenshots/history.png docs/screenshots/themes.png site/
+          cp pages/index.html src/logo/igitt.svg docs/screenshots/history.png docs/screenshots/theme-*.png site/
 
       - name: Repository
         env:

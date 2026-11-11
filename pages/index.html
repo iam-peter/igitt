@@ -60,6 +60,17 @@
     box-shadow: 0 20px 50px rgb(0 0 0 / 0.12);
   }
 
+  /* The themes side by side, two to a row, one on a phone */
+  .themes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 16px 0 48px; }
+  .themes figure { margin: 0; }
+  .themes img {
+    display: block; width: 100%; height: auto;
+    border-radius: 8px; border: 1px solid var(--border);
+    box-shadow: 0 10px 30px rgb(0 0 0 / 0.12);
+  }
+  .themes figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 6px; text-align: center; }
+  @media (max-width: 640px) { .themes { grid-template-columns: 1fr; } }
+
   h2 { font-size: 1.5rem; margin: 40px 0 8px; }
   p { margin: 8px 0; }
   .note { color: var(--muted); font-size: 0.95rem; }
@@ -116,8 +127,12 @@
     the graph, the diffs and the syntax included. A theme of your own is a small JSON
     file that names a palette and the roles it changes; igitt reads it again as soon
     as you save it. <a href="https://github.com/iam-peter/igitt/blob/main/docs/THEMES.md">How to write one</a>.</p>
-  <img class="shot" src="themes.png" width="1412" height="912" loading="lazy"
-       alt="igitt in Light, Dark, Dracula and Catppuccin Mocha">
+  <div class="themes">
+    <figure><img src="theme-light.png" width="1400" height="900" loading="lazy" alt="igitt in the Light theme"><figcaption>Light</figcaption></figure>
+    <figure><img src="theme-dark.png" width="1400" height="900" loading="lazy" alt="igitt in the Dark theme"><figcaption>Dark</figcaption></figure>
+    <figure><img src="theme-dracula.png" width="1400" height="900" loading="lazy" alt="igitt in the Dracula theme"><figcaption>Dracula</figcaption></figure>
+    <figure><img src="theme-catppuccin-mocha.png" width="1400" height="900" loading="lazy" alt="igitt in the Catppuccin Mocha theme"><figcaption>Catppuccin Mocha</figcaption></figure>
+  </div>
 
   <h2>Debian and Ubuntu</h2>
   <p>The APT repository brings igitt with its own Qt and installs git with it.

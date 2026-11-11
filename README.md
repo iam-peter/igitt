@@ -278,7 +278,12 @@ the system is. Themes of your own are JSON files in igitt's theme
 folder, read again as soon as they change; see
 [docs/THEMES.md](docs/THEMES.md).
 
-![igitt in Light, Dark, Dracula and Catppuccin Mocha](docs/screenshots/themes.png)
+<p>
+  <img src="docs/screenshots/theme-light.png" width="49%" alt="igitt in the Light theme">
+  <img src="docs/screenshots/theme-dark.png" width="49%" alt="igitt in the Dark theme">
+  <img src="docs/screenshots/theme-dracula.png" width="49%" alt="igitt in the Dracula theme">
+  <img src="docs/screenshots/theme-catppuccin-mocha.png" width="49%" alt="igitt in the Catppuccin Mocha theme">
+</p>
 
 ## Third-party assets
 
