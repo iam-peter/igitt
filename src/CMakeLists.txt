@@ -9,6 +9,7 @@ qt_add_qml_module(igitt_core
         core/LogParser.h core/LogParser.cpp
         core/GraphLayout.h core/GraphLayout.cpp
         core/LaneColors.h core/LaneColors.cpp
+        core/ChangeClusters.h core/ChangeClusters.cpp
         core/StatusParser.h core/StatusParser.cpp
         core/DiffParser.h core/DiffParser.cpp
         core/Highlighter.h core/Highlighter.cpp
@@ -94,6 +95,9 @@ qt_add_qml_module(igitt_ui
         qml/FilesPane.qml
         qml/BoundedScrollView.qml
         qml/SplitterHandle.qml
+        qml/ComposeWindow.qml
+        qml/ClusterView.qml
+        qml/HunkCard.qml
     SOURCES
         ui/CommitGraph.h ui/CommitGraph.cpp
         ui/DiffLineText.h ui/DiffLineText.cpp
@@ -104,6 +108,7 @@ qt_add_qml_module(igitt_ui
     RESOURCES
         icons/arrow-down.svg
         icons/arrow-up.svg
+        icons/boxes.svg
         icons/case-sensitive.svg
         icons/check.svg
         icons/chevron-down.svg
@@ -125,11 +130,13 @@ qt_add_qml_module(igitt_ui
         icons/folder.svg
         icons/git-branch.svg
         icons/git-commit-horizontal.svg
+        icons/git-commit-vertical.svg
         icons/git-compare.svg
         icons/git-merge.svg
         icons/git-pull-request.svg
         icons/grip-vertical.svg
         icons/highlighter.svg
+        icons/layout-dashboard.svg
         icons/history.svg
         icons/list-checks.svg
         icons/message-square.svg
@@ -144,12 +151,14 @@ qt_add_qml_module(igitt_ui
         icons/skip-back.svg
         icons/skip-forward.svg
         icons/space.svg
+        icons/square-dashed.svg
         icons/step-back.svg
         icons/step-forward.svg
         icons/tag.svg
         icons/trash-2.svg
         icons/undo-2.svg
         icons/whole-word.svg
+        icons/workflow.svg
         icons/x.svg
         logo/igitt.svg
         fonts/Inter-Bold.ttf

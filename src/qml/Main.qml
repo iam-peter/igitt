@@ -96,6 +96,25 @@ ApplicationWindow {
                                                            monoFont: root.monoFont, font: root.uiFont}))
     }
 
+    property list<Window> composers
+
+    function openCompose() {
+        composers.push(composeWindow.createObject(null, {workDir: repo.path, monoFont: root.monoFont,
+                                                        font: root.uiFont}))
+    }
+
+    Component {
+        id: composeWindow
+        ComposeWindow {
+            id: composer
+            onCommitted: repo.refresh()
+            onClosing: {
+                root.composers = Array.from(root.composers).filter(w => w !== composer)
+                composer.destroy()
+            }
+        }
+    }
+
     Component {
         id: timelapseWindow
         TimelapseWindow {
@@ -425,6 +444,17 @@ ApplicationWindow {
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
                 ToolTip.text: qsTr("Collect actions in a plan, review the commands, and execute them together")
+            }
+            IconButton {
+                styles: [Styles.ButtonStyle.medium]
+                objectName: "composeButton"
+                iconName: "boxes"
+                text: qsTr("Compose")
+                enabled: repo.valid && !repo.writing && !repo.planning
+                onClicked: root.openCompose()
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: qsTr("Group the changes into clusters of related work and commit each one")
             }
             ToolSeparator {}
             IconButton {
