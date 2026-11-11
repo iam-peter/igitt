@@ -38,6 +38,25 @@ void ActivityMinimap::setModel(CommitModel *model)
     emit modelChanged();
 }
 
+void ActivityMinimap::setTimes(const QList<qreal> &times)
+{
+    if (m_times == times)
+        return;
+    m_times = times;
+    rebuild();
+    emit modelChanged();
+}
+
+int ActivityMinimap::rows() const
+{
+    return m_model ? m_model->count() : m_times.size();
+}
+
+qint64 ActivityMinimap::timeAt(int row) const
+{
+    return m_model ? m_model->timestampAt(row) : qint64(m_times.at(row));
+}
+
 void ActivityMinimap::setCurrentRow(int row)
 {
     if (m_currentRow != row) {
@@ -65,10 +84,10 @@ void ActivityMinimap::setLastVisibleRow(int row)
 void ActivityMinimap::rebuild()
 {
     m_oldest = m_newest = 0;
-    if (m_model && m_model->count() > 0) {
-        m_oldest = m_newest = m_model->timestampAt(0);
-        for (int row = 1; row < m_model->count(); ++row) {
-            const qint64 t = m_model->timestampAt(row);
+    if (rows() > 0) {
+        m_oldest = m_newest = timeAt(0);
+        for (int row = 1; row < rows(); ++row) {
+            const qint64 t = timeAt(row);
             m_oldest = std::min(m_oldest, t);
             m_newest = std::max(m_newest, t);
         }
@@ -93,15 +112,15 @@ qreal ActivityMinimap::xForTime(qint64 secs) const
 
 int ActivityMinimap::rowNearest(qreal x) const
 {
-    if (!m_model || m_model->count() == 0)
+    if (rows() == 0)
         return -1;
     const QRectF area = plotArea();
     const qreal fraction = std::clamp((x - area.left()) / area.width(), 0.0, 1.0);
     const qint64 target = m_oldest + qint64(fraction * qreal(m_newest - m_oldest));
     int best = 0;
     qint64 bestDistance = std::numeric_limits<qint64>::max();
-    for (int row = 0; row < m_model->count(); ++row) {
-        const qint64 distance = std::abs(m_model->timestampAt(row) - target);
+    for (int row = 0; row < rows(); ++row) {
+        const qint64 distance = std::abs(timeAt(row) - target);
         if (distance < bestDistance) {
             best = row;
             bestDistance = distance;
@@ -124,7 +143,7 @@ void ActivityMinimap::mouseMoveEvent(QMouseEvent *event)
 
 void ActivityMinimap::paint(QPainter *painter)
 {
-    if (!m_model || m_model->count() == 0 || width() < 20)
+    if (rows() == 0 || width() < 20)
         return;
     painter->setRenderHint(QPainter::Antialiasing);
     const QRectF area = plotArea();
@@ -133,8 +152,8 @@ void ActivityMinimap::paint(QPainter *painter)
     // Commits per time slot, lightly smoothed so the curve reads as activity
     // rather than noise.
     QList<qreal> counts(columns, 0);
-    for (int row = 0; row < m_model->count(); ++row) {
-        const qreal x = xForTime(m_model->timestampAt(row));
+    for (int row = 0; row < rows(); ++row) {
+        const qreal x = xForTime(timeAt(row));
         const int column = std::clamp(int((x - area.left()) / area.width() * (columns - 1)), 0, columns - 1);
         counts[column] += 1;
     }
@@ -154,11 +173,11 @@ void ActivityMinimap::paint(QPainter *painter)
     const qreal peak = std::max(1.0, *std::max_element(smooth.cbegin(), smooth.cend()));
 
     // Rows on screen.
-    if (m_firstVisible >= 0 && m_lastVisible >= m_firstVisible && m_lastVisible < m_model->count()) {
+    if (m_firstVisible >= 0 && m_lastVisible >= m_firstVisible && m_lastVisible < rows()) {
         qreal left = area.right();
         qreal right = area.left();
         for (int row = m_firstVisible; row <= m_lastVisible; ++row) {
-            const qreal x = xForTime(m_model->timestampAt(row));
+            const qreal x = xForTime(timeAt(row));
             left = std::min(left, x);
             right = std::max(right, x);
         }
@@ -194,22 +213,22 @@ void ActivityMinimap::paint(QPainter *painter)
     // Labelled commits along the bottom, HEAD as a hollow circle.
     const qreal markerY = height() - Margin - MarkerRow / 2;
     painter->setPen(Qt::NoPen);
-    for (int row = 0; row < m_model->count(); ++row) {
+    for (int row = 0; m_model && row < rows(); ++row) {
         if (!m_model->hasRefsAt(row))
             continue;
         painter->setBrush(QColor::fromString(m_model->laneColorAt(row)));
-        const qreal x = xForTime(m_model->timestampAt(row));
+        const qreal x = xForTime(timeAt(row));
         painter->drawRect(QRectF(x - 2.5, markerY - 2.5, 5, 5));
     }
-    if (const int head = m_model->headRow(); head >= 0) {
-        painter->setPen(QPen(QColor::fromString(m_model->laneColorAt(head)), 2));
+    if (const int head = m_model ? m_model->headRow() : 0; head >= 0) {
+        painter->setPen(QPen(m_model ? QColor::fromString(m_model->laneColorAt(head)) : m_lineColor, 2));
         painter->setBrush(Qt::NoBrush);
-        painter->drawEllipse(QPointF(xForTime(m_model->timestampAt(head)), markerY), 4, 4);
+        painter->drawEllipse(QPointF(xForTime(timeAt(head)), markerY), 4, 4);
     }
 
     // The selected commit.
-    if (m_currentRow >= 0 && m_currentRow < m_model->count()) {
-        const qreal x = xForTime(m_model->timestampAt(m_currentRow));
+    if (m_currentRow >= 0 && m_currentRow < rows()) {
+        const qreal x = xForTime(timeAt(m_currentRow));
         painter->setPen(QPen(m_currentColor, 2));
         painter->drawLine(QPointF(x, 0), QPointF(x, height()));
     }

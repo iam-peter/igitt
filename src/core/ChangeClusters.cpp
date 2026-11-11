@@ -202,7 +202,7 @@ void ChangeClusters::readCommits()
                                              QStringLiteral("--no-color"), QStringLiteral("--no-ext-diff"),
                                              QStringLiteral("--no-renames"), QStringLiteral("--src-prefix=a/"),
                                              QStringLiteral("--dst-prefix=b/"),
-                                             QStringLiteral("--format=%x1e%H%x1f%h%x1f%P%x1f%s")}));
+                                             QStringLiteral("--format=%x1e%H%x1f%h%x1f%P%x1f%at%x1f%s")}));
     if (!log.ok())
         return;
     // The same commits, those no remote-tracking branch has
@@ -219,7 +219,7 @@ void ChangeClusters::readCommits()
     for (const QByteArray &record : log.out.split('\x1e')) {
         const qsizetype end = record.indexOf('\n');
         const QList<QByteArray> fields = record.left(end).split('\x1f');
-        if (fields.size() < 4)
+        if (fields.size() < 5)
             continue;
         // A merge cannot be folded into, nor anything before it
         if (fields[2].count(' ') > 0)
@@ -227,12 +227,22 @@ void ChangeClusters::readCommits()
         Commit commit;
         commit.sha = QString::fromLatin1(fields[0]);
         commit.shortSha = QString::fromLatin1(fields[1]);
-        commit.subject = decode(fields[3]);
+        commit.time = fields[3].toLongLong();
+        // The subject is last, as it may hold the separator itself
+        commit.subject = decode(record.left(end).split('\x1f').mid(4).join('\x1f'));
         commit.published = !local.contains(fields[0]);
         commit.diff = end < 0 ? QList<FileDiff>() : parseDiff(record.mid(end + 1));
         m_commits.prepend(commit);
     }
     m_commitList = buildCommitList();
+}
+
+QList<qreal> ChangeClusters::commitTimes() const
+{
+    QList<qreal> times;
+    for (auto it = m_commits.crbegin(); it != m_commits.crend(); ++it)
+        times.append(qreal(it->time));
+    return times;
 }
 
 bool ChangeClusters::isPublished(const QString &sha) const
@@ -436,6 +446,7 @@ QVariantList ChangeClusters::buildCommitList() const
         list.append(QVariantMap{
             {QStringLiteral("sha"), commit.sha},
             {QStringLiteral("shortSha"), commit.shortSha},
+            {QStringLiteral("time"), commit.time},
             {QStringLiteral("subject"), commit.subject},
             {QStringLiteral("published"), commit.published},
             {QStringLiteral("added"), added},

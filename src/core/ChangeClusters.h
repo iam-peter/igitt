@@ -51,6 +51,9 @@ class ChangeClusters : public QObject
     // merge, MaxCommits at most. Published: on a remote-tracking branch.
     Q_PROPERTY(QVariantList commits READ commits NOTIFY changed FINAL)
     Q_PROPERTY(int commitCount READ commitCount NOTIFY changed FINAL)
+    // When each was written (its author date, which rewriting keeps), in
+    // seconds since the epoch, newest first
+    Q_PROPERTY(QList<qreal> commitTimes READ commitTimes NOTIFY changed FINAL)
     // The changed files, each with the ids of its pieces: {path, hunks}
     Q_PROPERTY(QVariantList files READ files NOTIFY changed FINAL)
     Q_PROPERTY(int unassignedCount READ unassignedCount NOTIFY changed FINAL)
@@ -72,6 +75,7 @@ public:
     QVariantList files() const;
     QVariantList commits() const;
     int commitCount() const { return m_commits.size(); }
+    QList<qreal> commitTimes() const;
     static constexpr int MaxCommits = 30;
     int unassignedCount() const;
     QString error() const { return m_error; }
@@ -162,6 +166,7 @@ private:
         QString sha;
         QString shortSha;
         QString subject;
+        qint64 time = 0;
         bool published = false;
         QList<FileDiff> diff;
     };

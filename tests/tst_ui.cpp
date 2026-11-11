@@ -16,6 +16,7 @@
 #include <QFontDatabase>
 #include <QQmlApplicationEngine>
 #include <QGuiApplication>
+#include <QWheelEvent>
 #include <QQuickItem>
 #include <QtQuickTest/quicktest.h>
 #include <QQuickStyle>
@@ -1072,7 +1073,8 @@ private slots:
     // onto one is folded into it, a change of one dragged onto the place
     // for a new group leaves it for the working tree, in that group, and
     // Undo takes that back. A commit a remote branch has refuses changes;
-    // a pinned group stays in sight while the board scrolls.
+    // a pinned group stays in sight while the board scrolls, by the wheel
+    // with Shift or the timeline.
     void foldsChangesIntoTheHistory()
     {
         const auto text = [](const QHash<int, QByteArray> &changes) {
@@ -1250,6 +1252,28 @@ private slots:
         const QRectF shown = groupColumn->mapRectToScene({0, 0, groupColumn->width(), groupColumn->height()});
         QVERIFY(QRectF(0, 0, compose->width(), compose->height()).contains(shown));
         screenshot(compose, u"compose-pinned"_s);
+
+        // Shift and the wheel scroll sideways; the timeline above scrolls
+        // to where it is clicked, its newest end to HEAD
+        {
+            const QPointF at = groupsView->mapToScene({groupsView->width() / 2, groupsView->height() / 2});
+            QWheelEvent wheel(at, compose->mapToGlobal(at), {}, {0, -120}, Qt::NoButton, Qt::ShiftModifier,
+                              Qt::NoScrollPhase, false);
+            QGuiApplication::sendEvent(compose, &wheel);
+        }
+        QTRY_VERIFY(groupsView->property("firstColumn").toReal() > 0);
+        auto *timeline = findItem(compose->contentItem(), u"composeTimeline"_s);
+        QVERIFY(timeline);
+        QTest::mouseClick(compose, Qt::LeftButton, {},
+                          timeline->mapToScene({timeline->width() - 1, timeline->height() / 2}).toPoint());
+        // As far as the board goes: HEAD in sight, if not the first column
+        QTRY_VERIFY(groupsView->property("firstColumn").toReal() > clusters->commits().size() - 2);
+        QTest::qWait(30);
+        QVERIFY(QQuickTest::qWaitForPolish(compose));
+        QQuickItem *newest = findItems(compose->contentItem(), u"commitColumn"_s).last();
+        QVERIFY(QRectF(0, 0, compose->width(), compose->height())
+                    .contains(newest->mapRectToScene({0, 0, newest->width(), newest->height()})));
+        screenshot(compose, u"compose-timeline"_s);
 
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.value(0).toString()));
     }

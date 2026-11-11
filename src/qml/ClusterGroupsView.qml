@@ -113,22 +113,6 @@ Item {
         }
     }
 
-    // A small label in a color, such as HEAD on the newest commit
-    component Tag: Rectangle {
-        property alias text: tagLabel.text
-
-        implicitWidth: tagLabel.implicitWidth + 10
-        implicitHeight: tagLabel.implicitHeight + 2
-        radius: 3
-        Label {
-            id: tagLabel
-            anchors.centerIn: parent
-            color: Styles.TokenInterface.textOn(parent.color)
-            font.pixelSize: 10
-            font.bold: true
-        }
-    }
-
     // The board keeps its place, in columns: at first the newest commit is
     // the first column shown, a commit made from a group moves the board
     // along by its column, and columns changing width keep the first one
@@ -143,6 +127,11 @@ Item {
     }
     // Until the board is placed, what moves it is not the user: the board
     // keeping its bounds as it narrows, say
+    // The board moved sideways by a wheel's turn
+    function scrollBoard(delta: real) {
+        const flick = board.contentItem
+        flick.contentX = Math.max(0, Math.min(Math.max(0, boardWidth - flick.width), flick.contentX - delta))
+    }
     function placeBoard() {
         placing = true
         Qt.callLater(() => {
@@ -349,17 +338,20 @@ Item {
                 color: view.s.text_muted
                 font.pixelSize: 11
             }
+            // Into the column's padding on the right, where its bar sits
             ListView {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                Layout.rightMargin: -8
                 clip: true
                 spacing: 6
                 model: group.modelData.hunks.map(id => view.hunkById(id)).filter(hunk => hunk)
                 delegate: DraggableCard {
-                    width: ListView.view.width
+                    width: ListView.view.width - 8
                     maxLines: 2
                     tint: group.tint
                 }
+                ScrollBar.vertical: ScrollBar {}
             }
             Button {
                 Layout.fillWidth: true
@@ -468,224 +460,285 @@ Item {
             }
         }
 
-        // The commits not merged yet, oldest first, then the groups, side by
-        // side in the order they are committed, and a place for a new one:
-        // the history and what follows it, scrolled sideways
-        ScrollView {
-            id: board
-
+        // The timeline of the commits above the board, which scrolls to where
+        // it is clicked; what is shown of them is its band
+        ColumnLayout {
             // What is left, whatever the columns need
             Layout.preferredWidth: 0
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentWidth: view.boardWidth
-            contentHeight: availableHeight
-            ScrollBar.vertical.policy: ScrollBar.AlwaysOff
+            spacing: 4
 
-            Row {
-                height: board.availableHeight
-                spacing: 8
+            ActivityMinimap {
+                id: timeline
 
-                Row {
-                    id: history
+                objectName: "composeTimeline"
+                // The commits shown, by the board's place: the newest is row 0
+                readonly property real step: view.columnWidth + 8
+                readonly property real fromColumn: board.contentItem.contentX / step
+                readonly property real toColumn: fromColumn + board.width / step - 0.01
 
-                    height: parent.height
-                    spacing: 8
+                Layout.fillWidth: true
+                Layout.preferredHeight: 54
+                visible: view.clusters.commitCount > 0
+                times: view.clusters.commitTimes
+                currentRow: -1
+                firstVisibleRow: fromColumn >= view.clusters.commitCount ? -1
+                               : view.clusters.commitCount - 1 - Math.min(view.clusters.commitCount - 1, Math.floor(toColumn))
+                lastVisibleRow: fromColumn >= view.clusters.commitCount ? -1
+                              : view.clusters.commitCount - 1 - Math.floor(fromColumn)
+                lineColor: view.palette.highlight
+                bandColor: view.palette.highlight
+                textColor: view.palette.placeholderText
+                onRowRequested: row => {
+                    view.firstColumn = view.clusters.commitCount - 1 - row
+                    view.placeBoard()
+                }
+            }
 
-                    Repeater {
-                        model: view.clusters.commits
-                        delegate: Frame {
-                            id: commit
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
 
-                            required property var modelData
-                            required property int index
-                            readonly property bool isHead: index === view.clusters.commitCount - 1
-                            readonly property bool locked: modelData.published
-                            readonly property bool dropping: commitDrop.containsDrag && view.dragged?.commit !== modelData.sha
-                            readonly property bool target: dropping && !locked
-                            // Something would go in or out, and cannot
-                            readonly property bool refused: locked && (dropping || view.refusedCommit === modelData.sha)
+                // The commits not merged yet, oldest first, then the groups, side by
+                // side in the order they are committed, and a place for a new one:
+                // the history and what follows it, scrolled sideways
+                ScrollView {
+                    id: board
 
-                            objectName: "commitColumn"
-                            width: view.columnWidth
+                    anchors.fill: parent
+                    contentWidth: view.boardWidth
+                    contentHeight: availableHeight
+                    ScrollBar.vertical.policy: ScrollBar.AlwaysOff
+                    // In sight whenever there is more than fits, the bar beneath the
+                    // columns rather than over them
+                    ScrollBar.horizontal.policy: view.boardWidth > width ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+                    bottomPadding: ScrollBar.horizontal.policy === ScrollBar.AlwaysOn ? ScrollBar.horizontal.height + 2 : 0
+
+                    Row {
+                        height: board.availableHeight
+                        spacing: 8
+
+                        Row {
+                            id: history
+
                             height: parent.height
-                            padding: 0
-                            background: Rectangle {
-                                radius: 6
-                                color: commit.refused ? Qt.alpha(view.s.danger_default, 0.08)
-                                     : commit.target ? Qt.alpha(view.s.primary_default, 0.08) : view.s.background_default
-                                border.width: commit.refused ? 4 : commit.target ? 2 : 1
-                                border.color: commit.refused ? view.s.danger_default
-                                            : commit.target ? view.s.primary_default : view.s.stroke_subtle
-                            }
+                            spacing: 8
 
-                            DropArea {
-                                id: commitDrop
-                                anchors.fill: parent
-                                keys: ["hunk"]
-                                onDropped: {
-                                    if (view.dragged && !commit.locked)
-                                        view.composer.placeInCommit(view.dragged, commit.modelData.sha)
+                            Repeater {
+                                model: view.clusters.commits
+                                delegate: Frame {
+                                    id: commit
+
+                                    required property var modelData
+                                    required property int index
+                                    readonly property bool isHead: index === view.clusters.commitCount - 1
+                                    readonly property bool locked: modelData.published
+                                    readonly property bool dropping: commitDrop.containsDrag && view.dragged?.commit !== modelData.sha
+                                    readonly property bool target: dropping && !locked
+                                    // Something would go in or out, and cannot
+                                    readonly property bool refused: locked && (dropping || view.refusedCommit === modelData.sha)
+
+                                    objectName: "commitColumn"
+                                    width: view.columnWidth
+                                    height: parent.height
+                                    padding: 0
+                                    background: Rectangle {
+                                        radius: 6
+                                        color: commit.refused ? Qt.alpha(view.s.danger_default, 0.08)
+                                             : commit.target ? Qt.alpha(view.s.primary_default, 0.08) : view.s.background_default
+                                        border.width: commit.refused ? 4 : commit.target ? 2 : 1
+                                        border.color: commit.refused ? view.s.danger_default
+                                                    : commit.target ? view.s.primary_default : view.s.stroke_subtle
+                                    }
+
+                                    DropArea {
+                                        id: commitDrop
+                                        anchors.fill: parent
+                                        keys: ["hunk"]
+                                        onDropped: {
+                                            if (view.dragged && !commit.locked)
+                                                view.composer.placeInCommit(view.dragged, commit.modelData.sha)
+                                        }
+                                    }
+                                    // Why nothing goes in or out
+                                    Rectangle {
+                                        objectName: "refusedNote"
+                                        visible: commit.refused
+                                        z: 1
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.bottom: parent.bottom
+                                        anchors.margins: 8
+                                        height: refusedText.implicitHeight + 12
+                                        radius: 4
+                                        color: view.s.danger_default
+                                        Label {
+                                            id: refusedText
+                                            anchors.centerIn: parent
+                                            width: parent.width - 16
+                                            horizontalAlignment: Text.AlignHCenter
+                                            wrapMode: Text.Wrap
+                                            text: qsTr("Pushed: a remote branch has this commit, and changing it would need a force push")
+                                            color: Styles.TokenInterface.textOn(view.s.danger_default)
+                                            font.bold: true
+                                        }
+                                    }
+
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: 8
+                                        spacing: 6
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 6
+
+                                            Icon {
+                                                name: "git-commit-horizontal"
+                                                size: 16
+                                                color: view.s.text_muted
+                                            }
+                                            Label {
+                                                text: commit.modelData.shortSha
+                                                color: view.s.text_muted
+                                                font.family: view.monoFont.family
+                                                font.pixelSize: 11
+                                            }
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: commit.modelData.subject
+                                                textFormat: Text.PlainText
+                                                elide: Text.ElideRight
+                                                font.bold: true
+                                                ToolTip.visible: subjectHover.hovered && truncated
+                                                ToolTip.text: text
+                                                HoverHandler {
+                                                    id: subjectHover
+                                                }
+                                            }
+                                            Tag {
+                                                visible: commit.isHead
+                                                text: qsTr("HEAD")
+                                                tint: view.s.primary_default
+                                                filled: true
+                                            }
+                                            Tag {
+                                                objectName: "pushedTag"
+                                                visible: commit.modelData.published
+                                                text: qsTr("pushed")
+                                                tint: view.s.warning_default
+                                                filled: true
+                                                ToolTip.visible: pushedHover.hovered
+                                                ToolTip.text: qsTr("A remote branch has it, so it stays as it is: changing it would need a force push")
+                                                HoverHandler {
+                                                    id: pushedHover
+                                                }
+                                            }
+                                        }
+                                        Label {
+                                            text: qsTr("%n change(s) in %1 file(s)", "", commit.modelData.pieces.length)
+                                                      .arg(commit.modelData.files.length)
+                                                  + `  +${commit.modelData.added} −${commit.modelData.removed}`
+                                            color: view.s.text_muted
+                                            font.pixelSize: 11
+                                        }
+                                        // Into the column's padding on the right,
+                                        // where its bar sits
+                                        ListView {
+                                            Layout.fillWidth: true
+                                            Layout.fillHeight: true
+                                            Layout.rightMargin: -8
+                                            clip: true
+                                            spacing: 6
+                                            model: commit.modelData.pieces
+                                            delegate: DraggableCard {
+                                                width: ListView.view.width - 8
+                                                maxLines: 2
+                                            }
+                                            ScrollBar.vertical: ScrollBar {}
+                                        }
+                                    }
                                 }
                             }
-                            // Why nothing goes in or out
+                        }
+
+                        // Where the history ends and what is still to commit begins
+                        Rectangle {
+                            visible: view.clusters.commitCount > 0
+                            width: 2
+                            height: parent.height
+                            radius: 1
+                            color: view.s.stroke_field
+                        }
+
+                        Row {
+                            id: groups
+
+                            height: parent.height
+                            spacing: 8
+
+                            // Only those not pinned: the dock has the others
+                            Repeater {
+                                model: view.clusters.clusters.filter(cluster => !cluster.pinned)
+                                delegate: GroupColumn {
+                                    lane: groups
+                                }
+                            }
+
+                            // Dropping here makes a group of the change
                             Rectangle {
-                                objectName: "refusedNote"
-                                visible: commit.refused
-                                z: 1
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                anchors.margins: 8
-                                height: refusedText.implicitHeight + 12
-                                radius: 4
-                                color: view.s.danger_default
-                                Label {
-                                    id: refusedText
-                                    anchors.centerIn: parent
-                                    width: parent.width - 16
-                                    horizontalAlignment: Text.AlignHCenter
-                                    wrapMode: Text.Wrap
-                                    text: qsTr("Pushed: a remote branch has this commit, and changing it would need a force push")
-                                    color: Styles.TokenInterface.textOn(view.s.danger_default)
-                                    font.bold: true
+                                objectName: "newGroupDrop"
+                                width: view.newGroupWidth
+                                height: parent.height
+                                radius: 6
+                                color: newDrop.containsDrag ? Qt.alpha(view.s.primary_default, 0.08) : Styles.TokenInterface.transparent
+                                border.width: 1
+                                border.color: newDrop.containsDrag ? view.s.primary_default : view.s.stroke_field
+
+                                DropArea {
+                                    id: newDrop
+                                    anchors.fill: parent
+                                    keys: ["hunk"]
+                                    onDropped: {
+                                        const piece = view.dragged
+                                        view.composer.place(piece, view.clusters.addCluster(""))
+                                    }
                                 }
-                            }
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 8
-                                spacing: 6
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 6
-
-                                    Icon {
-                                        name: "git-commit-horizontal"
-                                        size: 16
-                                        color: view.s.text_muted
+                                ColumnLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 8
+                                    Button {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        styles: [Styles.ButtonStyle.small]
+                                        icon.source: Icons.source("plus")
+                                        icon.width: 16
+                                        icon.height: 16
+                                        text: qsTr("New group")
+                                        onClicked: view.clusters.addCluster("")
                                     }
                                     Label {
-                                        text: commit.modelData.shortSha
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: qsTr("or drop a change here")
                                         color: view.s.text_muted
-                                        font.family: view.monoFont.family
                                         font.pixelSize: 11
                                     }
-                                    Label {
-                                        Layout.fillWidth: true
-                                        text: commit.modelData.subject
-                                        textFormat: Text.PlainText
-                                        elide: Text.ElideRight
-                                        font.bold: true
-                                        ToolTip.visible: subjectHover.hovered && truncated
-                                        ToolTip.text: text
-                                        HoverHandler {
-                                            id: subjectHover
-                                        }
-                                    }
-                                    Tag {
-                                        visible: commit.isHead
-                                        text: qsTr("HEAD")
-                                        color: view.s.primary_default
-                                    }
-                                    Tag {
-                                        objectName: "pushedTag"
-                                        visible: commit.modelData.published
-                                        text: qsTr("pushed")
-                                        color: view.s.warning_default
-                                        ToolTip.visible: pushedHover.hovered
-                                        ToolTip.text: qsTr("A remote branch has it, so it stays as it is: changing it would need a force push")
-                                        HoverHandler {
-                                            id: pushedHover
-                                        }
-                                    }
-                                }
-                                Label {
-                                    text: qsTr("%n change(s) in %1 file(s)", "", commit.modelData.pieces.length)
-                                              .arg(commit.modelData.files.length)
-                                          + `  +${commit.modelData.added} −${commit.modelData.removed}`
-                                    color: view.s.text_muted
-                                    font.pixelSize: 11
-                                }
-                                ListView {
-                                    Layout.fillWidth: true
-                                    Layout.fillHeight: true
-                                    clip: true
-                                    spacing: 6
-                                    model: commit.modelData.pieces
-                                    delegate: DraggableCard {
-                                        width: ListView.view.width
-                                        maxLines: 2
-                                    }
-                                    ScrollBar.vertical: ScrollBar {}
                                 }
                             }
                         }
                     }
                 }
 
-                // Where the history ends and what is still to commit begins
-                Rectangle {
-                    visible: view.clusters.commitCount > 0
-                    width: 2
-                    height: parent.height
-                    radius: 1
-                    color: view.s.stroke_field
-                }
-
-                Row {
-                    id: groups
-
-                    height: parent.height
-                    spacing: 8
-
-                    // Only those not pinned: the dock has the others
-                    Repeater {
-                        model: view.clusters.clusters.filter(cluster => !cluster.pinned)
-                        delegate: GroupColumn {
-                            lane: groups
-                        }
-                    }
-
-                    // Dropping here makes a group of the change
-                    Rectangle {
-                        objectName: "newGroupDrop"
-                        width: view.newGroupWidth
-                        height: parent.height
-                        radius: 6
-                        color: newDrop.containsDrag ? Qt.alpha(view.s.primary_default, 0.08) : Styles.TokenInterface.transparent
-                        border.width: 1
-                        border.color: newDrop.containsDrag ? view.s.primary_default : view.s.stroke_field
-
-                        DropArea {
-                            id: newDrop
-                            anchors.fill: parent
-                            keys: ["hunk"]
-                            onDropped: {
-                                const piece = view.dragged
-                                view.composer.place(piece, view.clusters.addCluster(""))
-                            }
-                        }
-                        ColumnLayout {
-                            anchors.centerIn: parent
-                            spacing: 8
-                            Button {
-                                Layout.alignment: Qt.AlignHCenter
-                                styles: [Styles.ButtonStyle.small]
-                                icon.source: Icons.source("plus")
-                                icon.width: 16
-                                icon.height: 16
-                                text: qsTr("New group")
-                                onClicked: view.clusters.addCluster("")
-                            }
-                            Label {
-                                Layout.alignment: Qt.AlignHCenter
-                                text: qsTr("or drop a change here")
-                                color: view.s.text_muted
-                                font.pixelSize: 11
-                            }
-                        }
+                // Shift and the wheel scroll sideways, as Alt and the wheel do
+                // in Qt but desktops often take; over the board, before the
+                // lists in it scroll down
+                Item {
+                    anchors.fill: parent
+                    WheelHandler {
+                        target: null
+                        acceptedModifiers: Qt.ShiftModifier
+                        onWheel: event => view.scrollBoard(event.angleDelta.y !== 0 ? event.angleDelta.y
+                                                                                    : event.angleDelta.x)
                     }
                 }
             }
