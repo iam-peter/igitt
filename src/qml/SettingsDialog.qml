@@ -25,9 +25,16 @@ ModalDialog {
 
         implicitWidth: 520
         implicitHeight: Math.min(form.implicitHeight, 560)
-        // The scroll bar beside the controls, not over them.
-        rightPadding: scroller.ScrollBar.vertical.visible ? scroller.ScrollBar.vertical.width + 8 : 0
         contentWidth: availableWidth
+
+        // In the dialog's right padding, beside the controls and not over
+        // them, so they keep the same margin on both sides.
+        ScrollBar.vertical: ScrollBar {
+            parent: scroller
+            x: scroller.width + (dialog.rightPadding - width) / 2
+            y: scroller.topPadding
+            height: scroller.availableHeight
+        }
 
         ColumnLayout {
             id: form
@@ -41,6 +48,50 @@ ModalDialog {
             }
             GridLayout {
                 columns: 3
+                Label {
+                    text: qsTr("Theme")
+                }
+                // The system's light or dark, then every theme by name.
+                ComboBox {
+                    objectName: "themeSetting"
+                    Layout.fillWidth: true
+                    Layout.columnSpan: 2
+                    textRole: "name"
+                    valueRole: "id"
+                    model: [{id: "system", name: qsTr("System")}].concat(Styles.Themes.available)
+                    // Again once the model is there.
+                    currentIndex: count > 0 ? Math.max(0, indexOfValue(Styles.Themes.theme)) : -1
+                    onActivated: Styles.Themes.theme = currentValue
+                }
+                Item {}
+                ColumnLayout {
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    Layout.bottomMargin: 4
+                    spacing: 6
+
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        text: qsTr("Your own themes go in %1 as JSON files, see docs/THEMES.md. "
+                                   + "igitt reads them again whenever they change.").arg(Styles.Themes.folder)
+                        color: Styles.TokenInterface.semantics.text_muted
+                    }
+                    Label {
+                        objectName: "themeErrors"
+                        Layout.fillWidth: true
+                        visible: Styles.Themes.errors.length > 0
+                        wrapMode: Text.Wrap
+                        textFormat: Text.PlainText
+                        text: Styles.Themes.errors.join("\n")
+                        color: Styles.TokenInterface.semantics.danger_default
+                    }
+                    Button {
+                        styles: [Styles.ButtonStyle.small]
+                        text: qsTr("Open the theme folder")
+                        onClicked: Qt.openUrlExternally(Styles.Themes.openFolder())
+                    }
+                }
                 Label {
                     text: qsTr("Interface font")
                 }
@@ -82,78 +133,6 @@ ModalDialog {
                     AppSettings.fonts.codeFamily = "JetBrains Mono"
                     AppSettings.fonts.codeSize = 10
                 }
-            }
-
-            Label {
-                Layout.topMargin: 12
-                text: qsTr("Theme")
-                font.bold: true
-            }
-            GridLayout {
-                columns: 2
-                Label {
-                    text: qsTr("Show")
-                }
-                ComboBox {
-                    objectName: "schemeSetting"
-                    Layout.fillWidth: true
-                    textRole: "text"
-                    valueRole: "value"
-                    model: [
-                        {value: "system", text: qsTr("Light or dark, as the system is")},
-                        {value: "light", text: qsTr("Always the light theme")},
-                        {value: "dark", text: qsTr("Always the dark theme")},
-                    ]
-                    // Again once the model is there.
-                    currentIndex: count > 0 ? Math.max(0, indexOfValue(Styles.Themes.scheme)) : -1
-                    onActivated: Styles.Themes.scheme = currentValue
-                }
-                Label {
-                    text: qsTr("Light theme")
-                }
-                ComboBox {
-                    objectName: "lightThemeSetting"
-                    Layout.fillWidth: true
-                    textRole: "name"
-                    valueRole: "id"
-                    model: Styles.Themes.available.filter(theme => !theme.dark)
-                    // Again once the model is there.
-                    currentIndex: count > 0 ? Math.max(0, indexOfValue(Styles.Themes.lightTheme)) : -1
-                    onActivated: Styles.Themes.lightTheme = currentValue
-                }
-                Label {
-                    text: qsTr("Dark theme")
-                }
-                ComboBox {
-                    objectName: "darkThemeSetting"
-                    Layout.fillWidth: true
-                    textRole: "name"
-                    valueRole: "id"
-                    model: Styles.Themes.available.filter(theme => theme.dark)
-                    // Again once the model is there.
-                    currentIndex: count > 0 ? Math.max(0, indexOfValue(Styles.Themes.darkTheme)) : -1
-                    onActivated: Styles.Themes.darkTheme = currentValue
-                }
-            }
-            Label {
-                Layout.fillWidth: true
-                wrapMode: Text.Wrap
-                text: qsTr("Your own themes go in %1 as JSON files, see docs/THEMES.md. "
-                           + "igitt reads them again whenever they change.").arg(Styles.Themes.folder)
-                color: Styles.TokenInterface.semantics.text_muted
-            }
-            Label {
-                objectName: "themeErrors"
-                Layout.fillWidth: true
-                visible: Styles.Themes.errors.length > 0
-                wrapMode: Text.Wrap
-                textFormat: Text.PlainText
-                text: Styles.Themes.errors.join("\n")
-                color: Styles.TokenInterface.semantics.danger_default
-            }
-            Button {
-                text: qsTr("Open the theme folder")
-                onClicked: Qt.openUrlExternally(Styles.Themes.openFolder())
             }
 
             Label {

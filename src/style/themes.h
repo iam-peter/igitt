@@ -12,10 +12,9 @@
 class QJSEngine;
 class QQmlEngine;
 
-// The theme in use, for Semantics.qml: the built-in themes and those in
-// the user's folder, a light and a dark one chosen of them, and whether
-// the light or the dark one is shown (with the system, or always one).
-// The choice is kept in the settings ("appearance"). Theme files that
+// The theme in use, for Semantics.qml: one of the built-in themes and
+// those in the user's folder, or "system", which is light or dark as the
+// system is. The choice is kept in the settings ("appearance/theme"). Theme files that
 // change are read again at once, so a theme can be written while igitt
 // shows it.
 class Themes : public QObject
@@ -24,10 +23,8 @@ class Themes : public QObject
     QML_ELEMENT
     QML_SINGLETON
 
-    // "system", "light" or "dark"
-    Q_PROPERTY(QString scheme READ scheme WRITE setScheme NOTIFY schemeChanged FINAL)
-    Q_PROPERTY(QString lightTheme READ lightTheme WRITE setLightTheme NOTIFY schemeChanged FINAL)
-    Q_PROPERTY(QString darkTheme READ darkTheme WRITE setDarkTheme NOTIFY schemeChanged FINAL)
+    // "system" or a theme's id
+    Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY themeChanged FINAL)
     // The theme shown and whether it is a dark one
     Q_PROPERTY(QString current READ current NOTIFY rolesChanged FINAL)
     Q_PROPERTY(bool dark READ dark NOTIFY rolesChanged FINAL)
@@ -45,12 +42,8 @@ public:
     static Themes *instance();
     static Themes *create(QQmlEngine *, QJSEngine *);
 
-    QString scheme() const { return m_scheme; }
-    void setScheme(const QString &scheme);
-    QString lightTheme() const { return m_lightTheme; }
-    void setLightTheme(const QString &id);
-    QString darkTheme() const { return m_darkTheme; }
-    void setDarkTheme(const QString &id);
+    QString theme() const { return m_theme; }
+    void setTheme(const QString &theme);
 
     QString current() const { return m_current; }
     bool dark() const { return m_dark; }
@@ -68,7 +61,7 @@ public:
     void setFolders(const QString &builtIn, const QString &user);
 
 signals:
-    void schemeChanged();
+    void themeChanged();
     void rolesChanged();
     void availableChanged();
 
@@ -85,9 +78,7 @@ private:
     QTimer m_reloadTimer;
     QString m_builtInFolder;
     QString m_folder;
-    QString m_scheme;
-    QString m_lightTheme;
-    QString m_darkTheme;
+    QString m_theme;
     QString m_current;
     bool m_dark = false;
     QVariantMap m_roles;

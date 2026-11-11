@@ -41,8 +41,8 @@ private slots:
         QStringList ids;
         for (const ThemeLibrary::Theme &theme : themes)
             ids.append(theme.id);
-        QCOMPARE(ids, (QStringList{u"light"_s, u"alucard"_s, u"catppuccin-latte"_s, u"dark"_s,
-                                   u"catppuccin-frappe"_s, u"catppuccin-macchiato"_s,
+        QCOMPARE(ids, (QStringList{u"light"_s, u"dark"_s, u"alucard"_s, u"catppuccin-frappe"_s,
+                                   u"catppuccin-latte"_s, u"catppuccin-macchiato"_s,
                                    u"catppuccin-mocha"_s, u"dracula"_s}));
 
         for (const ThemeLibrary::Theme &theme : themes) {

@@ -273,9 +273,9 @@ clicking their header, or all at once from the diff's toolbar.
 
 igitt draws its controls in a style of its own and takes all its colors
 from a theme: Light, Dark, Dracula, Alucard and the four Catppuccin
-flavors come with it. Settings picks a light and a dark one and whether
-igitt follows the system between them. Themes of your own are JSON files
-in igitt's theme folder, read again as soon as they change; see
+flavors come with it. Settings picks one, or System for Light or Dark as
+the system is. Themes of your own are JSON files in igitt's theme
+folder, read again as soon as they change; see
 [docs/THEMES.md](docs/THEMES.md).
 
 ## Third-party assets

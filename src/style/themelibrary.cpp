@@ -198,12 +198,12 @@ QList<ThemeLibrary::Theme> ThemeLibrary::themes() const
         const File &top = it.value().constLast();
         list.append(Theme{it.key(), top.json.value(u"name").toString(), merged.dark, top.user, top.path});
     }
+    // Light and dark first, then the others by name
     std::sort(list.begin(), list.end(), [](const Theme &a, const Theme &b) {
-        if (a.dark != b.dark)
-            return !a.dark;
-        // The plain light and dark first among theirs
         if (isRoot(a.id) != isRoot(b.id))
             return isRoot(a.id);
+        if (isRoot(a.id))
+            return a.id == QLatin1String("light");
         return a.name.localeAwareCompare(b.name) < 0;
     });
     return list;

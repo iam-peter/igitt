@@ -47,7 +47,7 @@ public:
     // one of the same id in an earlier one
     void load(const QStringList &folders);
 
-    // Light ones first, then dark ones, each by name
+    // Light and dark first, then the others by name
     QList<Theme> themes() const;
     bool contains(const QString &id) const { return m_files.contains(id); }
 

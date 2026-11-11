@@ -36,9 +36,7 @@ Themes::Themes(QObject *parent)
     , m_folder(QDir(QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation))
                    .filePath(QCoreApplication::applicationName() + QStringLiteral("/themes")))
 {
-    m_scheme = setting("scheme", QStringLiteral("system"));
-    m_lightTheme = setting("lightTheme", QStringLiteral("light"));
-    m_darkTheme = setting("darkTheme", QStringLiteral("dark"));
+    m_theme = setting("theme", QStringLiteral("system"));
 
     // An editor saves a file in a few steps; read once they are done
     m_reloadTimer.setSingleShot(true);
@@ -48,7 +46,8 @@ Themes::Themes(QObject *parent)
     connect(&m_watcher, &QFileSystemWatcher::fileChanged, &m_reloadTimer, qOverload<>(&QTimer::start));
 
     connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this] {
-        if (m_scheme == QLatin1String("system"))
+        // Also when the theme chosen is gone and the system's stands in
+        if (m_theme == QLatin1String("system") || !m_library.contains(m_theme))
             apply();
     });
     reload();
@@ -74,35 +73,14 @@ void Themes::setFolders(const QString &builtIn, const QString &user)
     reload();
 }
 
-void Themes::setScheme(const QString &scheme)
+void Themes::setTheme(const QString &theme)
 {
-    const QString value = scheme == QLatin1String("light") || scheme == QLatin1String("dark")
-                              ? scheme : QStringLiteral("system");
-    if (m_scheme == value)
+    const QString value = theme.isEmpty() ? QStringLiteral("system") : theme;
+    if (m_theme == value)
         return;
-    m_scheme = value;
-    save("scheme", value);
-    emit schemeChanged();
-    apply();
-}
-
-void Themes::setLightTheme(const QString &id)
-{
-    if (m_lightTheme == id)
-        return;
-    m_lightTheme = id;
-    save("lightTheme", id);
-    emit schemeChanged();
-    apply();
-}
-
-void Themes::setDarkTheme(const QString &id)
-{
-    if (m_darkTheme == id)
-        return;
-    m_darkTheme = id;
-    save("darkTheme", id);
-    emit schemeChanged();
+    m_theme = value;
+    save("theme", value);
+    emit themeChanged();
     apply();
 }
 
@@ -165,32 +143,28 @@ bool Themes::systemIsDark() const
 void Themes::apply()
 {
     auto *hints = QGuiApplication::styleHints();
-    bool dark = false;
-    if (m_scheme == QLatin1String("system")) {
+    QStringList errors;
+    bool system = m_theme == QLatin1String("system");
+    if (!system && !m_library.contains(m_theme)) {
+        errors.append(QStringLiteral("There is no theme %1, the system's is shown").arg(m_theme));
+        system = true;
+    }
+    QString id = m_theme;
+    if (system) {
         // The system's own scheme again, which an earlier choice hid
         hints->unsetColorScheme();
-        dark = systemIsDark();
-    } else {
-        dark = m_scheme == QLatin1String("dark");
-    }
-
-    QString id = dark ? m_darkTheme : m_lightTheme;
-    QStringList errors;
-    if (!m_library.contains(id)) {
-        errors.append(QStringLiteral("There is no theme %1, %2 is shown")
-                          .arg(id, dark ? QStringLiteral("dark") : QStringLiteral("light")));
-        id = dark ? QStringLiteral("dark") : QStringLiteral("light");
+        id = systemIsDark() ? QStringLiteral("dark") : QStringLiteral("light");
     }
     m_roles = m_library.resolve(id, &errors);
     m_current = id;
-    // As the theme is, which may differ from the scheme chosen
+    // As the theme is
     for (const ThemeLibrary::Theme &theme : m_library.themes()) {
         if (theme.id == id)
             m_dark = theme.dark;
     }
     // Window frames and native dialogs follow the theme, where the
     // platform lets them
-    if (m_scheme != QLatin1String("system"))
+    if (!system)
         hints->setColorScheme(m_dark ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
 
     errors += m_library.loadErrors();

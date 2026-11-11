@@ -60,10 +60,8 @@ private slots:
         QCoreApplication::setOrganizationName(u"igitt-test"_s);
         QCoreApplication::setOrganizationDomain(u"igitt.test"_s);
         QSettings().clear();
-        if (const QString theme = qEnvironmentVariable("IGITT_TEST_THEME"); !theme.isEmpty()) {
-            QSettings().setValue(u"appearance/scheme"_s, u"light"_s);
-            QSettings().setValue(u"appearance/lightTheme"_s, theme);
-        }
+        if (const QString theme = qEnvironmentVariable("IGITT_TEST_THEME"); !theme.isEmpty())
+            QSettings().setValue(u"appearance/theme"_s, theme);
         if (qEnvironmentVariableIsEmpty("IGITT_TEST_DEFAULT_RHI"))
             QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
         QQuickStyle::setStyle(u"IgittStyle"_s);
@@ -728,15 +726,11 @@ private slots:
     {
         Themes *themes = Themes::instance();
         const QString folder = themes->folder();
-        const QString scheme = themes->scheme();
-        const QString light = themes->lightTheme();
-        const QString dark = themes->darkTheme();
+        const QString chosen = themes->theme();
         QTemporaryDir user;
         themes->setFolders(u":/qt/qml/IgittStyle/themes"_s, user.path());
         const auto restore = qScopeGuard([&] {
-            themes->setScheme(scheme);
-            themes->setLightTheme(light);
-            themes->setDarkTheme(dark);
+            themes->setTheme(chosen);
             themes->setFolders(u":/qt/qml/IgittStyle/themes"_s, folder);
         });
 
@@ -769,10 +763,7 @@ private slots:
         roles.sort();
         QCOMPARE(properties, roles);
 
-        const auto show = [themes](const QString &id) {
-            themes->setScheme(u"light"_s);
-            themes->setLightTheme(id);
-        };
+        const auto show = [themes](const QString &id) { themes->setTheme(id); };
         const QVariantList available = themes->available();
         QCOMPARE(available.size(), 8);
         for (const QVariant &theme : available) {

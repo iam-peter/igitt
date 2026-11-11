@@ -8,8 +8,8 @@ from that palette. igitt comes with these themes:
 - [Dracula](https://draculatheme.com) and its light counterpart Alucard
 - [Catppuccin](https://catppuccin.com) Latte, Frappé, Macchiato and Mocha
 
-Settings › Theme picks a light and a dark theme, and whether igitt shows
-the one that matches the system or always one of them.
+Settings › Theme picks one of them, or System: Light or Dark, as the
+system is.
 
 ## Your own themes
 
@@ -64,9 +64,9 @@ the list and builds on it.
 ```
 
 - **name** is what Settings lists. A file without one is skipped.
-- **dark** says whether it is a dark theme, so whether Settings offers it
-  as the light or the dark one. Without it the theme is as dark as the one
-  below it.
+- **dark** says whether it is a dark theme, which the window frames
+  follow where the system lets them. Without it the theme is as dark as
+  the one below it.
 - **inherits** is the id of the theme below it. Without it that is `dark`
   for a dark theme and `light` for any other.
 - **colors** is the palette: names of your choice, each a `#rrggbb` or
