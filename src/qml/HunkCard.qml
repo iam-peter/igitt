@@ -8,10 +8,11 @@ import IgittStyle as Styles
 // A hunk on a card: its file and line, how much it adds and removes, and
 // its first changed lines. tint marks the cluster it is in.
 //
-// Split open (the scissors, splitting), the card shows all its lines:
-// dragging over them picks them, a click picks or drops one, Shift+click
-// a range; dragging what is picked carries those lines out, to wherever
-// the view lets them go (carryStarted, carryMoved, carryEnded).
+// Split open (the scissors, splitting), the card shows all its lines,
+// picked as in any list: a click, Ctrl+click to add, Shift+click for a
+// range, a drag over them, Ctrl+A for all. Dragging what is picked
+// carries those lines out, to wherever the view lets them go
+// (carryStarted, carryMoved, carryEnded).
 Rectangle {
     id: card
 
@@ -30,6 +31,10 @@ Rectangle {
     property bool splitting: false
     // The picked lines, by their index in the hunk
     property var picked: []
+    // Where a range starts: the line clicked or dragged from last
+    property int anchorRow: -1
+    // What a drag with Ctrl adds its rows to
+    property var kept: []
     // The picked lines are on their way out
     property bool carrying: false
     // Lines shown at most while split open; more scroll
@@ -71,20 +76,56 @@ Rectangle {
         const row = Math.floor((y + lineList.contentY) / lineHeight)
         return Math.max(0, Math.min(shownLines.length - 1, row))
     }
-    function pickRange(from: int, to: int) {
-        const picks = []
+    // The lines of the rows from one to the other
+    function indexesOf(from: int, to: int): var {
+        const indexes = []
         for (let row = Math.min(from, to); row <= Math.max(from, to); ++row)
-            picks.push(shownLines[row].index)
-        picked = picks
+            indexes.push(shownLines[row].index)
+        return indexes
     }
-    function toggle(row: int) {
+    function union(a: var, b: var): var {
+        return a.concat(b.filter(index => !a.includes(index)))
+    }
+    // Picking as in any list: a click picks the line alone, Ctrl adds or
+    // drops it, Shift picks the range from the line clicked before, and
+    // Ctrl+Shift adds that range
+    function click(row: int, modifiers: int) {
+        const add = (modifiers & Qt.ControlModifier) !== 0
+        if ((modifiers & Qt.ShiftModifier) && anchorRow >= 0) {
+            const range = indexesOf(anchorRow, row)
+            picked = add ? union(picked, range) : range
+            return
+        }
         const index = shownLines[row].index
-        picked = picked.includes(index) ? picked.filter(i => i !== index) : picked.concat([index])
+        if (add)
+            picked = picked.includes(index) ? picked.filter(i => i !== index) : picked.concat([index])
+        else
+            picked = [index]
+        anchorRow = row
+    }
+    // A drag picks the rows it goes over; with Ctrl, as well as what was
+    // picked, and with Shift, from the line clicked before
+    function sweepFrom(row: int, modifiers: int) {
+        kept = (modifiers & Qt.ControlModifier) ? Array.from(picked) : []
+        if (!((modifiers & Qt.ShiftModifier) && anchorRow >= 0))
+            anchorRow = row
+        sweepTo(row)
+    }
+    function sweepTo(row: int) {
+        picked = union(kept, indexesOf(anchorRow, row))
     }
 
     onSplittingChanged: {
         picked = []
+        kept = []
+        anchorRow = -1
         lineList.contentY = 0
+    }
+
+    Shortcut {
+        sequences: [StandardKey.SelectAll]
+        enabled: card.splitting
+        onActivated: card.picked = card.shownLines.map(line => line.index)
     }
 
     implicitWidth: 260
@@ -190,7 +231,7 @@ Rectangle {
             visible: card.splitting
             wrapMode: Text.Wrap
             text: card.picked.length === 0
-                  ? qsTr("Drag over lines to pick them")
+                  ? qsTr("Drag over lines to pick them; Ctrl adds, Shift picks a range")
                   : qsTr("%n line(s) picked: drag them onto a cluster", "", card.picked.length)
             color: card.s.text_muted
             font.pixelSize: 11
@@ -272,28 +313,17 @@ Rectangle {
             TapHandler {
                 id: tap
 
-                property int anchorRow: -1
-
                 enabled: card.splitting
                 // The handler's own point has the modifiers; the event
                 // point it passes does not
-                onTapped: {
-                    const row = card.rowAt(tap.point.position.y)
-                    if ((tap.point.modifiers & Qt.ShiftModifier) && anchorRow >= 0) {
-                        card.pickRange(anchorRow, row)
-                    } else {
-                        card.toggle(row)
-                        anchorRow = row
-                    }
-                }
+                onTapped: card.click(card.rowAt(tap.point.position.y), tap.point.modifiers)
             }
             // From a picked line, the drag carries the picked lines out;
-            // from any other, it picks the lines it goes over
+            // from any other, or with Shift, it picks the lines it goes over
             DragHandler {
                 id: sweep
 
                 property bool carry
-                property int anchorRow
 
                 target: null
                 enabled: card.splitting && !(parent.Window.window?.popupOpen ?? false)
@@ -303,15 +333,16 @@ Rectangle {
                 onActiveChanged: {
                     if (active) {
                         const row = card.rowAt(centroid.pressPosition.y)
+                        const modifiers = centroid.modifiers
                         carry = card.picked.includes(card.shownLines[row].index)
+                                && !(modifiers & Qt.ShiftModifier)
                         if (carry) {
                             card.carrying = true
                             card.carryStarted(card.carriedPiece())
                             card.carryMoved(linesArea.mapToItem(card, centroid.position))
                         } else {
-                            anchorRow = row
-                            tap.anchorRow = row
-                            card.pickRange(row, card.rowAt(centroid.position.y))
+                            card.sweepFrom(row, modifiers)
+                            card.sweepTo(card.rowAt(centroid.position.y))
                         }
                     } else if (carry) {
                         carry = false
@@ -333,7 +364,7 @@ Rectangle {
                     else if (y > linesArea.height)
                         lineList.contentY = Math.min(Math.max(0, lineList.contentHeight - lineList.height),
                                                      lineList.contentY + (y - linesArea.height) / 4)
-                    card.pickRange(anchorRow, card.rowAt(y))
+                    card.sweepTo(card.rowAt(y))
                 }
             }
         }

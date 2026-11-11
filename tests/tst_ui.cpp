@@ -1021,18 +1021,44 @@ private slots:
             QTest::mouseRelease(compose, Qt::LeftButton, {}, to);
         };
 
-        // Groups: two lines picked and carried into a new group
+        // Groups: lines picked as in any list, and two carried into a new
+        // group. Lines of a new file are rows 0 to 3, their index the same.
         tabs->setProperty("currentIndex", 0);
         QVERIFY(QMetaObject::invokeMethod(compose, "splitHunk", Q_ARG(QString, hunk + u"/none"_s)));
         QVERIFY(QQuickTest::qWaitForPolish(compose));
         QQuickItem *card = openCard();
         QVERIFY(card);
+        const auto picked = [&card] {
+            QList<int> rows;
+            for (const QVariant &index : card->property("picked").toList())
+                rows.append(index.toInt());
+            std::sort(rows.begin(), rows.end());
+            return rows;
+        };
+        const auto clickLine = [&](int row, Qt::KeyboardModifiers modifiers = {}) {
+            QTest::mouseClick(compose, Qt::LeftButton, modifiers, linePoint(card, row));
+        };
         drag(linePoint(card, 0), linePoint(card, 1));
-        QTRY_COMPARE(card->property("picked").toList().size(), 2);
+        QTRY_COMPARE(picked(), (QList<int>{0, 1}));
+        clickLine(3, Qt::ControlModifier);
+        QTRY_COMPARE(picked(), (QList<int>{0, 1, 3}));
+        clickLine(0, Qt::ControlModifier);
+        QTRY_COMPARE(picked(), (QList<int>{1, 3}));
+        clickLine(0, Qt::ShiftModifier);
+        QTRY_COMPARE(picked(), (QList<int>{0}));
+        clickLine(2, Qt::ShiftModifier);
+        QTRY_COMPARE(picked(), (QList<int>{0, 1, 2}));
+        clickLine(3);
+        QTRY_COMPARE(picked(), (QList<int>{3}));
+        clickLine(0, Qt::ControlModifier | Qt::ShiftModifier);
+        QTRY_COMPARE(picked(), (QList<int>{0, 1, 2, 3}));
+        clickLine(0);
+        clickLine(1, Qt::ShiftModifier);
+        QTRY_COMPARE(picked(), (QList<int>{0, 1}));
         screenshot(compose, u"split-picked"_s);
         auto *newGroup = findItem(compose->contentItem(), u"newGroupDrop"_s);
         QVERIFY(newGroup);
-        drag(linePoint(card, 0), newGroup->mapToScene({newGroup->width() / 2, newGroup->height() / 2}).toPoint());
+        drag(linePoint(card, 1), newGroup->mapToScene({newGroup->width() / 2, newGroup->height() / 2}).toPoint());
         QTRY_COMPARE(clusters->clusters().size(), 1);
         const int group = clusters->clusters().first().toMap().value(u"id"_s).toInt();
         QTRY_COMPARE(pieces(), (QMap<int, int>{{-1, 2}, {group, 2}}));

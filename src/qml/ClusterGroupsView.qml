@@ -140,6 +140,9 @@ Item {
                     Layout.fillHeight: true
                     clip: true
                     spacing: 10
+                    // The same on both sides; the bar sits in the right one
+                    leftMargin: 8
+                    rightMargin: 8
                     bottomMargin: 8
                     // Only files with changes left to place
                     model: view.clusters.files.map(file => ({
@@ -152,7 +155,6 @@ Item {
                         required property var modelData
 
                         width: ListView.view.width - 16
-                        x: 8
                         spacing: 4
 
                         RowLayout {
