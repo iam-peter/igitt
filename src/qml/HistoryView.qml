@@ -204,6 +204,7 @@ Pane {
                 anchors.rightMargin: 6
 
                 ComboBox {
+                    styles: [Styles.FieldStyle.medium]
                     objectName: "branchScope"
                     model: [qsTr("All Branches"), qsTr("Current Branch")]
                     currentIndex: view.columns.currentBranchOnly ? 1 : 0
@@ -211,6 +212,7 @@ Pane {
                 }
                 TextField {
                     id: search
+                    styles: [Styles.FieldStyle.medium]
                     objectName: "historySearch"
                     Layout.preferredWidth: 380
                     placeholderText: qsTr("Search commits, e.g. \"fix crash\" author:ada sha:1a2b")
@@ -224,6 +226,7 @@ Pane {
                                        + "that field; quotes keep a phrase together.")
                 }
                 IconButton {
+                    styles: [Styles.ButtonStyle.medium]
                     iconName: "case-sensitive"
                     id: matchCase
                     checkable: true
@@ -232,6 +235,7 @@ Pane {
                     ToolTip.text: qsTr("Match case")
                 }
                 IconButton {
+                    styles: [Styles.ButtonStyle.medium]
                     iconName: "regex"
                     id: regex
                     checkable: true
@@ -248,6 +252,7 @@ Pane {
                     opacity: 0.8
                 }
                 IconButton {
+                    styles: [Styles.ButtonStyle.medium]
                     iconName: "chevron-up"
                     enabled: view.repo.commits.matchCount > 0
                     onClicked: view.findMatch(false)
@@ -255,6 +260,7 @@ Pane {
                     ToolTip.text: qsTr("Previous match (Shift+Enter)")
                 }
                 IconButton {
+                    styles: [Styles.ButtonStyle.medium]
                     iconName: "chevron-down"
                     enabled: view.repo.commits.matchCount > 0
                     onClicked: view.findMatch(true)
@@ -265,6 +271,7 @@ Pane {
                     Layout.fillWidth: true
                 }
                 IconButton {
+                    styles: [Styles.ButtonStyle.medium]
                     iconName: "columns-3"
                     text: qsTr("View")
                     onClicked: viewMenu.popup(this, 0, height)

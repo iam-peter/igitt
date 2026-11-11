@@ -16,6 +16,7 @@ QtObject {
     }
 
     readonly property Style button: Style {
+        includes: [root.large]
         background: TokenInterface.transparent
         border.width: 0
         text {
@@ -27,12 +28,7 @@ QtObject {
             color: root.s.text_inactive
         }
         radius.value: Primitives.radius.r4
-        padding {
-            horizontal: Primitives.spacing.sp150
-            vertical: Primitives.spacing.sp050
-        }
         spacing: Primitives.spacing.sp100
-        height: Primitives.size.s28
         // As wide as their text needs
         width: 0
         opacity: 1
@@ -40,6 +36,30 @@ QtObject {
         Style {
             state: StyleState.Disable
             opacity: 0.5
+        }
+    }
+
+    // Sizes of a tab, by its height; the bar is 4 px higher. Large is the
+    // default, as high as the large fields with its bar.
+    readonly property Style large: Style {
+        height: Primitives.size.s28
+        padding {
+            horizontal: Primitives.spacing.sp150
+            vertical: Primitives.spacing.sp050
+        }
+    }
+    readonly property Style medium: Style {
+        height: Primitives.size.s24
+        padding {
+            horizontal: Primitives.spacing.sp125
+            vertical: Primitives.spacing.sp025
+        }
+    }
+    readonly property Style small: Style {
+        height: Primitives.size.s20
+        padding {
+            horizontal: Primitives.spacing.sp100
+            vertical: 0
         }
     }
 

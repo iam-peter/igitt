@@ -9,22 +9,24 @@ T.ToolButton {
     property list<Style> styles
     property int groupPosition: GroupStyle.Position.None
     readonly property alias styleCascade: _style
+    readonly property bool iconOnly: control.text === "" || control.display === T.AbstractButton.IconOnly
 
     StyleCascade {
         id: _style
         base: [ButtonStyle.base, ButtonStyle.tool]
         styles: control.styles
         overrides: [control.visualFocus ? ButtonStyle.focus : null,
-                    control.text === "" || control.display === T.AbstractButton.IconOnly
-                    ? ButtonStyle.iconOnly : null,
+                    control.iconOnly ? ButtonStyle.iconOnly : null,
                     GroupStyle.of(control.groupPosition)]
         state: ControlState.pressable(control)
     }
 
     // Whole pixels: the text's width is fractional, and in a row (the
     // dialog buttons) every button after it would stand between pixels
-    implicitWidth: Math.ceil(Math.max(implicitBackgroundWidth + leftInset + rightInset,
-                                      implicitContentWidth + leftPadding + rightPadding))
+    // Without text as wide as high, in every size
+    implicitWidth: iconOnly ? implicitHeight
+                            : Math.ceil(Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                                                 implicitContentWidth + leftPadding + rightPadding))
     implicitHeight: Math.ceil(Math.max(implicitBackgroundHeight + topInset + bottomInset,
                                        implicitContentHeight + topPadding + bottomPadding))
 

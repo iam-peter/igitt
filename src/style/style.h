@@ -44,6 +44,7 @@ enum Part {
     Leading,   // what stands before a field's text: an icon, items
     Trailing,  // what stands after it: buttons, items
     Unit,      // the unit after a value, "cm"
+    Item,      // a row of a combo box's list
 };
 Q_ENUM_NS(Part)
 } // namespace StylePart

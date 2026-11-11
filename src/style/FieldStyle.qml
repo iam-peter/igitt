@@ -10,13 +10,13 @@ QtObject {
     readonly property Semantics s: TokenInterface.semantics
 
     readonly property Style base: Style {
+        includes: [root.large]
         background: root.s.field_default
         border {
             width: Primitives.stroke.thin
             color: root.s.stroke_field
         }
         radius.value: Primitives.radius.r4
-        height: Primitives.size.s32
         width: Primitives.size.s160
         text.color: root.s.text_default
         placeholder: root.s.text_muted
@@ -62,18 +62,12 @@ QtObject {
     }
 
     readonly property Style textField: Style {
-        padding {
-            horizontal: Primitives.spacing.sp150
-            vertical: Primitives.spacing.sp050
-        }
     }
 
+    // A text area has room above and below its lines, whatever its size
     readonly property Style textArea: Style {
         width: Primitives.size.s200
-        padding {
-            horizontal: Primitives.spacing.sp150
-            vertical: Primitives.spacing.sp100
-        }
+        padding.vertical: Primitives.spacing.sp100
     }
 
     // The steps are buttons inside the field: a part each, with its own
@@ -86,7 +80,6 @@ QtObject {
             part: StylePart.Indicator
             background: TokenInterface.transparent
             radius.value: Primitives.radius.r2
-            width: Primitives.size.s24
             text.color: root.s.text_default
 
             Style {
@@ -106,10 +99,6 @@ QtObject {
 
     // A trigger with a faint chevron; lighter under the pointer
     readonly property Style comboBox: Style {
-        padding {
-            horizontal: Primitives.spacing.sp150
-            vertical: Primitives.spacing.sp050
-        }
         spacing: Primitives.spacing.sp100
 
         Style {
@@ -123,6 +112,54 @@ QtObject {
                 size: Primitives.size.s16
             }
             opacity: 0.8
+        }
+    }
+
+    // Sizes, by the height of the field; large is the default. The steps
+    // of a spin box and the rows of a combo box's list go with it.
+    readonly property Style large: Style {
+        height: Primitives.size.s32
+        padding {
+            horizontal: Primitives.spacing.sp150
+            vertical: Primitives.spacing.sp050
+        }
+        Style {
+            part: StylePart.Indicator
+            width: Primitives.size.s24
+        }
+        Style {
+            part: StylePart.Item
+            includes: [ItemStyle.large]
+        }
+    }
+    readonly property Style medium: Style {
+        height: Primitives.size.s28
+        padding {
+            horizontal: Primitives.spacing.sp125
+            vertical: Primitives.spacing.sp025
+        }
+        Style {
+            part: StylePart.Indicator
+            width: Primitives.size.s22
+        }
+        Style {
+            part: StylePart.Item
+            includes: [ItemStyle.medium]
+        }
+    }
+    readonly property Style small: Style {
+        height: Primitives.size.s24
+        padding {
+            horizontal: Primitives.spacing.sp100
+            vertical: 0
+        }
+        Style {
+            part: StylePart.Indicator
+            width: Primitives.size.s20
+        }
+        Style {
+            part: StylePart.Item
+            includes: [ItemStyle.small]
         }
     }
 

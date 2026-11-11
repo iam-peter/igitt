@@ -11,16 +11,8 @@ QtObject {
     readonly property Semantics s: TokenInterface.semantics
 
     readonly property Style base: Style {
-        height: Primitives.size.s32
-        width: Primitives.size.s64
+        includes: [root.large]
         radius.value: Primitives.radius.r4
-        // Text and icons fit in one control height (32 px) like the
-        // fields: 8 px above and below made a button with text 33 px high
-        padding {
-            horizontal: Primitives.spacing.sp150
-            vertical: Primitives.spacing.sp075
-        }
-        spacing: Primitives.spacing.sp100
         text.weight: Primitives.fontWeight.medium
         icon.size: Primitives.size.s16
         opacity: 1
@@ -29,6 +21,40 @@ QtObject {
             state: StyleState.Disable
             opacity: 0.5
         }
+    }
+
+    // Sizes, by the height of the button. Large is the default; text and
+    // icons fit in it like in the fields: 8 px above and below made a
+    // button with text 33 px high
+    readonly property Style large: Style {
+        height: Primitives.size.s32
+        width: Primitives.size.s64
+        radius.value: Primitives.radius.r4
+        padding {
+            horizontal: Primitives.spacing.sp150
+            vertical: Primitives.spacing.sp075
+        }
+        spacing: Primitives.spacing.sp100
+    }
+    readonly property Style medium: Style {
+        height: Primitives.size.s28
+        width: Primitives.size.s56
+        radius.value: Primitives.radius.r4
+        padding {
+            horizontal: Primitives.spacing.sp125
+            vertical: Primitives.spacing.sp050
+        }
+        spacing: Primitives.spacing.sp075
+    }
+    readonly property Style small: Style {
+        height: Primitives.size.s24
+        width: Primitives.size.s48
+        radius.value: Primitives.radius.r3
+        padding {
+            horizontal: Primitives.spacing.sp100
+            vertical: Primitives.spacing.sp025
+        }
+        spacing: Primitives.spacing.sp050
     }
 
     // Filled with the accent: the one action a dialog or form is for
@@ -121,10 +147,9 @@ QtObject {
         }
     }
 
-    // Tool buttons: ghost, square without text
+    // Tool buttons: ghost; without text they are square, as any button
     readonly property Style tool: Style {
         includes: [root.ghost]
-        width: Primitives.size.s32
     }
 
     // What a button forces itself, over any variant
@@ -135,9 +160,9 @@ QtObject {
             color: root.s.stroke_focus
         }
     }
+    // Without text a button is as wide as it is high (Button.qml)
     readonly property Style iconOnly: Style {
-        width: Primitives.size.s32
-        padding.horizontal: Primitives.spacing.sp100
+        padding.horizontal: Primitives.spacing.sp050
     }
 
     // The variant Qt's flags ask for

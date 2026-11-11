@@ -2,9 +2,13 @@ import QtQuick
 import QtQuick.Templates as T
 
 // A bar of tool buttons on the window's color, a line below: as high as
-// a button and 4 px around it
+// what is in it, 4 px above and below, so a bar of small buttons is
+// 32 px high and one of large ones 40 px
 T.ToolBar {
     id: control
+
+    topPadding: Primitives.spacing.sp050
+    bottomPadding: Primitives.spacing.sp050
 
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
                             contentWidth + leftPadding + rightPadding)
@@ -12,7 +16,6 @@ T.ToolBar {
                              contentHeight + topPadding + bottomPadding)
 
     background: Rectangle {
-        implicitHeight: Primitives.size.s32 + 2 * Primitives.spacing.sp050
         color: TokenInterface.semantics.background_default
         Rectangle {
             anchors.left: parent.left

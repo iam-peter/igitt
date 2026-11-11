@@ -1,31 +1,34 @@
 import QtQuick
 import QtQuick.Templates as T
 
-// A button: ButtonStyle.base with a variant. Pages pick one with styles,
-// e.g. [ButtonStyle.ghost]; otherwise highlighted is primary, flat ghost
-// and any other outline. In a group (groupPosition) its inner corners are
-// square.
+// A button: ButtonStyle.base with a variant and a size. Pages pick them
+// with styles, e.g. [ButtonStyle.ghost, ButtonStyle.small]; otherwise
+// highlighted is primary, flat ghost and any other outline, and the size
+// is large. In a group (groupPosition) its inner corners are square.
 T.Button {
     id: control
 
     property list<Style> styles
     property int groupPosition: GroupStyle.Position.None
     readonly property alias styleCascade: _style
+    readonly property bool iconOnly: control.text === "" || control.display === T.AbstractButton.IconOnly
 
     StyleCascade {
         id: _style
         base: [ButtonStyle.base, ButtonStyle.variant(control.highlighted, control.flat)]
         styles: control.styles
         overrides: [control.visualFocus ? ButtonStyle.focus : null,
-                    control.text === "" ? ButtonStyle.iconOnly : null,
+                    control.iconOnly ? ButtonStyle.iconOnly : null,
                     GroupStyle.of(control.groupPosition)]
         state: ControlState.pressable(control)
     }
 
     // Whole pixels: the text's width is fractional, and in a row (the
     // dialog buttons) every button after it would stand between pixels
-    implicitWidth: Math.ceil(Math.max(implicitBackgroundWidth + leftInset + rightInset,
-                                      implicitContentWidth + leftPadding + rightPadding))
+    // Without text as wide as high, in every size
+    implicitWidth: iconOnly ? implicitHeight
+                            : Math.ceil(Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                                                 implicitContentWidth + leftPadding + rightPadding))
     implicitHeight: Math.ceil(Math.max(implicitBackgroundHeight + topInset + bottomInset,
                                        implicitContentHeight + topPadding + bottomPadding))
 

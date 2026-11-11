@@ -14,9 +14,8 @@ QtObject {
     readonly property Semantics s: TokenInterface.semantics
 
     readonly property Style base: Style {
+        includes: [root.large]
         text.color: root.s.text_default
-        padding.value: Primitives.spacing.sp050
-        spacing: Primitives.spacing.sp100
         opacity: 1
 
         Style {
@@ -97,6 +96,20 @@ QtObject {
             part: StylePart.Handle
             background: root.s.switch_thumb_checked
         }
+    }
+
+    // Sizes, by the room around the label; large is the default
+    readonly property Style large: Style {
+        padding.value: Primitives.spacing.sp050
+        spacing: Primitives.spacing.sp100
+    }
+    readonly property Style medium: Style {
+        padding.value: Primitives.spacing.sp025
+        spacing: Primitives.spacing.sp100
+    }
+    readonly property Style small: Style {
+        padding.value: 0
+        spacing: Primitives.spacing.sp075
     }
 
     // Keyboard focus shows in the indicator's border

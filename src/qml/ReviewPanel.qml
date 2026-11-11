@@ -98,15 +98,18 @@ ColumnLayout {
         visible: panel.expanded
 
         TabButton {
+            styles: [Styles.TabStyle.small]
             text: qsTr("Comments (%1)").arg(panel.hasReview ? panel.review.comments.length : 0)
             width: implicitWidth
         }
         TabButton {
+            styles: [Styles.TabStyle.small]
             objectName: "messagesTab"
             text: qsTr("Messages (%1)").arg(panel.hasReview ? panel.review.messages.length : 0)
             width: implicitWidth
         }
         TabButton {
+            styles: [Styles.TabStyle.small]
             objectName: "patchSetsTab"
             text: qsTr("Patch Sets (%1)").arg(panel.hasReview ? panel.review.patchSets.length : 0)
             width: implicitWidth

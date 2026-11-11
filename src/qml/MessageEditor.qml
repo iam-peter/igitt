@@ -78,6 +78,7 @@ ColumnLayout {
 
         TextField {
             id: title
+            styles: [Styles.FieldStyle.medium]
             objectName: box.namePrefix + "Title"
             Layout.fillWidth: true
             placeholderText: qsTr("Title: what this commit does")
@@ -145,6 +146,7 @@ ColumnLayout {
             font.pixelSize: 11
         }
         ToolButton {
+            styles: [Styles.ButtonStyle.small]
             text: qsTr("Wrap")
             onClicked: body.text = MessageFormat.wrapText(body.text, box.limits.bodyWidth)
         }
@@ -171,6 +173,7 @@ ColumnLayout {
             Layout.rightMargin: 4
 
             ComboBox {
+                styles: [Styles.FieldStyle.medium]
                 objectName: "trailerKey"
                 Layout.preferredWidth: 150
                 editable: true
@@ -190,6 +193,7 @@ ColumnLayout {
             }
             TextField {
                 id: valueField
+                styles: [Styles.FieldStyle.medium]
                 objectName: "trailerValue"
                 Layout.fillWidth: true
                 text: trailerRow.value

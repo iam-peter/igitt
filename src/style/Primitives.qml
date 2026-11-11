@@ -39,12 +39,17 @@ QtObject {
         readonly property int s2: 2
         readonly property int s6: 6
         readonly property int s8: 8
+        readonly property int s14: 14
         readonly property int s16: 16
         readonly property int s18: 18
+        readonly property int s20: 20
+        readonly property int s22: 22
         readonly property int s24: 24
         readonly property int s28: 28
         readonly property int s32: 32
         readonly property int s40: 40
+        readonly property int s48: 48
+        readonly property int s56: 56
         readonly property int s64: 64
         readonly property int s100: 100
         readonly property int s120: 120

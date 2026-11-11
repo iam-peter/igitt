@@ -72,6 +72,7 @@ Pane {
                 }
                 TextField {
                     id: filterField
+                    styles: [Styles.FieldStyle.small]
                     objectName: "fileFilter"
                     Layout.fillWidth: true
                     placeholderText: qsTr("Filter files")

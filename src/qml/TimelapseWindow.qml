@@ -129,12 +129,14 @@ ApplicationWindow {
             }
             CheckBox {
                 id: evenSpacing
+                styles: [Styles.ToggleStyle.small]
                 text: qsTr("Even spacing")
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
                 ToolTip.text: qsTr("Space the revisions evenly instead of by date")
             }
             CheckBox {
+                styles: [Styles.ToggleStyle.small]
                 text: qsTr("Show deleted lines")
                 checked: lapse.showDeleted
                 onToggled: lapse.showDeleted = checked

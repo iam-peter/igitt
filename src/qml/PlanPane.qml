@@ -162,6 +162,7 @@ Pane {
                 Layout.fillWidth: true
 
                 Button {
+                    styles: [Styles.ButtonStyle.small]
                     icon.source: Icons.source("x")
                     icon.color: palette.buttonText
                     icon.width: 16
@@ -174,6 +175,7 @@ Pane {
                     Layout.fillWidth: true
                 }
                 Button {
+                    styles: [Styles.ButtonStyle.small]
                     icon.source: Icons.source("check")
                     icon.color: palette.buttonText
                     icon.width: 16

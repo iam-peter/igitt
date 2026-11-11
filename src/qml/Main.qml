@@ -391,21 +391,25 @@ ApplicationWindow {
             anchors.rightMargin: 6
 
             IconButton {
+                styles: [Styles.ButtonStyle.medium]
                 iconName: "folder-open"
                 text: qsTr("Open…")
                 onClicked: openDialog.open()
             }
             IconButton {
+                styles: [Styles.ButtonStyle.medium]
                 iconName: "refresh-cw"
                 text: qsTr("Refresh")
                 onClicked: repo.refresh()
             }
             IconButton {
+                styles: [Styles.ButtonStyle.medium]
                 iconName: "settings"
                 text: qsTr("Settings…")
                 onClicked: settingsDialog.open()
             }
             IconButton {
+                styles: [Styles.ButtonStyle.medium]
                 objectName: "planButton"
                 iconName: "list-checks"
                 text: qsTr("Plan")
@@ -419,6 +423,7 @@ ApplicationWindow {
             }
             ToolSeparator {}
             IconButton {
+                styles: [Styles.ButtonStyle.medium]
                 objectName: "fetchButton"
                 iconName: "cloud-download"
                 text: qsTr("Fetch (%1)").arg((root.clock, root.ago(repo.lastFetch)))
@@ -430,6 +435,7 @@ ApplicationWindow {
             }
             IconButton {
                 id: pushButton
+                styles: [Styles.ButtonStyle.medium]
                 objectName: "pushButton"
                 iconName: repo.pushForReview ? "git-pull-request" : "cloud-upload"
                 text: (repo.pushForReview ? qsTr("Push for Review") : qsTr("Push"))
@@ -444,6 +450,7 @@ ApplicationWindow {
             }
             IconButton {
                 id: reviewOptionsButton
+                styles: [Styles.ButtonStyle.medium]
                 objectName: "reviewOptionsButton"
                 iconName: "chevron-down"
                 visible: repo.reviewHost !== ""
@@ -550,6 +557,7 @@ ApplicationWindow {
                         Layout.fillWidth: true
 
                         TabButton {
+                            styles: [Styles.TabStyle.small]
                             text: qsTr("Changes")
                             icon.source: Icons.source("files")
                             icon.color: palette.buttonText
@@ -557,6 +565,7 @@ ApplicationWindow {
                             icon.height: 16
                         }
                         TabButton {
+                            styles: [Styles.TabStyle.small]
                             objectName: "filesTab"
                             text: qsTr("Files")
                             icon.source: Icons.source("folder-tree")
@@ -654,6 +663,7 @@ ApplicationWindow {
                 }
             }
             Button {
+                styles: [Styles.ButtonStyle.small]
                 icon.source: Icons.source("undo-2")
                 icon.color: palette.buttonText
                 icon.width: 16

@@ -15,7 +15,11 @@ ToolButton {
 
     enabled: false
     focusPolicy: Qt.NoFocus
-    padding: 0
+    // Each side: the style binds them to its own padding.
+    topPadding: 0
+    bottomPadding: 0
+    leftPadding: 0
+    rightPadding: 0
     background: null
     display: AbstractButton.IconOnly
     icon.source: Icons.source(name)

@@ -5,6 +5,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Igitt
 import Igitt.Core
+import IgittStyle as Styles
 
 // The message of the next commit, and the buttons to make it.
 MessageEditor {
@@ -42,6 +43,7 @@ MessageEditor {
     leadingItems: [
         CheckBox {
             id: amend
+            styles: [Styles.ToggleStyle.small]
             objectName: "amendBox"
             text: qsTr("Amend")
             enabled: box.repo.headSha.length > 0
@@ -53,6 +55,7 @@ MessageEditor {
     ]
     trailingItems: [
         Button {
+            styles: [Styles.ButtonStyle.medium]
             objectName: "commitButton"
             text: amend.checked ? qsTr("Amend") : qsTr("Commit")
             highlighted: true

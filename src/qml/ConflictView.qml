@@ -200,16 +200,19 @@ Pane {
                     Layout.fillWidth: true
                 }
                 ToolButton {
+                    styles: [Styles.ButtonStyle.small]
                     visible: resolver.conflictCount > 0
                     text: qsTr("Take All Ours")
                     onClicked: resolver.takeAll(false)
                 }
                 ToolButton {
+                    styles: [Styles.ButtonStyle.small]
                     visible: resolver.conflictCount > 0
                     text: qsTr("Take All Theirs")
                     onClicked: resolver.takeAll(true)
                 }
                 Button {
+                    styles: [Styles.ButtonStyle.small]
                     icon.source: Icons.source("check")
                     icon.color: palette.buttonText
                     icon.width: 16
@@ -238,10 +241,12 @@ Pane {
             }
             RowLayout {
                 Button {
+                    styles: [Styles.ButtonStyle.small]
                     text: resolver.deletedInOurs ? qsTr("Keep Deleted (Ours)") : qsTr("Keep Ours")
                     onClicked: view.repo.resolveWithSide(view.path, false)
                 }
                 Button {
+                    styles: [Styles.ButtonStyle.small]
                     text: resolver.deletedInTheirs ? qsTr("Keep Deleted (Theirs)") : qsTr("Keep Theirs")
                     onClicked: view.repo.resolveWithSide(view.path, true)
                 }

@@ -10,6 +10,7 @@ QtObject {
     readonly property Semantics s: TokenInterface.semantics
 
     readonly property Style base: Style {
+        includes: [root.large]
         background: TokenInterface.transparent
         text.color: root.s.text_default
         icon {
@@ -17,9 +18,6 @@ QtObject {
             size: Primitives.size.s16
         }
         radius.value: Primitives.radius.r2
-        padding.value: Primitives.spacing.sp100
-        spacing: Primitives.spacing.sp100
-        height: Primitives.size.s32
         opacity: 1
 
         Style {
@@ -42,9 +40,11 @@ QtObject {
         }
     }
 
-    // Menu entries: as wide as their text needs, at least 120 px; the
-    // icon muted, the tick and the submenu arrow in the text color
+    // Menu entries: as wide as their text needs, at least 120 px, and
+    // medium, as menus are lists to pick from quickly; the icon muted, the
+    // tick and the submenu arrow in the text color
     readonly property Style menuItem: Style {
+        includes: [root.medium]
         width: Primitives.size.s120
         icon.color: root.s.text_muted
 
@@ -54,7 +54,8 @@ QtObject {
         }
     }
 
-    // The rows of a combo box's list, with room for the tick on the right
+    // The rows of a combo box's list, with room for the tick on the right;
+    // their size is the combo box's (FieldStyle)
     readonly property Style comboItem: Style {
         padding.right: Primitives.spacing.sp100 + Primitives.size.s16 + Primitives.spacing.sp100
     }
@@ -75,6 +76,30 @@ QtObject {
             state: StyleState.Active
             background: Qt.tint(root.s.background_elevated, Qt.rgba(0.5, 0.5, 0.5, 0.25))
         }
+    }
+
+    // Sizes, by the height of the row; large is the default, menus are
+    // medium
+    readonly property Style large: Style {
+        height: Primitives.size.s32
+        padding.value: Primitives.spacing.sp100
+        spacing: Primitives.spacing.sp100
+    }
+    readonly property Style medium: Style {
+        height: Primitives.size.s28
+        padding {
+            horizontal: Primitives.spacing.sp100
+            vertical: Primitives.spacing.sp075
+        }
+        spacing: Primitives.spacing.sp100
+    }
+    readonly property Style small: Style {
+        height: Primitives.size.s24
+        padding {
+            horizontal: Primitives.spacing.sp075
+            vertical: Primitives.spacing.sp050
+        }
+        spacing: Primitives.spacing.sp075
     }
 
     readonly property Style highlighted: Style {

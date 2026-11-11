@@ -46,11 +46,14 @@ T.ComboBox {
         required property int index
 
         // Lights up only as the list's highlighted row, which follows
-        // the pointer and the keys
+        // the pointer and the keys. As large as the combo box's size has
+        // it (its Item part); the room for the tick comes after that.
         StyleCascade {
             id: _itemStyle
-            base: [ItemStyle.base, ItemStyle.comboItem]
-            overrides: [item.highlighted ? ItemStyle.highlighted : null]
+            base: [ItemStyle.base]
+            parentCascade: _style
+            part: StylePart.Item
+            overrides: [ItemStyle.comboItem, item.highlighted ? ItemStyle.highlighted : null]
             state: !item.enabled ? StyleState.Disable : StyleState.Idle
         }
 
