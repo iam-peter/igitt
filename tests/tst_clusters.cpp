@@ -2,6 +2,7 @@
 // commit of exactly its hunks, the working tree left alone.
 
 #include "core/ChangeClusters.h"
+#include "core/ChangeMove.h"
 #include "core/GitRunner.h"
 
 #include <QFile>
@@ -114,15 +115,11 @@ private slots:
         clusters.setPath(m_dir->path());
         const int first = clusters.addCluster(u"Top"_s);
         const int second = clusters.addCluster(u"Bottom"_s);
-        QString bottomHunk;
         for (const QVariant &value : clusters.hunks()) {
             const QVariantMap hunk = value.toMap();
             const bool top = hunk.value(u"line"_s).toInt() < 10;
             clusters.assign(hunk.value(u"id"_s).toString(), top ? first : second);
-            if (!top && hunk.value(u"path"_s) == "ui.txt"_L1)
-                bottomHunk = hunk.value(u"id"_s).toString();
         }
-        clusters.setHunkPosition(bottomHunk, 40, 50);
 
         clusters.renameCluster(first, u"Change the tops"_s);
         QVERIFY2(clusters.commitCluster(first), qPrintable(clusters.error()));
@@ -136,10 +133,6 @@ private slots:
         for (const QVariant &value : clusters.hunks()) {
             const QVariantMap hunk = value.toMap();
             QCOMPARE(hunk.value(u"cluster"_s).toInt(), second);
-            if (hunk.value(u"id"_s) == bottomHunk) {
-                QCOMPARE(hunk.value(u"x"_s).toReal(), 40.0);
-                QCOMPARE(hunk.value(u"y"_s).toReal(), 50.0);
-            }
         }
     }
 
@@ -272,6 +265,66 @@ private slots:
         clusters.assignFile(u"ui.txt"_s, cluster);
         QVERIFY(!clusters.commitCluster(cluster));
         QCOMPARE(git({"log", "-1", "--format=%s"}), "Later\n"_ba);
+    }
+
+    // The commits not merged yet come before the clusters, oldest first,
+    // down to what the remote's default branch has; a change taken out of
+    // one shows up in the working tree, in the cluster it was meant for.
+    void readsTheCommitsNotMergedYet()
+    {
+        git({"add", "."});
+        git({"commit", "-q", "-m", "Add dark mode"});
+        write("ui.txt", lines({{2, "dark mode toggle"}, {18, "timeout label"}, {10, "spacing"}}));
+        git({"commit", "-q", "-am", "Space it"});
+
+        ChangeClusters clusters;
+        clusters.setPath(m_dir->path());
+        // No remote: every commit, the first one too
+        QVariantList commits = clusters.commits();
+        QCOMPARE(commits.size(), 3);
+        QCOMPARE(commits.first().toMap().value(u"subject"_s), "Start"_L1);
+        QCOMPARE(commits.last().toMap().value(u"subject"_s), "Space it"_L1);
+        QVERIFY(!commits.last().toMap().value(u"published"_s).toBool());
+
+        // Merged as far as the remote's default branch: only what is after
+        git({"update-ref", "refs/remotes/origin/main", "HEAD~2"});
+        git({"symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"});
+        clusters.reload();
+        commits = clusters.commits();
+        QCOMPARE(commits.size(), 2);
+        const QVariantMap dark = commits.first().toMap();
+        QCOMPARE(dark.value(u"subject"_s), "Add dark mode"_L1);
+        QCOMPARE(dark.value(u"files"_s).toStringList(), (QStringList{u"core.txt"_s, u"notes.txt"_s, u"ui.txt"_s}));
+
+        // Its timeout label, out of the commit and into a cluster
+        QString piece;
+        QList<int> picked;
+        for (const QVariant &value : dark.value(u"pieces"_s).toList()) {
+            const QVariantMap map = value.toMap();
+            if (map.value(u"path"_s) != "ui.txt"_L1 || map.value(u"line"_s).toInt() < 10)
+                continue;
+            piece = map.value(u"hunk"_s).toString();
+            for (const QVariant &line : map.value(u"lines"_s).toList())
+                picked.append(line.toMap().value(u"index"_s).toInt());
+        }
+        QCOMPARE(picked.size(), 2);
+        const QByteArray patch = clusters.commitPatch(dark.value(u"sha"_s).toString(), piece, picked);
+        QVERIFY(patch.contains("+timeout label"));
+        QVERIFY(!patch.contains("+dark mode toggle"));
+        const int fix = clusters.addCluster(u"Label the timeout"_s);
+        clusters.expect(dark.value(u"sha"_s).toString(), piece, picked, fix);
+        const FoldResult moved = moveChange(m_git, dark.value(u"sha"_s).toString(), {}, patch);
+        QVERIFY2(moved.ok, qPrintable(moved.error));
+        clusters.reload();
+
+        QCOMPARE(git({"show", "HEAD~1:ui.txt"}), lines({{2, "dark mode toggle"}}));
+        const QVariantList pieces = clusters.hunks();
+        QCOMPARE(pieces.size(), 1);
+        QCOMPARE(pieces.first().toMap().value(u"cluster"_s).toInt(), fix);
+        QList<int> own;
+        for (const QVariant &line : pieces.first().toMap().value(u"lines"_s).toList())
+            own.append(line.toMap().value(u"index"_s).toInt());
+        QVERIFY(clusters.linesPatch(pieces.first().toMap().value(u"hunk"_s).toString(), own).contains("+timeout label"));
     }
 
     void refusesAnEmptyCluster()

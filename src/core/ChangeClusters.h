@@ -6,8 +6,6 @@
 #include <QHash>
 #include <QList>
 #include <QObject>
-#include <QPointF>
-#include <QRectF>
 #include <QString>
 #include <QVariantList>
 #include <QtQml/qqmlregistration.h>
@@ -25,9 +23,10 @@
 // order, not their line numbers, which move as other clusters are
 // committed before them.
 //
-// The views (a list of groups, a node graph, a canvas, a stack of future
-// commits) share this model and differ only in how they show it; each may
-// keep positions of pieces and clusters here so they survive a reload.
+// Before the base come the commits of the branch that are not merged yet
+// (commits): their changes are pieces too, which can move into a cluster
+// or another commit, as working tree changes can move into a commit. The
+// model reads them and makes the patches; Repository::moveChange() moves.
 class ChangeClusters : public QObject
 {
     Q_OBJECT
@@ -38,13 +37,18 @@ class ChangeClusters : public QObject
     // planning
     Q_PROPERTY(QString base READ base WRITE setBase NOTIFY baseChanged FINAL)
     // The pieces: {id, hunk, path, isNew, isDeleted, header, section, line,
-    // added, removed, lines: [{index, kind, text}], split, cluster, x,
-    // y}; split says the hunk's other lines are in other pieces
+    // added, removed, lines: [{index, kind, text}], split, cluster}; split
+    // says the hunk's other lines are in other pieces
     Q_PROPERTY(QVariantList hunks READ hunks NOTIFY changed FINAL)
-    // {id, name, message, color, hunks: [piece ids], added, removed, files,
-    // x, y, width, height}, in the order they are committed; name is the
-    // message's title
+    // {id, name, message, color, hunks: [piece ids], added, removed,
+    // files}, in the order they are committed; name is the message's title
     Q_PROPERTY(QVariantList clusters READ clusters NOTIFY changed FINAL)
+    // The commits of the branch not merged yet, oldest first, the newest
+    // being the base: {sha, shortSha, subject, published, added, removed,
+    // files, pieces: [as hunks, with commit: its sha]}. Not merged: not on
+    // the remote's default branch, or else the upstream; down to the last
+    // merge, MaxCommits at most. Published: on a remote-tracking branch.
+    Q_PROPERTY(QVariantList commits READ commits NOTIFY changed FINAL)
     // The changed files, each with the ids of its pieces: {path, hunks}
     Q_PROPERTY(QVariantList files READ files NOTIFY changed FINAL)
     Q_PROPERTY(int unassignedCount READ unassignedCount NOTIFY changed FINAL)
@@ -64,13 +68,15 @@ public:
     QVariantList hunks() const;
     QVariantList clusters() const;
     QVariantList files() const;
+    QVariantList commits() const;
+    static constexpr int MaxCommits = 30;
     int unassignedCount() const;
     QString error() const { return m_error; }
     QString headSha() const { return m_headSha; }
     QString headSubject() const { return m_headSubject; }
 
     // Reads the changes again; lines that are still there keep their
-    // cluster, pieces their position; clusters left empty stay.
+    // cluster; clusters left empty stay.
     Q_INVOKABLE void reload();
 
     // Returns the new cluster's id.
@@ -91,11 +97,19 @@ public:
     // Some changed lines of a hunk, by their index in it, into a cluster.
     Q_INVOKABLE void assignLines(const QString &hunkId, const QList<int> &lines, int clusterId);
 
-    Q_INVOKABLE void setHunkPosition(const QString &pieceId, qreal x, qreal y);
-    Q_INVOKABLE void setClusterGeometry(int id, qreal x, qreal y, qreal width, qreal height);
 
     // The patch a cluster commits, against the base.
     Q_INVOKABLE QByteArray clusterPatch(int id) const;
+    // The patch of some changed lines of a working tree hunk, by their
+    // index in it, against the base.
+    Q_INVOKABLE QByteArray linesPatch(const QString &hunkId, const QList<int> &lines) const;
+    // The same for a hunk of a commit, against the commit's parent; no
+    // lines are all of them.
+    Q_INVOKABLE QByteArray commitPatch(const QString &sha, const QString &hunkId, const QList<int> &lines) const;
+    // Lines of a commit on their way into the working tree: once they show
+    // up there, they go into `cluster`. Until then, or dropExpected().
+    Q_INVOKABLE void expect(const QString &sha, const QString &hunkId, const QList<int> &lines, int cluster);
+    Q_INVOKABLE void dropExpected();
 
     // Makes a commit of the cluster's lines on HEAD with its message, and
     // removes the cluster. Returns false and sets error if git refuses.
@@ -132,15 +146,34 @@ private:
         int index = 0;     // index into its file's hunks
         QList<Line> lines; // the changed ones
     };
+    struct Commit
+    {
+        QString sha;
+        QString shortSha;
+        QString subject;
+        bool published = false;
+        QList<FileDiff> diff;
+    };
+    // A line expected in the working tree, by its file and change
+    struct Expected
+    {
+        QString path;
+        QByteArray content;
+        int cluster = -1;
+    };
     struct Cluster
     {
         int id = 0;
         QString message;
         int color = 0;
-        QRectF geometry;
     };
 
     int clusterIndex(int id) const;
+    void readCommits();
+    const Commit *commit(const QString &sha) const;
+    // A commit hunk's file and hunk index, from its id
+    static std::pair<int, int> commitHunk(const QString &hunkId);
+    static QByteArray selectedPatch(const FileDiff &file, int hunk, const QList<int> &lines);
     Hunk *hunk(const QString &id);
     const Hunk *hunk(const QString &id) const;
     // The clusters of a hunk's lines, in their order, -1 for none
@@ -151,17 +184,16 @@ private:
     void setLineCluster(Line &line, int cluster);
     static QString lineKey(const QString &path, const QByteArray &content, int occurrence);
     QByteArray lineContent(const Hunk &hunk, const Line &line) const;
-    // A piece's position goes with its lines to the piece they make up now
-    void movePosition(const QString &from, const QString &to);
 
     GitRunner m_git;
     QString m_base = QStringLiteral("HEAD");
     QList<FileDiff> m_diff;
     QList<Hunk> m_hunks;
     QList<Cluster> m_clusters;
+    QList<Commit> m_commits;
+    QList<Expected> m_expected;
     // What reload() keeps of lines and pieces that come and go
     QHash<QString, int> m_clusterOf;
-    QHash<QString, QPointF> m_positionOf;
     int m_nextId = 1;
     int m_nextColor = 0;
     QString m_error;

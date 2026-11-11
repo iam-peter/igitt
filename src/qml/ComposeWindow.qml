@@ -1,6 +1,5 @@
 pragma ComponentBehavior: Bound
 
-import QtCore
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -14,11 +13,12 @@ import IgittStyle as Styles
 // a cluster leaves the other changes where they are. While planning, the
 // commits go into the plan, and the changes are read against it.
 //
-// How the clusters are shown and built is up to one of four views, the
-// concepts tried here, switched in the tool bar: groups to drag into, a
-// node graph, a canvas, a stack of planned commits. They share the
-// clusters, so switching keeps them, and call back here (composer) to
-// commit, to open the message dialog, and to split a card open.
+// Before the clusters come the commits of the branch not merged yet, as
+// columns of their own: a change dropped onto one is folded into it, and a
+// change of one can be dragged onto a cluster, out of the commit and into
+// the working tree, or onto another commit. Those moves rewrite the
+// history (Repository::moveChange()), or plan it; Undo takes the last one
+// back.
 ApplicationWindow {
     id: window
 
@@ -32,8 +32,11 @@ ApplicationWindow {
     property var queue: []
     property int pending: -1
     readonly property bool committing: pending >= 0
+    // A change on its way between commits and the working tree
+    property bool moving: false
+    readonly property bool busy: committing || moving || repo.writing
     // The piece whose card is split open, to pick lines from; kept here,
-    // as the views make their cards anew whenever the clusters change
+    // as the view makes its cards anew whenever the clusters change
     property string splitPiece
 
     // A cluster's color, from the theme's lanes.
@@ -49,12 +52,41 @@ ApplicationWindow {
         splitPiece = splitPiece === pieceId ? "" : pieceId
     }
     // A piece dropped onto a cluster, -1 for none: all of it, or the lines
-    // picked from it (pick)
+    // picked from it (pick). A piece of a commit leaves the commit for the
+    // working tree, where it goes into the cluster.
     function place(piece: var, clusterId: int) {
+        if (piece.commit) {
+            moveChange(piece, "", clusterId)
+            return
+        }
         if (piece.pick)
             clusters.assignLines(piece.hunk, piece.pick, clusterId)
         else
             clusters.assign(piece.id, clusterId)
+    }
+    // A piece dropped onto a commit: folded into it
+    function placeInCommit(piece: var, sha: string) {
+        if (piece.commit !== sha)
+            moveChange(piece, sha, -1)
+    }
+    function moveChange(piece: var, to: string, clusterId: int) {
+        if (busy)
+            return
+        const from = piece.commit ?? ""
+        const lines = piece.pick ?? piece.lines.map(line => line.index)
+        const patch = from !== "" ? clusters.commitPatch(from, piece.hunk, lines)
+                                  : clusters.linesPatch(piece.hunk, lines)
+        if (patch.byteLength === 0)
+            return
+        if (from !== "" && clusterId >= 0)
+            clusters.expect(from, piece.hunk, lines, clusterId)
+        const short = sha => sha.substring(0, 7)
+        const title = from === "" ? qsTr("Fold %n line(s) into %1", "", lines.length).arg(short(to))
+                    : to === "" ? qsTr("Take %n line(s) out of %1", "", lines.length).arg(short(from))
+                    : qsTr("Move %n line(s) from %1 to %2", "", lines.length).arg(short(from)).arg(short(to))
+        clusters.setError("")
+        moving = true
+        repo.moveChange(from, to, patch, title)
     }
     // A commit of the cluster, through the repository: right away, or
     // planned while planning
@@ -101,6 +133,8 @@ ApplicationWindow {
     // A commit on its way that will not report back: the repository was
     // replaced, or the plan began or ended, and its result was dropped
     function abandonCommits(reason: string) {
+        moving = false
+        clusters.dropExpected()
         if (!committing)
             return
         queue = []
@@ -112,19 +146,6 @@ ApplicationWindow {
     height: 850
     visible: true
     title: qsTr("Compose commits — %1").arg(repo.path)
-
-    // The concept shown, kept between sessions
-    Settings {
-        id: settings
-        category: "compose"
-        property int concept: 0
-    }
-    readonly property var concepts: [
-        {name: qsTr("Groups"), view: groupsView},
-        {name: qsTr("Graph"), view: graphView},
-        {name: qsTr("Canvas"), view: canvasView},
-        {name: qsTr("Stack"), view: stackView},
-    ]
 
     // The base is set here, not bound: after a commit it changes together
     // with the committed cluster (committed()), in one reading
@@ -152,6 +173,16 @@ ApplicationWindow {
             }
             clusters.committed(window.pending, window.currentBase())
             window.next()
+        }
+        function onChangeMoved(ok: bool, error: string) {
+            if (!window.moving)
+                return
+            window.moving = false
+            if (!ok) {
+                clusters.dropExpected()
+                clusters.setError(error)
+            }
+            window.followRepository()
         }
         function onHeadChanged() {
             window.followRepository()
@@ -200,31 +231,22 @@ ApplicationWindow {
             Item {
                 Layout.fillWidth: true
             }
-            // Which concept shows the clusters
-            TabBar {
-                id: conceptTabs
-                objectName: "conceptTabs"
-                Layout.preferredWidth: 340
-                currentIndex: Math.max(0, Math.min(window.concepts.length - 1, settings.concept))
-                onCurrentIndexChanged: settings.concept = currentIndex
-                Repeater {
-                    model: window.concepts
-                    delegate: TabButton {
-                        required property var modelData
-                        styles: [Styles.TabStyle.small]
-                        text: modelData.name
-                    }
-                }
-            }
-            Item {
-                Layout.fillWidth: true
-            }
             BusyIndicator {
                 implicitWidth: 20
                 implicitHeight: 20
                 padding: 0
-                running: window.committing
+                running: window.committing || window.moving
                 visible: running
+            }
+            IconButton {
+                objectName: "composeUndoButton"
+                visible: window.repo.canUndoFold && !window.repo.planning
+                iconName: "step-back"
+                text: qsTr("Undo")
+                enabled: !window.busy
+                onClicked: window.repo.undoFold()
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Take back the last change moved into or out of a commit")
             }
             // Plan mode is the repository's, the same as in the main window
             IconButton {
@@ -233,7 +255,7 @@ ApplicationWindow {
                 text: window.repo.planning ? qsTr("Planning (%n)", "", window.repo.plan.count) : qsTr("Plan")
                 checkable: true
                 checked: window.repo.planning
-                enabled: !window.repo.writing && !window.committing
+                enabled: !window.busy
                 onClicked: window.setPlanning(checked)
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
@@ -243,7 +265,7 @@ ApplicationWindow {
                 visible: window.repo.planning
                 iconName: "play"
                 text: qsTr("Execute plan")
-                enabled: window.repo.plan.count > 0 && !window.repo.writing && !window.committing
+                enabled: window.repo.plan.count > 0 && !window.busy
                 onClicked: window.repo.executePlan()
             }
             IconButton {
@@ -271,16 +293,18 @@ ApplicationWindow {
             Label {
                 anchors.fill: parent
                 wrapMode: Text.Wrap
-                text: qsTr("Planning: each commit goes into the plan; Execute plan makes them all at once.")
+                text: qsTr("Planning: each commit and each move goes into the plan; Execute plan makes them all at once.")
             }
         }
 
-        Loader {
-            id: view
-            objectName: "conceptView"
+        ClusterGroupsView {
+            objectName: "groupsView"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            sourceComponent: window.concepts[conceptTabs.currentIndex].view
+            clusters: clusters
+            composer: window
+            monoFont: window.monoFont
+            colorOf: window.clusterColor
         }
 
         Pane {
@@ -297,43 +321,6 @@ ApplicationWindow {
                 text: clusters.error
                 color: Styles.TokenInterface.semantics.danger_default
             }
-        }
-    }
-
-    Component {
-        id: groupsView
-        ClusterGroupsView {
-            clusters: clusters
-            composer: window
-            monoFont: window.monoFont
-            colorOf: window.clusterColor
-        }
-    }
-    Component {
-        id: graphView
-        ClusterGraphView {
-            clusters: clusters
-            composer: window
-            monoFont: window.monoFont
-            colorOf: window.clusterColor
-        }
-    }
-    Component {
-        id: canvasView
-        ClusterCanvasView {
-            clusters: clusters
-            composer: window
-            monoFont: window.monoFont
-            colorOf: window.clusterColor
-        }
-    }
-    Component {
-        id: stackView
-        ClusterStackView {
-            clusters: clusters
-            composer: window
-            monoFont: window.monoFont
-            colorOf: window.clusterColor
         }
     }
 }

@@ -889,19 +889,9 @@ private slots:
         clusters->assign(composeHunk, cluster);
         QTRY_COMPARE(clusters->unassignedCount(), clusters->hunks().size() - 1);
 
-        // Each concept shows the same clusters
-        auto *tabs = compose->findChild<QQuickItem *>(u"conceptTabs"_s);
-        auto *view = compose->findChild<QQuickItem *>(u"conceptView"_s);
-        QVERIFY(tabs && view);
-        const QStringList concepts{u"groups"_s, u"graph"_s, u"canvas"_s, u"stack"_s};
-        for (int i = 0; i < concepts.size(); ++i) {
-            tabs->setProperty("currentIndex", i);
-            QTRY_VERIFY(view->property("item").value<QQuickItem *>());
-            QTest::qWait(50);
-            screenshot(compose, u"compose-"_s + concepts[i]);
-        }
+        QVERIFY(QQuickTest::qWaitForPolish(compose));
+        screenshot(compose, u"compose-groups"_s);
         QCOMPARE(clusters->clusters().size(), 1);
-        tabs->setProperty("currentIndex", 0);
 
         // While planning, the cluster's commit goes into the plan, and the
         // changes are read against it
@@ -937,9 +927,8 @@ private slots:
     }
 
     // A card split open picks lines by dragging over them, and dragging
-    // what is picked carries those lines onto a cluster: in the groups,
-    // onto the column that makes a new one; on the canvas, into a frame;
-    // in the graph, under the clusters into a new one.
+    // what is picked carries those lines onto a group, or onto the column
+    // that makes a new one.
     void splitsACardInPlace()
     {
         const QString path = QDir(m_dir.path()).filePath(u"split.txt"_s);
@@ -972,8 +961,7 @@ private slots:
         }());
         QVERIFY(QTest::qWaitForWindowExposed(compose));
         auto *clusters = compose->findChild<ChangeClusters *>();
-        auto *tabs = compose->findChild<QQuickItem *>(u"conceptTabs"_s);
-        QVERIFY(clusters && tabs);
+        QVERIFY(clusters);
         const auto close = qScopeGuard([compose] { compose->close(); });
 
         // The pieces of split.txt: {cluster: added}
@@ -1021,9 +1009,8 @@ private slots:
             QTest::mouseRelease(compose, Qt::LeftButton, {}, to);
         };
 
-        // Groups: lines picked as in any list, and two carried into a new
-        // group. Lines of a new file are rows 0 to 3, their index the same.
-        tabs->setProperty("currentIndex", 0);
+        // Lines picked as in any list, and two carried into a new group.
+        // Lines of a new file are rows 0 to 3, their index the same.
         QVERIFY(QMetaObject::invokeMethod(compose, "splitHunk", Q_ARG(QString, hunk + u"/none"_s)));
         QVERIFY(QQuickTest::qWaitForPolish(compose));
         QQuickItem *card = openCard();
@@ -1065,54 +1052,145 @@ private slots:
         // The rest stays open, to split further
         QCOMPARE(compose->property("splitPiece").toString(), hunk + u"/none"_s);
 
-        // Canvas: one more line, carried into the group's frame
-        tabs->setProperty("currentIndex", 2);
-        QTRY_VERIFY(clusters->clusters().first().toMap().value(u"width"_s).toReal() > 0);
+        // One more, carried into that group
         QVERIFY(QQuickTest::qWaitForPolish(compose));
         card = openCard();
         QVERIFY(card);
-        QTest::mouseClick(compose, Qt::LeftButton, {}, linePoint(card, 0));
-        QTRY_COMPARE(card->property("picked").toList().size(), 1);
-        auto *world = findItem(compose->contentItem(), u"world"_s);
-        const QVariantMap frame = clusters->clusters().first().toMap();
-        const QPointF inFrame(frame.value(u"x"_s).toReal() + frame.value(u"width"_s).toReal() - 40,
-                              frame.value(u"y"_s).toReal() + frame.value(u"height"_s).toReal() - 30);
-        drag(linePoint(card, 0), world->mapToScene(inFrame).toPoint());
+        // Line indexes are the hunk's: what is left starts at three
+        clickLine(0);
+        QTRY_COMPARE(picked(), (QList<int>{2}));
+        auto *column = findItem(compose->contentItem(), u"groupColumn"_s);
+        QVERIFY(column);
+        drag(linePoint(card, 0), column->mapToScene({column->width() / 2, column->height() - 80}).toPoint());
         QTRY_COMPARE(pieces(), (QMap<int, int>{{-1, 1}, {group, 3}}));
-        screenshot(compose, u"split-canvas"_s);
-
-        // Graph: the last line, carried under the clusters into a new one
-        tabs->setProperty("currentIndex", 1);
-        QVERIFY(QQuickTest::qWaitForPolish(compose));
-        card = openCard();
-        QVERIFY(card);
-        QTest::mouseClick(compose, Qt::LeftButton, {}, linePoint(card, 0));
-        QTRY_COMPARE(card->property("picked").toList().size(), 1);
-        const QPoint from = linePoint(card, 0);
-        QTest::mousePress(compose, Qt::LeftButton, {}, from);
-        for (int i = 1; i <= 4; ++i)
-            QTest::mouseMove(compose, from + QPoint(10 * i, 0));
-        QQuickItem *newCluster = nullptr;
-        QTRY_VERIFY((newCluster = findItem(compose->contentItem(), u"newClusterDrop"_s)));
-        const QPoint to = newCluster->mapToScene({newCluster->width() / 2, newCluster->height() / 2}).toPoint();
-        for (int i = 1; i <= 10; ++i)
-            QTest::mouseMove(compose, from + QPoint(40, 0) + (to - from - QPoint(40, 0)) * i / 10);
-        QTest::qWait(30);
-        screenshot(compose, u"split-graph"_s);
-        QTest::mouseRelease(compose, Qt::LeftButton, {}, to);
-        QTRY_COMPARE(clusters->clusters().size(), 2);
-        const int second = clusters->clusters().last().toMap().value(u"id"_s).toInt();
-        QTRY_COMPARE(pieces(), (QMap<int, int>{{group, 3}, {second, 1}}));
-
-        // Stack: a card of a commit, split open, takes the commit's row
-        tabs->setProperty("currentIndex", 3);
-        QVERIFY(QMetaObject::invokeMethod(compose, "splitHunk", Q_ARG(QString, hunk + u'/' + QString::number(group))));
-        QVERIFY(QQuickTest::qWaitForPolish(compose));
-        QVERIFY(openCard());
-        screenshot(compose, u"split-stack"_s);
-        tabs->setProperty("currentIndex", 0);
-        QVERIFY(QQuickTest::qWaitForPolish(compose));
         screenshot(compose, u"split-groups"_s);
+
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.value(0).toString()));
+    }
+
+    // The commits not merged yet stand before the groups: a change dropped
+    // onto one is folded into it, a change of one dragged onto the place
+    // for a new group leaves it for the working tree, in that group, and
+    // Undo takes that back.
+    void foldsChangesIntoTheHistory()
+    {
+        const auto text = [](const QHash<int, QByteArray> &changes) {
+            QByteArray content;
+            for (int i = 1; i <= 20; ++i)
+                content += changes.value(i, "line " + QByteArray::number(i)) + '\n';
+            return content;
+        };
+        const QString path = QDir(m_dir.path()).filePath(u"hist.txt"_s);
+        const auto write = [&path](const QByteArray &content) {
+            QFile file(path);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write(content);
+        };
+        write(text({}));
+        git({"add", "hist.txt"});
+        git({"commit", "-q", "-m", "Add hist"});
+        write(text({{2, "two"}}));
+        git({"commit", "-q", "-am", "Change two"});
+        write(text({{2, "two"}, {15, "fifteen"}}));
+
+        QQmlApplicationEngine engine;
+        QList<QQmlError> warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &w) { warnings += w; });
+        engine.setInitialProperties({{u"initialPath"_s, m_dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+
+        click(window, u"composeButton"_s);
+        QQuickWindow *compose = nullptr;
+        QTRY_VERIFY([&] {
+            for (QWindow *w : QGuiApplication::topLevelWindows()) {
+                if (w != window && w->isVisible() && w->findChild<ChangeClusters *>())
+                    compose = qobject_cast<QQuickWindow *>(w);
+            }
+            return compose != nullptr;
+        }());
+        QVERIFY(QTest::qWaitForWindowExposed(compose));
+        auto *clusters = compose->findChild<ChangeClusters *>();
+        const auto close = qScopeGuard([compose] { compose->close(); });
+
+        // The card of hist.txt under `root` changing `line`
+        const auto cardOf = [](QQuickItem *root, const QString &line) {
+            QQuickItem *card = nullptr;
+            const std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+                if (!item->isVisible() || card)
+                    return;
+                const QVariantMap hunk = item->property("hunk").toMap();
+                if (item->property("carrying").isValid() && hunk.value(u"path"_s) == "hist.txt"_L1) {
+                    for (const QVariant &l : hunk.value(u"lines"_s).toList()) {
+                        if (l.toMap().value(u"text"_s) == line)
+                            card = item;
+                    }
+                }
+                for (QQuickItem *child : item->childItems())
+                    walk(child);
+            };
+            walk(root);
+            return card;
+        };
+        const auto drag = [compose](QQuickItem *from, QQuickItem *onto, qreal y) {
+            QVERIFY(from && onto);
+            const QPoint start = from->mapToScene({from->width() / 2, 12}).toPoint();
+            const QPoint end = onto->mapToScene({onto->width() / 2, y}).toPoint();
+            QVERIFY2(QRect(QPoint(), compose->size()).contains(end), "the place to drop is out of sight");
+            QTest::mousePress(compose, Qt::LeftButton, {}, start);
+            for (int i = 1; i <= 10; ++i)
+                QTest::mouseMove(compose, start + (end - start) * i / 10);
+            QTest::qWait(30);
+            QTest::mouseRelease(compose, Qt::LeftButton, {}, end);
+        };
+        const auto headColumn = [compose] {
+            const QList<QQuickItem *> columns = findItems(compose->contentItem(), u"commitColumn"_s);
+            return columns.isEmpty() ? nullptr : columns.last();
+        };
+
+        // The newest commit is in sight, next to the groups
+        QVERIFY(QQuickTest::qWaitForPolish(compose));
+        QQuickItem *head = headColumn();
+        QVERIFY(head);
+        QCOMPARE(head->property("modelData").toMap().value(u"subject"_s), "Change two"_L1);
+        screenshot(compose, u"compose-history"_s);
+
+        // Folded into HEAD
+        drag(cardOf(compose->contentItem(), u"fifteen"_s), head, head->height() - 60);
+        QVERIFY(settle(*repo));
+        QTRY_COMPARE(gitOut({"show", "HEAD:hist.txt"}), text({{2, "two"}, {15, "fifteen"}}));
+        QCOMPARE(gitOut({"log", "-1", "--format=%s"}).trimmed(), "Change two"_ba);
+        QTRY_VERIFY(!cardOf(findItem(compose->contentItem(), u"groupsView"_s), u"fifteen"_s)
+                    || cardOf(headColumn(), u"fifteen"_s));
+
+        // Out of HEAD again, into a new group
+        QTRY_VERIFY(cardOf(headColumn(), u"fifteen"_s));
+        auto *newGroup = findItem(compose->contentItem(), u"newGroupDrop"_s);
+        drag(cardOf(headColumn(), u"fifteen"_s), newGroup, newGroup->height() / 2);
+        QVERIFY(settle(*repo));
+        QTRY_COMPARE(gitOut({"show", "HEAD:hist.txt"}), text({{2, "two"}}));
+        QTRY_COMPARE(clusters->clusters().size(), 1);
+        const int group = clusters->clusters().first().toMap().value(u"id"_s).toInt();
+        QTRY_VERIFY([&] {
+            for (const QVariant &piece : clusters->hunks()) {
+                const QVariantMap map = piece.toMap();
+                if (map.value(u"path"_s) == "hist.txt"_L1)
+                    return map.value(u"cluster"_s).toInt() == group;
+            }
+            return false;
+        }());
+        screenshot(compose, u"compose-taken-out"_s);
+
+        // Undo puts it back into HEAD
+        click(compose, u"composeUndoButton"_s);
+        QVERIFY(settle(*repo));
+        QTRY_COMPARE(gitOut({"show", "HEAD:hist.txt"}), text({{2, "two"}, {15, "fifteen"}}));
+        QVERIFY(gitOut({"diff", "HEAD", "--", "hist.txt"}).isEmpty());
 
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.value(0).toString()));
     }
