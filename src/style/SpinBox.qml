@@ -148,13 +148,17 @@ T.SpinBox {
         height: _leadingStyle.icon.size
         visible: control.leadingIcon.toString() !== "" || _leadingItems.children.length > 0
 
-        IconImage {
+        // Only with an icon: an IconImage without one asks the desktop's
+        // icon theme for a nameless icon, which searches every folder of it
+        Loader {
             anchors.centerIn: parent
             width: _leadingStyle.icon.size
             height: _leadingStyle.icon.size
-            visible: control.leadingIcon.toString() !== ""
-            source: control.leadingIcon
-            color: _leadingStyle.icon.color
+            active: control.leadingIcon.toString() !== ""
+            sourceComponent: IconImage {
+                source: control.leadingIcon
+                color: _leadingStyle.icon.color
+            }
         }
         Item {
             id: _leadingItems

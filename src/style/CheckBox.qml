@@ -80,15 +80,20 @@ T.CheckBox {
         font: control.font
         color: _style.text.color
 
-        IconImage {
+        // Only with an icon: an IconImage without one asks the desktop's
+        // icon theme for a nameless icon, which searches every folder of it
+        Loader {
+            active: control.icon.source.toString() !== ""
             visible: control._iconRoom > 0
             x: control.mirrored ? parent.width - parent.rightPadding + _iconStyle.spacing
                                 : parent.leftPadding - control._iconRoom
             anchors.verticalCenter: parent.verticalCenter
             width: _iconStyle.icon.size
             height: _iconStyle.icon.size
-            source: control.icon.source
-            color: _iconStyle.icon.color
+            sourceComponent: IconImage {
+                source: control.icon.source
+                color: _iconStyle.icon.color
+            }
         }
     }
 }
