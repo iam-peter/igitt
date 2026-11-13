@@ -20,8 +20,11 @@ T.Menu {
     }
 
     // Blocks the window behind it, without dimming it: a click outside
-    // only closes it, and does not also press what lies below
-    modal: true
+    // only closes it, and does not also press what lies below. Only the
+    // top menu: a modal submenu took the mouse from its menu, whose entry
+    // stayed highlighted and whose other entries no longer reacted. A
+    // cascading submenu has the entry that opens it as parent.
+    modal: !(parent && parent.subMenu === control)
     dim: false
 
     // As wide as its longest shown entry: the list itself has no natural
