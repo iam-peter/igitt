@@ -1576,12 +1576,16 @@ void Repository::cloneRepository(const QString &url, const QString &parent)
             outcome.error = tr("Cloning %1 failed: %2").arg(url, explainNetworkFailure(result.errorText().trimmed()));
             return outcome;
         }
-        outcome.openedPath = folder;
-        outcome.workDir = folder;
-        outcome.gitDir = QString::fromUtf8(GitRunner(folder).run(
+        // As git names it, as opening does: on macOS the temporary folders
+        // are under /private as well, and the clone known once
+        const QString top = QString::fromUtf8(GitRunner(folder).run({QStringLiteral("rev-parse"),
+                                                                     QStringLiteral("--show-toplevel")}).out).trimmed();
+        outcome.openedPath = top.isEmpty() ? folder : top;
+        outcome.workDir = outcome.openedPath;
+        outcome.gitDir = QString::fromUtf8(GitRunner(outcome.openedPath).run(
             {QStringLiteral("rev-parse"), QStringLiteral("--absolute-git-dir")}).out).trimmed();
-        outcome.notice = tr("Cloned %1 into %2.").arg(url, folder);
-        outcome.state = loadState(sourceFor(GitRunner(folder), nullptr), {}, history);
+        outcome.notice = tr("Cloned %1 into %2.").arg(url, outcome.openedPath);
+        outcome.state = loadState(sourceFor(GitRunner(outcome.openedPath), nullptr), {}, history);
         return outcome;
     });
 }
@@ -1741,7 +1745,8 @@ namespace {
 // What git bisect said last: how many are left, or the commit it found
 QString bisectNews(const GitResult &result)
 {
-    const QList<QByteArray> lines = result.out.trimmed().split('\n');
+    // Newer gits tell what they found on stderr, older ones on stdout
+    const QList<QByteArray> lines = (result.out + '\n' + result.err).trimmed().split('\n');
     for (const QByteArray &line : lines) {
         if (line.contains("is the first bad commit"))
             return QString::fromUtf8(line);

@@ -3,6 +3,8 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QSignalSpy>
+
+#include <cstdio>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -38,6 +40,9 @@ class TestRepository : public QObject
 private slots:
     void initTestCase()
     {
+        // Unbuffered: a test that crashes on Windows, where stdout into a
+        // pipe is buffered whole, otherwise takes everything it said along
+        setvbuf(stdout, nullptr, _IONBF, 0);
         // Keep the user's configuration (signing, hooks, aliases) out of it.
         qputenv("GIT_CONFIG_GLOBAL", "/dev/null");
         qputenv("GIT_CONFIG_NOSYSTEM", "1");
