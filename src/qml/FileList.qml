@@ -112,6 +112,10 @@ Item {
 
                 width: ListView.view.width
                 height: 26
+                // The style's padding leaves less than the status badge
+                // needs, and a layout that does not fit starts at its top
+                topPadding: 4
+                bottomPadding: 4
                 highlighted: fileList.repo.diffPath === path
                              && fileList.repo.diffSource === (fileList.staged ? Repository.StagedDiff
                                                                               : Repository.UnstagedDiff)

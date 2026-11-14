@@ -142,6 +142,10 @@ Pane {
 
                 implicitWidth: tree.width
                 implicitHeight: 26
+                // Room for the icon in a row this high: with the style's
+                // padding, the content started below the middle
+                topPadding: 4
+                bottomPadding: 4
                 highlighted: !entry.isDir && pane.repo.diffSource === Repository.FileContent
                              && pane.repo.diffPath === entry.path
                 contentItem: RowLayout {
@@ -208,6 +212,8 @@ Pane {
 
                 width: ListView.view.width
                 height: 26
+                topPadding: 4
+                bottomPadding: 4
                 highlighted: pane.repo.diffSource === Repository.FileContent && pane.repo.diffPath === modelData
                 onClicked: pane.repo.showFileContent(modelData)
                 onDoubleClicked: pane.timelapseRequested(modelData)
