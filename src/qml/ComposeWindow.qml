@@ -11,6 +11,8 @@ ApplicationWindow {
     required property Repository repo
     required property font monoFont
     required property var setPlanning
+    property var editCommit: null
+    property var rewordCommit: null
 
     width: 1300
     height: 850
@@ -23,6 +25,8 @@ ApplicationWindow {
         repo: window.repo
         monoFont: window.monoFont
         setPlanning: window.setPlanning
+        editCommit: window.editCommit
+        rewordCommit: window.rewordCommit
         active: window.active
     }
 }

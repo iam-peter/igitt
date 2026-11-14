@@ -149,12 +149,29 @@ private slots:
         QVERIFY(gitOut({"show", "HEAD~1", "--format="}).contains("+line 16 changed"));
         QVERIFY(gitOut({"diff"}).contains("+line 4 changed"));
 
-        // History edits: reword from the context menu, move by drag and
-        // drop, drop with confirmation; each can be undone.
-        QVERIFY(QMetaObject::invokeMethod(window, "showHistory"));
+        // History edits, in Compose: reword, move and drop from a commit's
+        // menu, drop with confirmation; each can be undone.
         {
             const QByteArray before = gitOut({"log", "--format=%s"});
-            rightClickCommit(window, 1);
+            // The commit's column, first on the board, and its menu
+            const auto openCommitMenu = [&](int row) {
+                const QString sha = repo->commits()->shaAt(row);
+                QVERIFY(QMetaObject::invokeMethod(window, "editInCompose", Q_ARG(QString, sha)));
+                QQuickItem *header = nullptr;
+                QTRY_VERIFY((header = [&]() -> QQuickItem * {
+                    for (QQuickItem *column : findItems(window->contentItem(), u"commitColumn"_s)) {
+                        if (column->isVisible() && column->property("modelData").toMap().value(u"sha"_s) == sha)
+                            return findItem(column, u"commitHeader"_s);
+                    }
+                    return nullptr;
+                }()));
+                QVERIFY(QQuickTest::qWaitForPolish(window));
+                QTRY_VERIFY(header->mapToScene({0, 0}).x() >= 0
+                            && header->mapToScene({header->width(), 0}).x() <= window->width());
+                QTest::mouseClick(window, Qt::RightButton, {}, header->mapToScene({header->width() / 3, header->height() / 2}).toPoint());
+                QTRY_VERIFY(window->property("popupOpen").toBool());
+            };
+            openCommitMenu(1);
             screenshot(window, u"commit-menu"_s);
             click(window, u"rewordMenuItem"_s);
             auto *rewordTitle = window->findChild<QQuickItem *>(u"rewordTitle"_s);
@@ -170,14 +187,15 @@ private slots:
             QVERIFY(settle(*repo));
             QCOMPARE(gitOut({"log", "--format=%s"}), before);
 
-            dragCommit(window, 0, 1);
+            openCommitMenu(0);
+            click(window, u"moveDownMenuItem"_s);
             QVERIFY(settle(*repo));
             QCOMPARE(gitOut({"log", "-2", "--format=%s"}), "Document line 15\nPolish line 28\n"_ba);
             repo->undoFold();
             QVERIFY(settle(*repo));
             QCOMPARE(gitOut({"log", "--format=%s"}), before);
 
-            rightClickCommit(window, 0);
+            openCommitMenu(0);
             click(window, u"dropMenuItem"_s);
             click(window, u"dropOkButton"_s);
             QVERIFY(settle(*repo));
@@ -191,6 +209,7 @@ private slots:
             QVERIFY(gitOut({"diff"}).contains("+line 4 changed"));
             QCOMPARE(gitOut({"diff", "--cached", "--name-only"}), "README.md\n"_ba);
         }
+        QVERIFY(QMetaObject::invokeMethod(window, "showHistory"));
 
         repo->showCommit(repo->commits()->shaAt(3));
         QVERIFY(settle(*repo));

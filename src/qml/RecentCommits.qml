@@ -35,6 +35,9 @@ Pane {
         implicitHeight: Math.min(count, strip.rows) * 24 + 2
         interactive: false
         clip: true
+        // Only the rows shown, made at once: rows made ahead in the
+        // background were cancelled when the commits changed
+        cacheBuffer: 0
         model: strip.repo.commits
 
         delegate: ItemDelegate {
@@ -53,7 +56,6 @@ Pane {
 
             width: ListView.view.width
             height: 24
-            visible: index < strip.rows
             topPadding: 0
             bottomPadding: 0
             onClicked: strip.commitClicked(sha)

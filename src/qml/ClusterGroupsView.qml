@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Igitt
 import Igitt.Core
 import IgittStyle as Styles
 
@@ -24,7 +25,8 @@ Item {
 
     required property ChangeClusters clusters
     // The window: commitCluster(), commitAll(), editMessage(), splitHunk(),
-    // splitPiece, place(), placeInCommit(), busy
+    // splitPiece, place(), placeInCommit(), busy, and the history edits
+    // editCommit() and rewordCommit() where its host has them
     required property var composer
     required property font monoFont
     required property var colorOf
@@ -158,6 +160,68 @@ Item {
         }
     }
     Component.onCompleted: followHistory()
+    // Shows the commit's column first
+    function revealCommit(sha: string) {
+        const index = clusters.commits.findIndex(commit => commit.sha === sha)
+        if (index < 0)
+            return
+        firstColumn = index
+        placeBoard()
+    }
+
+    // A commit's history edits, as git rebase -i has them; a commit a
+    // remote branch has, or one an edit cannot reach, says why not
+    // (Repository.editBlocker()). Left is earlier, right later.
+    Menu {
+        id: commitMenu
+
+        property string sha
+
+        component EditItem: MenuItem {
+            required property string kind
+            readonly property string blocker: commitMenu.visible ? view.composer.repo.editBlocker(kind, commitMenu.sha) : ""
+
+            objectName: kind + "MenuItem"
+            enabled: blocker === "" && !view.composer.busy
+            icon.color: palette.windowText
+            onTriggered: kind === "reword" ? view.composer.rewordCommit(commitMenu.sha)
+                                           : view.composer.editCommit(kind, commitMenu.sha)
+            ToolTip.visible: hovered && blocker !== ""
+            ToolTip.text: blocker
+            ToolTip.delay: 300
+        }
+
+        EditItem {
+            kind: "reword"
+            text: qsTr("Reword…")
+            icon.source: Icons.source("pencil")
+        }
+        EditItem {
+            kind: "moveDown"
+            text: qsTr("Move Earlier")
+            icon.source: Icons.source("step-back")
+        }
+        EditItem {
+            kind: "moveUp"
+            text: qsTr("Move Later")
+            icon.source: Icons.source("step-forward")
+        }
+        EditItem {
+            kind: "squash"
+            text: qsTr("Squash into the One Before")
+            icon.source: Icons.source("git-merge")
+        }
+        EditItem {
+            kind: "fixup"
+            text: qsTr("Fix Up into the One Before")
+            icon.source: Icons.source("git-merge")
+        }
+        EditItem {
+            kind: "drop"
+            text: qsTr("Drop…")
+            icon.source: Icons.source("trash-2")
+        }
+    }
 
     // A change on a card: dragged whole, or split open to carry some of
     // its lines out the same way
@@ -594,8 +658,20 @@ Item {
                                         spacing: 6
 
                                         RowLayout {
+                                            id: commitHeader
+                                            objectName: "commitHeader"
                                             Layout.fillWidth: true
                                             spacing: 6
+
+                                            // Right-click for the history edits
+                                            TapHandler {
+                                                acceptedButtons: Qt.RightButton
+                                                enabled: view.composer.editCommit !== null
+                                                onTapped: eventPoint => {
+                                                    commitMenu.sha = commit.modelData.sha
+                                                    commitMenu.popup(commitHeader, eventPoint.position.x, eventPoint.position.y)
+                                                }
+                                            }
 
                                             Icon {
                                                 name: "git-commit-horizontal"
@@ -625,6 +701,18 @@ Item {
                                                 text: qsTr("HEAD")
                                                 tint: view.s.primary_default
                                                 filled: true
+                                            }
+                                            IconButton {
+                                                objectName: "commitMenuButton"
+                                                visible: view.composer.editCommit !== null
+                                                iconName: "chevron-down"
+                                                onClicked: {
+                                                    commitMenu.sha = commit.modelData.sha
+                                                    commitMenu.popup(this, 0, height)
+                                                }
+                                                ToolTip.visible: hovered
+                                                ToolTip.delay: 500
+                                                ToolTip.text: qsTr("Reword, move, squash or drop this commit")
                                             }
                                             Tag {
                                                 objectName: "pushedTag"

@@ -63,6 +63,11 @@ ApplicationWindow {
         }
     }
 
+    // A history edit from Compose, which has them
+    function editCommit(kind: string, sha: string) {
+        requestEdit(kind, sha, "", "")
+    }
+
     function requestReword(sha: string) {
         rewordDialog.sha = sha
         rewordDialog.loaded = false
@@ -100,7 +105,9 @@ ApplicationWindow {
 
     function openCompose() {
         composers.push(composeWindow.createObject(null, {repo: repo, monoFont: root.monoFont, font: root.uiFont,
-                                                        setPlanning: root.setPlanning}))
+                                                        setPlanning: root.setPlanning,
+                                                        editCommit: root.editCommit,
+                                                        rewordCommit: root.requestReword}))
     }
 
     Component {
@@ -176,6 +183,14 @@ ApplicationWindow {
             root.modeChosen = false
             root.historySha = ""
         }
+    }
+    // Compose, with the commit's column first
+    function editInCompose(sha: string) {
+        setMode(Main.Mode.Compose)
+        Qt.callLater(() => {
+            if (compose.item)
+                compose.item.revealCommit(sha)
+        })
     }
     function showCommitInHistory(sha: string) {
         setMode(Main.Mode.History)
@@ -677,9 +692,7 @@ ApplicationWindow {
                         id: history
                         repo: repo
                         onFoldRequested: sha => root.requestFold(sha)
-                        onEditRequested: (kind, sha, to) => root.requestEdit(kind, sha, to, "")
-                        onRewordRequested: sha => root.requestReword(sha)
-                        onComposeRequested: sha => root.setMode(Main.Mode.Compose)
+                        onComposeRequested: sha => root.editInCompose(sha)
                         SplitView.preferredHeight: root.height * 0.45
                         SplitView.minimumHeight: 100
                     }
@@ -734,11 +747,14 @@ ApplicationWindow {
                 // Compose: commits not pushed yet beside the changes in
                 // groups; read only while in sight
                 Loader {
+                    id: compose
                     active: root.mode === Main.Mode.Compose || item !== null
                     sourceComponent: ComposeView {
                         repo: repo
                         monoFont: root.monoFont
                         setPlanning: root.setPlanning
+                        editCommit: root.editCommit
+                        rewordCommit: root.requestReword
                         showPlanButtons: false
                         active: root.mode === Main.Mode.Compose && root.active
                     }

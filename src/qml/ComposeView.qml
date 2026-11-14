@@ -47,6 +47,16 @@ Item {
     property bool active: true
     // Its own Plan buttons: not in the main window, which has them
     property bool showPlanButtons: true
+    // The history edits, through the host's dialogs: (kind, sha) as
+    // Repository.editCommit() has them, and (sha) to reword; null where
+    // there are none
+    property var editCommit: null
+    property var rewordCommit: null
+
+    // Shows the commit's column first
+    function revealCommit(sha: string) {
+        groups.revealCommit(sha)
+    }
     readonly property bool popupOpen: Window.window ? Window.window.popupOpen === true : false
 
     // A cluster's color, from the theme's lanes.
@@ -325,6 +335,7 @@ Item {
         }
 
         ClusterGroupsView {
+            id: groups
             objectName: "groupsView"
             Layout.fillWidth: true
             Layout.fillHeight: true

@@ -38,6 +38,8 @@ Control {
     property string dropHint: qsTr("Fold into \"%1\"").arg(subject)
     // The selected lines most likely belong in this commit.
     property bool suggested: false
+    // Dragged to move it in the history
+    property bool movable: true
 
     readonly property var columns: AppSettings.graph
     readonly property bool current: ListView.isCurrentItem
@@ -301,7 +303,7 @@ Control {
         objectName: "commitDrag"
         target: null
         // Not under a dialog, menu or popup (ApplicationWindow.popupOpen).
-        enabled: !(parent.Window.window?.popupOpen ?? false)
+        enabled: delegate.movable && !(parent.Window.window?.popupOpen ?? false)
         yAxis.enabled: true
         xAxis.enabled: false
         cursorShape: Qt.ClosedHandCursor
