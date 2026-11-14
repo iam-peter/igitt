@@ -164,7 +164,10 @@ Item {
                     y: item.dragPos.y + 10
                     padding: 4
                     objectName: "fileDragLabel"
-                    text: fileList.foldRefused !== "" ? qsTr("Can't fold %1: %2").arg(item.path).arg(fileList.foldRefused)
+                    // The reason after a colon, as part of the sentence
+                    text: fileList.foldRefused !== ""
+                          ? qsTr("Can't fold %1: %2").arg(item.path)
+                                .arg(fileList.foldRefused.charAt(0).toLowerCase() + fileList.foldRefused.slice(1))
                         : fileList.foldInto !== "" ? qsTr("Fold %1 into “%2”").arg(item.path).arg(fileList.foldInto)
                         : (fileList.staged ? qsTr("Unstage %1") : qsTr("Stage %1")).arg(item.path)
                     textFormat: Text.PlainText

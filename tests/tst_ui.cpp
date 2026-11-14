@@ -837,6 +837,21 @@ private slots:
             QQuickItem *label = nullptr;
             QTRY_VERIFY((label = findItem(window->contentItem(), u"fileDragLabel"_s)));
             QCOMPARE(label->property("text").toString(), u"Fold modes.txt into “Try the modes”"_s);
+            // Over the pushed one below, why not
+            if (recent->property("count").toInt() > unpushed) {
+                QQuickItem *pushed = nullptr;
+                QVERIFY(QMetaObject::invokeMethod(recent, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, pushed),
+                                                  Q_ARG(int, unpushed)));
+                QVERIFY(pushed);
+                const QPoint over = pushed->mapToScene({pushed->width() / 3, pushed->height() / 2}).toPoint();
+                for (int i = 1; i <= 4; ++i)
+                    QTest::mouseMove(window, to + (over - to) * i / 4);
+                QTRY_COMPARE(label->property("text").toString(),
+                             u"Can't fold modes.txt: it's pushed; folding into it would need a force push"_s);
+                for (int i = 1; i <= 4; ++i)
+                    QTest::mouseMove(window, over + (to - over) * i / 4);
+                QTRY_COMPARE(label->property("text").toString(), u"Fold modes.txt into “Try the modes”"_s);
+            }
             QTest::mouseRelease(window, Qt::LeftButton, {}, to);
             QVERIFY(settle(*repo));
             QTRY_COMPARE(gitOut({"show", "HEAD:modes.txt"}), "one\ntwo\n"_ba);

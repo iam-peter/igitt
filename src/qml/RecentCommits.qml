@@ -50,7 +50,7 @@ Pane {
             return
         const sha = repo.commits.shaAt(row)
         dropBlocker = row < 0 ? ""
-                    : row >= unpushed ? qsTr("Pushed: folding into it would need a force push")
+                    : row >= unpushed ? qsTr("It's pushed; folding into it would need a force push")
                     : file ? repo.foldTargetBlocker(sha) : repo.foldBlocker(sha)
         dropRow = row
     }
