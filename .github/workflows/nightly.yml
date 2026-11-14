@@ -74,7 +74,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: test-log-linux
@@ -104,7 +104,7 @@ jobs:
           stamp=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y%m%d%H%M%S)
           packaging/deb/build-deb.sh AppDir "$base+git$stamp.${GITHUB_SHA::7}" igitt-linux-x64.deb
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: igitt-linux
           path: |
@@ -135,12 +135,26 @@ jobs:
           cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DIGITT_USE_KSYNTAXHIGHLIGHTING=OFF
           cmake --build build --config Release
 
+      # ctest catches nothing these tests print on Windows: run the failed
+      # ones again with QTest writing into a file, and show that
       - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure
+        shell: pwsh
+        run: |
+          ctest --test-dir build -C Release --output-on-failure
+          if ($LASTEXITCODE -eq 0) { exit 0 }
+          foreach ($name in Get-Content build/Testing/Temporary/LastTestsFailed.log) {
+            $test = ($name -split ':')[1]
+            Write-Host "::group::$test"
+            & "build/bin/Release/$test.exe" -o "$test.txt,txt" -maxwarnings 0
+            Write-Host ("exit code 0x{0:X8}" -f $LASTEXITCODE)
+            if (Test-Path "$test.txt") { Get-Content "$test.txt" }
+            Write-Host "::endgroup::"
+          }
+          exit 1
         env:
           QT_QPA_PLATFORM: offscreen
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: test-log-windows
@@ -156,7 +170,7 @@ jobs:
           windeployqt --release --qmldir src/qml igitt/igitt.exe
           Compress-Archive -Path igitt -DestinationPath igitt-windows-x64.zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: igitt-windows
           path: igitt-windows-x64.zip
@@ -189,7 +203,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: test-log-macos
@@ -201,7 +215,7 @@ jobs:
           macdeployqt build/bin/igitt.app -qmldir="$GITHUB_WORKSPACE/src/qml" -dmg
           mv build/bin/igitt.dmg igitt-macos.dmg
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: igitt-macos
           path: igitt-macos.dmg
@@ -213,7 +227,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: igitt-*
           path: artifacts
