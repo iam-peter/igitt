@@ -1312,6 +1312,61 @@ private slots:
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.value(0).toString()));
     }
 
+    // A long commit message: when the details grow with the window, the
+    // lines they gained show, not only after scrolling.
+    void showsLongCommitDetailsAfterGrowing()
+    {
+        QTemporaryDir dir;
+        GitRunner git(dir.path());
+        git.run({u"init"_s, u"-q"_s, u"-b"_s, u"main"_s});
+        git.run({u"config"_s, u"user.name"_s, u"Ada"_s});
+        git.run({u"config"_s, u"user.email"_s, u"ada@example.invalid"_s});
+        QFile file(dir.filePath(u"a.txt"_s));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("a\n");
+        file.close();
+        git.run({u"add"_s, u"a.txt"_s});
+        QString message = u"Add a long story\n\n"_s;
+        for (int i = 0; i < 40; ++i)
+            message += u"Line %1 of a long commit message that goes on and on.\n"_s.arg(i);
+        git.run({u"commit"_s, u"-q"_s, u"-m"_s, message});
+
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        window->resize(1000, 600);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        repo->showCommit(repo->commits()->shaAt(0));
+        QVERIFY(settle(*repo));
+        auto *details = window->findChild<QQuickItem *>(u"commitDetailsView"_s);
+        QVERIFY(details);
+        QTRY_VERIFY(details->isVisible() && details->height() > 50);
+        const qreal before = details->height();
+        QTest::qWait(200);
+
+        window->resize(1000, 1200);
+        QTRY_VERIFY(details->height() > before * 1.5);
+        QTest::qWait(200);
+        // The lower half of the details, which they gained, has text in it
+        const QImage image = window->grabWindow();
+        const QRectF rect = details->mapRectToScene(QRectF(16, details->height() / 2, details->width() - 32,
+                                                           details->height() / 2 - 8));
+        const qreal dpr = image.devicePixelRatio();
+        const QColor background = image.pixelColor(QPointF(rect.left() * dpr, rect.top() * dpr).toPoint());
+        int ink = 0;
+        for (int y = int(rect.top() * dpr); y < int(rect.bottom() * dpr); y += 2) {
+            for (int x = int(rect.left() * dpr); x < int(rect.right() * dpr); x += 2) {
+                const QColor c = image.pixelColor(x, y);
+                if (std::abs(c.lightness() - background.lightness()) > 60)
+                    ++ink;
+            }
+        }
+        QVERIFY2(ink > 200, qPrintable(u"only %1 pixels of text"_s.arg(ink)));
+    }
+
     void benchComposeWindow()
     {
         if (qEnvironmentVariableIsEmpty("IGITT_BENCH"))

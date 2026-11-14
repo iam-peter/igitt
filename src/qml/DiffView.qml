@@ -293,9 +293,23 @@ Pane {
             Layout.fillWidth: true
             Layout.preferredHeight: Math.min(details.implicitHeight + 12, view.height * (review.visible ? 0.25 : 0.35))
             visible: view.repo.diffSource === Repository.CommitDiff || view.repo.diffSource === Repository.PatchSetDiff
+            objectName: "commitDetailsView"
+            onHeightChanged: details.renderAgain()
 
             TextArea {
                 id: details
+
+                // A TextEdit in a Flickable renders the lines in sight, and
+                // renders more when it or the view around it moves, not when
+                // the view grows (Qt 6.12): the lines a taller view gained
+                // stayed empty until scrolled. A color set anew renders them
+                // all again; the style's binding comes back after it.
+                function renderAgain() {
+                    selectedTextColor = "transparent"
+                    selectedTextColor = Qt.binding(() => details.styleCascade.selectedText)
+                }
+
+                objectName: "commitDetails"
                 readOnly: true
                 selectByMouse: true
                 textFormat: TextEdit.PlainText
