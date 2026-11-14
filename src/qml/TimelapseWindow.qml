@@ -128,6 +128,19 @@ ApplicationWindow {
                 Layout.fillWidth: true
             }
             CheckBox {
+                id: showFlow
+                objectName: "showFlow"
+                styles: [Styles.ToggleStyle.small]
+                text: qsTr("Flow")
+                onToggled: {
+                    if (checked)
+                        lapse.loadFlow()
+                }
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: qsTr("Show how the lines flow from revision to revision: kept, removed in red, added in green")
+            }
+            CheckBox {
                 id: evenSpacing
                 styles: [Styles.ToggleStyle.small]
                 text: qsTr("Even spacing")
@@ -225,6 +238,105 @@ ApplicationWindow {
                         text: window.current ? qsTr("as %1").arg(window.current.path) : ""
                         opacity: 0.7
                     }
+                }
+            }
+        }
+
+        // The file's history as a Sankey diagram: a node per revision, as
+        // long as the file then, and the lines flowing between them
+        Pane {
+            id: flowPane
+
+            Layout.fillWidth: true
+            Layout.preferredHeight: 300
+            visible: showFlow.checked
+            padding: 8
+
+            // Keeps the node of the revision shown in sight
+            function follow() {
+                const x = flow.xOf(lapse.revision)
+                if (x < 40)
+                    flow.scroll = Math.max(0, flow.scroll + x - 40)
+                else if (x > flow.width - 40)
+                    flow.scroll = Math.min(flow.maxScroll, flow.scroll + x - flow.width + 40)
+            }
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 2
+
+                FileFlowChart {
+                    id: flow
+
+                    readonly property real maxScroll: Math.max(0, contentWidth - width)
+
+                    objectName: "fileFlow"
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    steps: lapse.flow
+                    labels: lapse.revisions.map(r => r.shortSha.substring(0, 7))
+                    current: lapse.revision
+                    // Spread over the width, until zoomed by hand
+                    spacing: Math.max(48, fittingSpacing)
+                    keptColor: Styles.TokenInterface.semantics.text_muted
+                    addedColor: Styles.TokenInterface.semantics.success_default
+                    removedColor: Styles.TokenInterface.semantics.danger_default
+                    nodeColor: Styles.TokenInterface.semantics.text_muted
+                    currentColor: window.ageColor
+                    textColor: Styles.TokenInterface.semantics.text_muted
+                    onRevisionRequested: revision => lapse.revision = revision
+                    // At first, the newest revisions
+                    onStepsChanged: scroll = maxScroll
+
+                    // The wheel scrolls through the revisions, with Ctrl
+                    // it zooms, keeping the revision under the pointer
+                    WheelHandler {
+                        target: null
+                        onWheel: event => {
+                            const delta = event.angleDelta.y !== 0 ? event.angleDelta.y : event.angleDelta.x
+                            if (event.modifiers & Qt.ControlModifier) {
+                                const at = (event.x + flow.scroll) / flow.spacing
+                                flow.spacing = flow.spacing * (delta > 0 ? 1.15 : 1 / 1.15)
+                                flow.scroll = Math.max(0, Math.min(flow.maxScroll, at * flow.spacing - event.x))
+                            } else {
+                                flow.scroll = Math.max(0, Math.min(flow.maxScroll, flow.scroll - delta))
+                            }
+                        }
+                    }
+                    ToolTip {
+                        readonly property var revision: flow.hoveredRevision >= 0
+                                                        ? lapse.revisions[flow.hoveredRevision] : null
+                        readonly property var step: flow.hoveredRevision >= 0 ? lapse.flow[flow.hoveredRevision] : null
+                        visible: revision !== null && step !== undefined && step !== null
+                        x: flow.xOf(flow.hoveredRevision) + 12
+                        y: 0
+                        text: revision && step
+                              ? `${revision.shortSha} · ${revision.author} · ${revision.date}\n${revision.subject}\n`
+                                + qsTr("+%1 −%2, %n line(s)", "", step.lines).arg(step.added).arg(step.removed)
+                              : ""
+                    }
+                }
+                ScrollBar {
+                    Layout.fillWidth: true
+                    orientation: Qt.Horizontal
+                    policy: flow.contentWidth > flow.width ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+                    size: flow.width / Math.max(1, flow.contentWidth)
+                    position: flow.scroll / Math.max(1, flow.contentWidth)
+                    onPositionChanged: {
+                        if (active)
+                            flow.scroll = Math.max(0, Math.min(flow.maxScroll, position * flow.contentWidth))
+                    }
+                }
+            }
+            BusyIndicator {
+                anchors.centerIn: parent
+                running: showFlow.checked && lapse.flow.length === 0 && lapse.revisionCount > 0
+                visible: running
+            }
+            Connections {
+                target: lapse
+                function onRevisionChanged() {
+                    flowPane.follow()
                 }
             }
         }

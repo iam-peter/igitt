@@ -84,6 +84,11 @@ void Timelapse::loadRevisions()
         if (generation != m_generation)
             return;
         m_revisions = revisions;
+        m_flow.clear();
+        ++m_flowGeneration;
+        emit flowChanged();
+        if (m_flowWanted)
+            loadFlow();
         m_revision = -1;
         emit revisionsChanged();
         if (revisions.isEmpty()) {
@@ -119,6 +124,36 @@ void Timelapse::loadLines()
         m_lines = result.lines;
         endResetModel();
         setError(result.error);
+    });
+}
+
+void Timelapse::loadFlow()
+{
+    m_flowWanted = true;
+    if (!m_flow.isEmpty() || m_revisions.isEmpty())
+        return;
+    const int generation = ++m_flowGeneration;
+    run<QList<FlowStep>>([git = GitRunner(m_workDir), revisions = m_revisions] { return loadFileFlow(git, revisions); },
+                         [this, generation](const QList<FlowStep> &steps) {
+        if (generation != m_flowGeneration)
+            return;
+        m_flow.clear();
+        for (const FlowStep &step : steps) {
+            QVariantList runs;
+            for (const FlowRun &run : step.runs) {
+                runs.append(QVariantMap{{QStringLiteral("kind"), int(run.kind)},
+                                        {QStringLiteral("oldStart"), run.oldStart},
+                                        {QStringLiteral("oldCount"), run.oldCount},
+                                        {QStringLiteral("newStart"), run.newStart},
+                                        {QStringLiteral("newCount"), run.newCount}});
+            }
+            m_flow.append(QVariantMap{{QStringLiteral("lines"), step.lines},
+                                      {QStringLiteral("added"), step.added},
+                                      {QStringLiteral("removed"), step.removed},
+                                      {QStringLiteral("binary"), step.binary},
+                                      {QStringLiteral("runs"), runs}});
+        }
+        emit flowChanged();
     });
 }
 

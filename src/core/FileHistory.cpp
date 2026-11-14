@@ -31,6 +31,96 @@ QList<FileRevision> loadFileRevisions(const GitRunner &git, const QString &path,
     return revisions;
 }
 
+QList<FlowRun> flowRuns(const QList<DiffHunk> &hunks, int oldLines)
+{
+    QList<FlowRun> runs;
+    int oldPos = 0;
+    int newPos = 0;
+    const auto keep = [&](int until) {
+        if (until > oldPos) {
+            runs.append({FlowRun::Kept, oldPos, until - oldPos, newPos, until - oldPos});
+            newPos += until - oldPos;
+            oldPos = until;
+        }
+    };
+    for (const DiffHunk &hunk : hunks) {
+        // Without context, an empty side's start is the line before it
+        const int oldBegin = hunk.oldCount > 0 ? hunk.oldStart - 1 : hunk.oldStart;
+        keep(oldBegin);
+        if (hunk.oldCount > 0)
+            runs.append({FlowRun::Removed, oldPos, hunk.oldCount, newPos, 0});
+        if (hunk.newCount > 0)
+            runs.append({FlowRun::Added, oldPos + hunk.oldCount, 0, newPos, hunk.newCount});
+        oldPos += hunk.oldCount;
+        newPos += hunk.newCount;
+    }
+    keep(oldLines);
+    return runs;
+}
+
+namespace {
+
+// The lines of a blob, and whether it looks binary
+std::pair<int, bool> countLines(const QByteArray &content)
+{
+    if (content.contains('\0'))
+        return {0, true};
+    int lines = int(content.count('\n'));
+    if (!content.isEmpty() && !content.endsWith('\n'))
+        ++lines;
+    return {lines, false};
+}
+
+} // namespace
+
+QList<FlowStep> loadFileFlow(const GitRunner &git, const QList<FileRevision> &revisions)
+{
+    QList<FlowStep> steps;
+    for (int i = 0; i < revisions.size(); ++i) {
+        const FileRevision &revision = revisions[i];
+        const QString blob = revision.sha + QLatin1Char(':') + revision.path;
+        FlowStep step;
+        if (i == 0) {
+            const auto [lines, binary] = countLines(git.run({QStringLiteral("cat-file"), QStringLiteral("-p"), blob}).out);
+            step.lines = lines;
+            step.added = lines;
+            step.binary = binary;
+            if (lines > 0)
+                step.runs.append({FlowRun::Added, 0, 0, 0, lines});
+            steps.append(step);
+            continue;
+        }
+        const FileRevision &previous = revisions[i - 1];
+        const int before = steps.last().lines;
+        const GitResult diff = git.run(QStringList{QStringLiteral("diff"), QStringLiteral("-U0")} + diffFormatArgs()
+                                       + QStringList{previous.sha + QLatin1Char(':') + previous.path, blob});
+        const QList<FileDiff> files = parseDiff(diff.out);
+        if (!files.isEmpty() && files.first().isBinary) {
+            // No lines to follow: the whole file is new
+            const auto [lines, binary] = countLines(git.run({QStringLiteral("cat-file"), QStringLiteral("-p"), blob}).out);
+            step.binary = true;
+            step.lines = lines;
+            step.removed = before;
+            step.added = lines;
+            if (before > 0)
+                step.runs.append({FlowRun::Removed, 0, before, 0, 0});
+            if (lines > 0)
+                step.runs.append({FlowRun::Added, before, 0, 0, lines});
+            steps.append(step);
+            continue;
+        }
+        const QList<DiffHunk> hunks = files.isEmpty() ? QList<DiffHunk>() : files.first().hunks;
+        for (const DiffHunk &hunk : hunks) {
+            step.added += hunk.newCount;
+            step.removed += hunk.oldCount;
+        }
+        step.lines = before + step.added - step.removed;
+        step.runs = flowRuns(hunks, before);
+        steps.append(step);
+    }
+    return steps;
+}
+
 QList<TimelapseLine> loadTimelapse(const GitRunner &git, const QList<FileRevision> &revisions, int index,
                                    bool withDeleted, QString *error)
 {

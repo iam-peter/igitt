@@ -22,6 +22,11 @@ class Timelapse : public QAbstractListModel
     Q_PROPERTY(int revisionCount READ revisionCount NOTIFY revisionsChanged)
     Q_PROPERTY(int revision READ revision WRITE setRevision NOTIFY revisionChanged)
     Q_PROPERTY(bool showDeleted READ showDeleted WRITE setShowDeleted NOTIFY showDeletedChanged)
+    // How the lines go from revision to revision, one step for each:
+    // [{lines, added, removed, binary, runs: [{kind, oldStart, oldCount,
+    // newStart, newCount}]}], kind 0 kept, 1 removed, 2 added (FlowRun).
+    // Empty until loadFlow() read it.
+    Q_PROPERTY(QVariantList flow READ flow NOTIFY flowChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(QString error READ error NOTIFY errorChanged)
 
@@ -51,6 +56,9 @@ public:
     bool showDeleted() const { return m_showDeleted; }
     void setShowDeleted(bool show);
     bool busy() const { return m_pending > 0; }
+    QVariantList flow() const { return m_flow; }
+    // Reads the flow, unless it is read already.
+    Q_INVOKABLE void loadFlow();
     QString error() const { return m_error; }
 
     int rowCount(const QModelIndex &parent = {}) const override;
@@ -62,6 +70,7 @@ signals:
     void revisionsChanged();
     void revisionChanged();
     void showDeletedChanged();
+    void flowChanged();
     void busyChanged();
     void errorChanged();
 
@@ -78,6 +87,9 @@ private:
     QString m_workDir;
     QString m_path;
     QList<FileRevision> m_revisions;
+    QVariantList m_flow;
+    bool m_flowWanted = false;
+    int m_flowGeneration = 0; // drops a flow of revisions no longer shown
     int m_revision = -1;
     bool m_showDeleted = true;
     QList<TimelapseLine> m_lines;

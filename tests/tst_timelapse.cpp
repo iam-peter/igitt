@@ -75,6 +75,33 @@ private slots:
         QVERIFY(std::none_of(lines.cbegin() + 1, lines.cend(), [](const TimelapseLine &l) { return l.changedHere; }));
     }
 
+    // Each revision's lines against the one before: kept from their old
+    // place to their new one, removed, added; the rename does not break it.
+    void followsTheFlowOfLines()
+    {
+        const QList<FileRevision> revisions = loadFileRevisions(m_git, u"g.txt"_s);
+        const QList<FlowStep> steps = loadFileFlow(m_git, revisions);
+        QCOMPARE(steps.size(), 3);
+        const auto runs = [](const FlowStep &step) {
+            QStringList list;
+            for (const FlowRun &run : step.runs)
+                list.append(u"%1 %2+%3 %4+%5"_s.arg(QStringList{u"kept"_s, u"removed"_s, u"added"_s}[run.kind])
+                                .arg(run.oldStart).arg(run.oldCount).arg(run.newStart).arg(run.newCount));
+            return list;
+        };
+        QCOMPARE(steps[0].lines, 5);
+        QCOMPARE(runs(steps[0]), QStringList{u"added 0+0 0+5"_s});
+        // beta became BETA, zeta came at the end
+        QCOMPARE(steps[1].lines, 6);
+        QCOMPARE(steps[1].added, 2);
+        QCOMPARE(steps[1].removed, 1);
+        QCOMPARE(runs(steps[1]), (QStringList{u"kept 0+1 0+1"_s, u"removed 1+1 1+0"_s, u"added 2+0 1+1"_s,
+                                              u"kept 2+3 2+3"_s, u"added 5+0 5+1"_s}));
+        // Renamed, and alpha dropped
+        QCOMPARE(steps[2].lines, 5);
+        QCOMPARE(runs(steps[2]), (QStringList{u"removed 0+1 0+0"_s, u"kept 1+5 0+5"_s}));
+    }
+
     void modelLoadsInTheBackground()
     {
         Timelapse lapse;

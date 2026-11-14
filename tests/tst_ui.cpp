@@ -315,6 +315,23 @@ private slots:
                               timeline->mapToScene({2, timeline->height() / 2}).toPoint());
             QTRY_COMPARE(lapse->revision(), 0);
         }
+        // The flow of the file: a node per revision; clicking the newest
+        // one shows it
+        {
+            clickItem(lapseWindow, findItem(lapseWindow->contentItem(), u"showFlow"_s));
+            QTRY_COMPARE(lapse->flow().size(), lapse->revisionCount());
+            const QVariantMap newest = lapse->flow().last().toMap();
+            QVERIFY(newest.value(u"lines"_s).toInt() >= 30);
+            auto *flow = findItem(lapseWindow->contentItem(), u"fileFlow"_s);
+            QVERIFY(flow);
+            QVERIFY(QQuickTest::qWaitForPolish(lapseWindow));
+            qreal x = 0;
+            QVERIFY(QMetaObject::invokeMethod(flow, "xOf", Q_RETURN_ARG(qreal, x), Q_ARG(int, lapse->revisionCount() - 1)));
+            QTest::mouseClick(lapseWindow, Qt::LeftButton, {}, flow->mapToScene({x, flow->height() / 2}).toPoint());
+            QTRY_COMPARE(lapse->revision(), lapse->revisionCount() - 1);
+            QTRY_VERIFY(!lapse->busy());
+            screenshot(lapseWindow, u"timelapse-flow"_s);
+        }
         // Like dragging the slider and toggling, then closing mid-load.
         for (int r = 0; r < lapse->revisionCount(); ++r) {
             lapse->setRevision(r);
