@@ -108,6 +108,7 @@ Pane {
                 required property string fileName
 
                 implicitWidth: tree.width
+                implicitHeight: 26
                 highlighted: !entry.isDir && pane.repo.diffSource === Repository.FileContent
                              && pane.repo.diffPath === entry.path
                 contentItem: RowLayout {
