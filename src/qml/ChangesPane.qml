@@ -15,6 +15,9 @@ Pane {
     // A file dragged out of a list, and where it was let go, to fold it
     // into a commit
     signal fileDragMoved(string path, bool staged, point scenePos)
+    // The commit a dragged file would fold into, or why not (FileList)
+    property string foldInto
+    property string foldRefused
     signal fileDropped(string path, bool staged, point scenePos)
 
     padding: 0
@@ -28,6 +31,8 @@ Pane {
         // Drag a file onto the other list to stage or unstage it.
         FileList {
             id: unstagedFiles
+            foldInto: pane.foldInto
+            foldRefused: pane.foldRefused
             SplitView.fillHeight: true
             SplitView.minimumHeight: 56
             repo: pane.repo
@@ -48,6 +53,8 @@ Pane {
 
         FileList {
             id: stagedFiles
+            foldInto: pane.foldInto
+            foldRefused: pane.foldRefused
             SplitView.preferredHeight: 110
             SplitView.minimumHeight: 56
             repo: pane.repo

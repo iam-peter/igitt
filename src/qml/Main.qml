@@ -759,6 +759,8 @@ ApplicationWindow {
                         ChangesPane {
                             repo: repo
                             monoFont: root.monoFont
+                            foldInto: recent.dropSubject
+                            foldRefused: recent.dropBlocker
                             onFileDragMoved: (path, staged, pos) => recent.updateDrop(pos, true)
                             onFileDropped: (path, staged, pos) => {
                                 const sha = recent.finishDrop(pos, true)

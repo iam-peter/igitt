@@ -29,6 +29,8 @@ Pane {
     // Where a fold would go while one is dragged, and why it cannot
     property int dropRow: -1
     property string dropBlocker
+    // The subject of the commit a fold would go into
+    readonly property string dropSubject: dropRow >= 0 && dropBlocker === "" ? repo.commits.subjectAt(dropRow) : ""
 
     signal commitClicked(string sha)
 

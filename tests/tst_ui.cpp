@@ -827,8 +827,17 @@ private slots:
             QTRY_VERIFY(QMetaObject::invokeMethod(recent, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, head), Q_ARG(int, 0))
                         && head);
             QVERIFY(QQuickTest::qWaitForPolish(window));
-            dragFromTo(window, file->mapToScene({file->width() / 2, file->height() / 2}).toPoint(),
-                       head->mapToScene({head->width() / 3, head->height() / 2}).toPoint());
+            // Over the commit, the label under the pointer says it folds
+            const QPoint from = file->mapToScene({file->width() / 2, file->height() / 2}).toPoint();
+            const QPoint to = head->mapToScene({head->width() / 3, head->height() / 2}).toPoint();
+            QTest::mousePress(window, Qt::LeftButton, {}, from);
+            for (int i = 1; i <= 12; ++i)
+                QTest::mouseMove(window, from + (to - from) * i / 12);
+            // On the overlay, under the window's root item
+            QQuickItem *label = nullptr;
+            QTRY_VERIFY((label = findItem(window->contentItem(), u"fileDragLabel"_s)));
+            QCOMPARE(label->property("text").toString(), u"Fold modes.txt into “Try the modes”"_s);
+            QTest::mouseRelease(window, Qt::LeftButton, {}, to);
             QVERIFY(settle(*repo));
             QTRY_COMPARE(gitOut({"show", "HEAD:modes.txt"}), "one\ntwo\n"_ba);
             QCOMPARE(gitOut({"log", "-1", "--format=%s"}), "Try the modes\n"_ba);

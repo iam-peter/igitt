@@ -16,6 +16,10 @@ Item {
     // Set by the pane while a file from the other list is dragged over
     // this one.
     property bool dropTarget: false
+    // While a file is dragged over a commit to fold into: its subject, or
+    // why it cannot take the fold
+    property string foldInto
+    property string foldRefused
 
     readonly property FileListModel files: staged ? repo.staged : repo.unstaged
 
@@ -159,7 +163,10 @@ Item {
                     x: item.dragPos.x + 14
                     y: item.dragPos.y + 10
                     padding: 4
-                    text: (fileList.staged ? qsTr("Unstage %1") : qsTr("Stage %1")).arg(item.path)
+                    objectName: "fileDragLabel"
+                    text: fileList.foldRefused !== "" ? qsTr("Can't fold %1: %2").arg(item.path).arg(fileList.foldRefused)
+                        : fileList.foldInto !== "" ? qsTr("Fold %1 into “%2”").arg(item.path).arg(fileList.foldInto)
+                        : (fileList.staged ? qsTr("Unstage %1") : qsTr("Stage %1")).arg(item.path)
                     textFormat: Text.PlainText
                     background: Rectangle {
                         color: item.palette.toolTipBase
