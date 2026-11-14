@@ -807,17 +807,20 @@ private slots:
         QVERIFY(window->findChild<QQuickItem *>(u"commitBox"_s)->isVisible());
         QVERIFY(!window->findChild<QQuickItem *>(u"historyList"_s)->isVisible());
 
-        // A recent commit is shown in History
+        // Above the changes, every commit not pushed yet and the one they
+        // stand on; one is shown in History
         auto *recent = window->findChild<QQuickItem *>(u"recentCommits"_s);
         QVERIFY(recent && recent->isVisible());
-        QQuickItem *second = nullptr;
-        QTRY_VERIFY(QMetaObject::invokeMethod(recent, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, second), Q_ARG(int, 1))
-                    && second);
-        clickItem(window, second);
+        const int unpushed = gitOut({"rev-list", "--count", "HEAD", "--not", "--remotes"}).trimmed().toInt();
+        QTRY_COMPARE(recent->property("count").toInt(), unpushed + 1);
+        QQuickItem *first = nullptr;
+        QTRY_VERIFY(QMetaObject::invokeMethod(recent, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, first), Q_ARG(int, 0))
+                    && first);
+        clickItem(window, first);
         QTRY_COMPARE(mode(), int(History));
         QVERIFY(settle(*repo));
         QCOMPARE(repo->diffSource(), Repository::CommitDiff);
-        QCOMPARE(repo->diffCommit(), repo->commits()->shaAt(1));
+        QCOMPARE(repo->diffCommit(), repo->commits()->shaAt(0));
         QVERIFY(window->findChild<QQuickItem *>(u"historyList"_s)->isVisible());
         QVERIFY(window->findChild<QQuickItem *>(u"fileTree"_s)->isVisible());
 
@@ -830,7 +833,7 @@ private slots:
         QTest::keyClick(window, Qt::Key_1, Qt::ControlModifier);
         QTRY_COMPARE(mode(), int(History));
         QVERIFY(settle(*repo));
-        QCOMPARE(repo->diffCommit(), repo->commits()->shaAt(1));
+        QCOMPARE(repo->diffCommit(), repo->commits()->shaAt(0));
 
         // The uncommitted changes on top of the graph lead to Changes
         auto *list = window->findChild<QQuickItem *>(u"historyList"_s);

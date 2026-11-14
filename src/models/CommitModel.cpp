@@ -210,6 +210,18 @@ QString CommitModel::shaAt(int row) const
     return row >= 0 && row < m_commits.size() ? m_commits[row].sha : QString();
 }
 
+QVariantMap CommitModel::rowAt(int row) const
+{
+    QVariantMap map;
+    if (row < 0 || row >= m_commits.size())
+        return map;
+    const QModelIndex at = index(row);
+    const QHash<int, QByteArray> names = roleNames();
+    for (auto it = names.cbegin(); it != names.cend(); ++it)
+        map.insert(QString::fromUtf8(it.value()), data(at, it.key()));
+    return map;
+}
+
 QString CommitModel::subjectAt(int row) const
 {
     return row >= 0 && row < m_commits.size() ? m_commits[row].subject : QString();

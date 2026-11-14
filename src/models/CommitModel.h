@@ -61,6 +61,9 @@ public:
 
     Q_INVOKABLE QString shaAt(int row) const;
     Q_INVOKABLE QString subjectAt(int row) const;
+    // A row's roles by name, for a view of a few rows that are not the
+    // model's own; empty past the end
+    Q_INVOKABLE QVariantMap rowAt(int row) const;
     Q_INVOKABLE int rowOf(const QString &sha) const;
 
     // Search terms separated by spaces must all match; quote a phrase to
