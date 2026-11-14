@@ -83,7 +83,8 @@ The window has a mode for each job, picked at the left of the tool bar or
 with Ctrl+1, Ctrl+2 and Ctrl+3:
 
 - **History** explores, as gitk does: the commit graph above, and below
-  it the project's files beside the diff of the commit or file picked.
+  it the project's files beside the diff of the commit picked, or the
+  history of the file picked.
 - **Changes** commits, as git gui does: the changed files and the commit
   form beside their diff, under a strip of the commits not pushed yet.
   Changes are folded into those commits by dropping them on the strip.
@@ -111,20 +112,27 @@ jump. The search takes `author:`, `message:` and `sha:`, quoted phrases,
 and optional case-sensitive or regular-expression matching; Enter and
 Shift+Enter jump between matches. The scope selector limits the graph to
 the current branch. Beside the diff, the project's files can be filtered
-by name; clicking one shows it, double-clicking opens its time-lapse.
+by name.
+
+A file picked there shows its history below the graph instead of the
+diff (see Time-lapse view), and the two go along: the graph dims the
+commits that left the file alone, a revision picked selects its commit,
+and a commit picked shows the file as it was then. The file's tool bar
+opens it in a window of its own, or closes it for the diff again.
 
 ## Time-lapse view
 
-Open a file's Time-lapse View from the project's files in the History
-mode (double-click a file of the project tree, or filter it by name
-first), or right-click a file in the change lists or a file header in
-any diff. It is modelled on Perforce's: a slider through every revision
+Pick a file in the History mode's tree, or choose Time-lapse from a
+file's menu in the change lists or a file header in any diff: it shows
+below the graph, or in a window of its own. It is modelled on
+Perforce's: a slider through every revision
 of the file (following renames), and the file as it was at that revision
 with each line blamed to the revision that last changed it, shaded by
 age. The lines the revision added are green, the ones it edited orange,
 and the ones it deleted red and struck through; clicking a line's
 revision jumps there. The arrow keys step through the revisions, and
-Play animates them. A minimap right of the code shows the whole file
+Play animates them; the lines in sight stay in sight, where the changes
+between the revisions put them. A minimap right of the code shows the whole file
 with the revision's changes in the same colors and the lines in sight;
 click or drag it to scroll.
 
@@ -132,7 +140,9 @@ Switch on **Flow** to see the file's whole history as a Sankey diagram.
 Each revision is a node as long as the file was then, line 1 at the top.
 Between two nodes, kept lines flow in gray from their old place to their
 new one, edited lines in orange; removed lines narrow in red to where
-they went, added lines widen in green from where they came. Click a node
+they went, added lines widen in green from where they came. A change
+belongs to the revision on the right, which made it: its bands take
+their color towards it, and its bar shows its own changes. Click a node
 to show that revision; on the current one, a marker shows the lines in
 sight in the code, and clicking or dragging along it scrolls there. The
 wheel scrolls through the revisions, Ctrl+wheel zooms.
@@ -141,7 +151,7 @@ wheel scrolls through the revisions, Ctrl+wheel zooms.
 
 ![The time-lapse of Repository.h at the revision that moved git onto a background thread](docs/screenshots/timelapse.png)
 
-## Fetch and push
+## Fetch, pull and push
 
 **Fetch** fetches the current branch's remote (all remotes without an
 upstream) and prunes deleted branches; the button says when it last ran.
@@ -152,6 +162,10 @@ that adds Change-Id, or Gerrit's SSH port, or chosen in Settings, where
 the review branch can be set too. Gerrit's change links are shown after
 pushing. A rejected push offers a force-push that uses
 `--force-with-lease`, so it only replaces what was last fetched.
+
+**Pull**, beside it, shows how far the upstream is ahead and runs `git
+pull`: it merges the upstream, or rebases onto it, as `pull.rebase`,
+`branch.<name>.rebase` and `pull.ff` say.
 
 On GitHub and GitLab, recognized by the remote's host name (self-hosted
 servers by other names are listed in Settings), the current branch's pull
@@ -164,8 +178,32 @@ merge request push options, or opens a pull request with `gh pr create`
 after pushing to GitHub.
 
 igitt cannot answer password prompts: SSH runs in batch mode, so keys
-need to be in ssh-agent, and HTTPS needs a credential helper. Both
-buttons are off while planning, and Push during a merge or rebase.
+need to be in ssh-agent, and HTTPS needs a credential helper. The
+buttons are off while planning, and Pull and Push during a merge or
+rebase.
+
+## Branches and tags
+
+The branch in the tool bar opens a switcher: the local branches, then
+the remote-tracking ones, filtered by what is typed, Enter switching to
+the first. A remote-tracking branch switched to makes a local one that
+tracks it. Switching keeps the uncommitted changes where git can carry
+them over, and else leaves everything as it is and says which files are
+in the way. A right-click on a branch there, or on its label in the
+graph, switches to it, renames it or deletes it; a double-click on a
+label switches too. A label also merges its branch into the current
+one, rebases the current one onto it, makes a remote-tracking branch
+the current one's upstream, or compares it with the current branch.
+
+A commit's menu in History makes a branch there, switched to unless
+unticked, or a tag, annotated when it has a message. Names are checked
+as git checks them, and against those taken. A tag's label pushes it to
+the upstream's remote, or deletes it.
+
+Deleting a branch asks for its name to be typed again: nothing here
+brings it back, only the reflog. One that is not merged is deleted only
+when that is ticked too. Branches and tags cannot be planned, and are
+off while planning.
 
 ## Resolving conflicts
 
@@ -177,6 +215,10 @@ choices and can be edited before **Save and Mark Resolved** writes and
 stages it. Files that cannot be merged line by line (binary, or deleted
 on one side) offer keeping one side instead. Folds and plans wait until
 the merge, rebase or cherry-pick is finished.
+
+A merge, rebase, cherry-pick or revert that stops at conflicts shows a
+banner: once the conflicts are resolved and staged, **Continue** goes on
+with it, and **Abort** puts everything back as it was.
 
 ![The merge tool with both sides of a conflict taken](docs/screenshots/merge-tool.png)
 
@@ -213,6 +255,18 @@ header for the whole hunk) and stage or unstage the selection, or
 right-click a line for Stage Hunk and Stage Line. Double-click a file, or
 click its status badge, to stage or unstage all of it.
 
+## Discarding and stashing
+
+A file's unstaged changes are discarded from its menu in the change
+lists, an untracked file deleted; the lines selected in the unstaged
+diff from the diff's tool bar. Nothing keeps what is discarded, so it
+asks first; staged changes stay.
+
+The stash button in the tool bar, with how many there are, stashes the
+changes under a message, untracked files too if ticked, and lists the
+stashes: each applied again and kept, popped, or dropped, which asks
+first.
+
 ## Plan mode
 
 With **Plan** switched on, write actions (staging, unstaging, commit,
@@ -229,6 +283,10 @@ exact. **Execute** therefore runs nothing again: it publishes the reviewed
 result, moving HEAD with `git update-ref` and replacing the index under
 git's own `index.lock`. It refuses, changing nothing, if HEAD or the index
 were changed by anything else since planning began.
+
+Branches, tags, pulls, merges and rebases, discarding, stashes,
+cherry-picks, reverts, resets and bisecting are not planned: they are
+off while planning, and say so.
 
 Commit hooks (pre-commit, prepare-commit-msg, commit-msg) run when a
 commit is planned, so the plan shows the message they produce, Change-Id
@@ -275,6 +333,18 @@ instead.
 Not supported yet: merge commits between the target and HEAD, and moving
 other branches that point into the rewritten range (like `rebase
 --update-refs`).
+
+## Picking, reverting, resetting and comparing
+
+A commit's menu in History picks it onto the current branch, reverts it
+with a new commit, or resets the current branch to it; a merge commit is
+picked or reverted by its first parent's side. Resetting asks whether to
+keep what the later commits changed staged, unstaged, or to throw it
+away with every uncommitted change, which turns the button red. A
+commit the branch has already is not picked again.
+
+The same menu compares the commit with the one on display, and saves it
+as a patch, as `git format-patch` writes it.
 
 ## Editing the history
 
@@ -345,6 +415,24 @@ change pushed only for review, to Gerrit's `refs/for`, is on no remote
 branch and can be changed, which makes a new patch set. Pinning a group
 keeps it in sight at the side while the board scrolls back through the
 history. In plan mode, commits and moves go into the plan.
+
+## The repository
+
+The folder button in the tool bar is a menu for the repository: open
+one, clone one into a folder of its name, or make a new one, each opened
+once there; its remotes, each renamed, pointed elsewhere or removed, and
+new ones; its worktrees, each opened here or removed, and new ones on a
+new or an existing branch; updating its submodules, where there are
+any; and applying a patch, as a commit when `git format-patch` wrote it
+(undone whole if it does not apply), else to the working tree. Removing
+a remote or a worktree asks first.
+
+## Bisecting
+
+A commit's menu marks it good or bad for `git bisect`, which starts a
+bisection if there is none. While bisecting, a banner asks whether the
+commit checked out is good or bad, skips it, or stops, back where it
+began; what git finds, the first bad commit at last, is its message.
 
 ## Ideas
 
