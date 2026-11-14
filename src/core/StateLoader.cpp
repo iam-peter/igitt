@@ -135,6 +135,28 @@ HistoryState loadHistory(const StateSource &source, const StatusInfo &status, co
     history.refs.removeIf([&filter](const RefInfo &ref) {
         return (ref.kind == RefInfo::RemoteBranch && !filter.remotes) || (ref.kind == RefInfo::Tag && !filter.tags);
     });
+    // The remotes, by where they fetch from
+    for (const QByteArray &line : git.run({QStringLiteral("remote"), QStringLiteral("-v")}).out.split('\n')) {
+        const QList<QByteArray> parts = line.simplified().split(' ');
+        if (parts.size() >= 3 && parts[2] == "(fetch)")
+            history.remotes.append({QString::fromUtf8(parts[0]), QString::fromUtf8(parts[1])});
+    }
+    // The worktrees: "worktree <path>", then "branch refs/heads/<name>",
+    // "detached" or "bare", a block each
+    WorktreeInfo worktree;
+    for (const QByteArray &line : git.run({QStringLiteral("worktree"), QStringLiteral("list"),
+                                           QStringLiteral("--porcelain")}).out.split('\n')) {
+        if (line.startsWith("worktree ")) {
+            worktree = {QString::fromUtf8(line.mid(9)), {}, false};
+        } else if (line.startsWith("branch refs/heads/")) {
+            worktree.branch = QString::fromUtf8(line.mid(18));
+        } else if (line == "bare") {
+            worktree.bare = true;
+        } else if (line.isEmpty() && !worktree.path.isEmpty()) {
+            history.worktrees.append(worktree);
+            worktree = {};
+        }
+    }
 
     // In a simulation the checked out branch points at the simulated HEAD,
     // and its real commits must not show up as a second line of history.

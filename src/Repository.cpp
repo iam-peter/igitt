@@ -168,6 +168,8 @@ void Repository::applyState(const RepositoryState &state)
         m_branches.clear();
         m_remoteBranches.clear();
         m_tags.clear();
+        m_remotes = history.remotes;
+        m_worktrees = history.worktrees;
         for (const RefInfo &ref : history.refs) {
             if (ref.kind == RefInfo::LocalBranch)
                 m_branches.append(ref.name);
@@ -1504,10 +1506,279 @@ void Repository::pushTag(const QString &name)
         if (result.ok())
             outcome.notice = tr("Pushed the tag %1 to %2.").arg(name, remote);
         else
-            outcome.error = tr("Pushing the tag %1 failed: %2").arg(name, result.errorText().trimmed());
+            outcome.error = tr("Pushing the tag %1 failed: %2").arg(name, explainNetworkFailure(result.errorText().trimmed()));
         outcome.state = loadState(sourceFor(git, nullptr), request, history);
         return outcome;
     });
+}
+
+QVariantList Repository::remotes() const
+{
+    QVariantList list;
+    for (const RemoteInfo &remote : m_remotes)
+        list.append(QVariantMap{{QStringLiteral("name"), remote.name}, {QStringLiteral("url"), remote.url}});
+    return list;
+}
+
+QVariantList Repository::worktrees() const
+{
+    QVariantList list;
+    const QString here = QDir(path()).canonicalPath();
+    for (const WorktreeInfo &worktree : m_worktrees) {
+        if (worktree.bare)
+            continue;
+        list.append(QVariantMap{{QStringLiteral("path"), worktree.path},
+                                {QStringLiteral("branch"), worktree.branch},
+                                {QStringLiteral("current"), QDir(worktree.path).canonicalPath() == here}});
+    }
+    return list;
+}
+
+bool Repository::hasSubmodules() const
+{
+    return valid() && QFile::exists(QDir(path()).filePath(QStringLiteral(".gitmodules")));
+}
+
+bool Repository::bisecting() const
+{
+    return !m_gitDir.isEmpty() && QFile::exists(QDir(m_gitDir).filePath(QStringLiteral("BISECT_START")));
+}
+
+QString Repository::cloneFolderName(const QString &url) const
+{
+    QString name = url.trimmed();
+    while (name.endsWith(QLatin1Char('/')))
+        name.chop(1);
+    name = name.section(QLatin1Char('/'), -1).section(QLatin1Char(':'), -1);
+    if (name.endsWith(QLatin1String(".git")))
+        name.chop(4);
+    return name;
+}
+
+void Repository::cloneRepository(const QString &url, const QString &parent)
+{
+    const QString folder = QDir(parent).filePath(cloneFolderName(url));
+    if (m_plan)
+        endPlan();
+    enqueue(JobKind::Write, [url, folder, parent, history = historyRequest(true)](const GitRunner &) {
+        Outcome outcome;
+        const GitResult result = GitRunner(parent).run({QStringLiteral("clone"), url, folder});
+        if (!result.ok()) {
+            outcome.error = tr("Cloning %1 failed: %2").arg(url, explainNetworkFailure(result.errorText().trimmed()));
+            return outcome;
+        }
+        outcome.openedPath = folder;
+        outcome.workDir = folder;
+        outcome.gitDir = QString::fromUtf8(GitRunner(folder).run(
+            {QStringLiteral("rev-parse"), QStringLiteral("--absolute-git-dir")}).out).trimmed();
+        outcome.notice = tr("Cloned %1 into %2.").arg(url, folder);
+        outcome.state = loadState(sourceFor(GitRunner(folder), nullptr), {}, history);
+        return outcome;
+    });
+}
+
+void Repository::initRepository(const QString &folder)
+{
+    const QUrl url(folder);
+    const QString path = url.isLocalFile() ? url.toLocalFile() : folder;
+    if (m_plan)
+        endPlan();
+    enqueue(JobKind::Write, [path, history = historyRequest(true)](const GitRunner &) {
+        Outcome outcome;
+        QDir().mkpath(path);
+        const GitResult result = GitRunner(path).run({QStringLiteral("init"), QStringLiteral("-q"), path});
+        if (!result.ok()) {
+            outcome.error = tr("Making a repository in %1 failed: %2").arg(path, result.errorText().trimmed());
+            return outcome;
+        }
+        const QString top = QDir(path).canonicalPath();
+        outcome.openedPath = top;
+        outcome.workDir = top;
+        outcome.gitDir = QString::fromUtf8(GitRunner(top).run(
+            {QStringLiteral("rev-parse"), QStringLiteral("--absolute-git-dir")}).out).trimmed();
+        outcome.notice = tr("Made a new repository in %1.").arg(top);
+        outcome.state = loadState(sourceFor(GitRunner(top), nullptr), {}, history);
+        return outcome;
+    });
+}
+
+void Repository::addRemote(const QString &name, const QString &url)
+{
+    enqueueGitWrite({QStringLiteral("remote"), QStringLiteral("add"), name, url}, tr("Added the remote %1.").arg(name),
+                    tr("Adding the remote %1 failed").arg(name));
+}
+
+void Repository::renameRemote(const QString &from, const QString &to)
+{
+    enqueueGitWrite({QStringLiteral("remote"), QStringLiteral("rename"), from, to},
+                    tr("Renamed the remote %1 to %2.").arg(from, to), tr("Renaming the remote %1 failed").arg(from));
+}
+
+void Repository::setRemoteUrl(const QString &name, const QString &url)
+{
+    enqueueGitWrite({QStringLiteral("remote"), QStringLiteral("set-url"), name, url},
+                    tr("%1 now points to %2.").arg(name, url), tr("Changing the remote %1 failed").arg(name));
+}
+
+void Repository::removeRemote(const QString &name)
+{
+    enqueueGitWrite({QStringLiteral("remote"), QStringLiteral("remove"), name}, tr("Removed the remote %1.").arg(name),
+                    tr("Removing the remote %1 failed").arg(name));
+}
+
+void Repository::setUpstream(const QString &remoteBranch)
+{
+    enqueueGitWrite({QStringLiteral("branch"), QStringLiteral("--set-upstream-to=") + remoteBranch},
+                    tr("%1 now tracks %2.").arg(m_status.branch, remoteBranch), tr("Setting the upstream failed"));
+}
+
+void Repository::addWorktree(const QString &path, const QString &branch, bool create, const QString &start)
+{
+    const QUrl url(path);
+    const QString folder = url.isLocalFile() ? url.toLocalFile() : path;
+    QStringList args{QStringLiteral("worktree"), QStringLiteral("add")};
+    if (create)
+        args += {QStringLiteral("-b"), branch, folder, start.isEmpty() ? QStringLiteral("HEAD") : start};
+    else
+        args += {folder, branch};
+    enqueueGitWrite(args, tr("Made a worktree at %1, on %2.").arg(folder, branch), tr("Making the worktree failed"));
+}
+
+void Repository::removeWorktree(const QString &path)
+{
+    enqueueGitWrite({QStringLiteral("worktree"), QStringLiteral("remove"), path}, tr("Removed the worktree %1.").arg(path),
+                    tr("Removing the worktree %1 failed").arg(path));
+}
+
+void Repository::updateSubmodules()
+{
+    if (m_plan) {
+        emit errorOccurred(tr("Updating submodules is off while planning."));
+        return;
+    }
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true)](const GitRunner &git) {
+        Outcome outcome;
+        const GitResult result = git.run({QStringLiteral("submodule"), QStringLiteral("update"), QStringLiteral("--init"),
+                                          QStringLiteral("--recursive")});
+        if (result.ok())
+            outcome.notice = tr("The submodules are at the commits recorded.");
+        else
+            outcome.error = tr("Updating the submodules failed: %1").arg(explainNetworkFailure(result.errorText().trimmed()));
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::savePatch(const QString &sha, const QString &file)
+{
+    const QUrl url(file);
+    const QString path = url.isLocalFile() ? url.toLocalFile() : file;
+    enqueue(JobKind::Read, [sha, path](const GitRunner &git) {
+        Outcome outcome;
+        const GitResult result = git.run({QStringLiteral("format-patch"), QStringLiteral("-1"), QStringLiteral("--stdout"), sha});
+        QFile out(path);
+        if (!result.ok())
+            outcome.error = tr("Saving the patch failed: %1").arg(result.errorText().trimmed());
+        else if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate) || out.write(result.out) != result.out.size())
+            outcome.error = tr("Writing %1 failed: %2").arg(path, out.errorString());
+        else
+            outcome.notice = tr("Saved %1 as %2.").arg(sha.left(10), path);
+        return outcome;
+    });
+}
+
+void Repository::applyPatch(const QString &file)
+{
+    const QUrl url(file);
+    const QString path = url.isLocalFile() ? url.toLocalFile() : file;
+    if (m_plan) {
+        emit errorOccurred(tr("Applying patches is off while planning."));
+        return;
+    }
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true), path](const GitRunner &git) {
+        Outcome outcome;
+        QFile in(path);
+        if (!in.open(QIODevice::ReadOnly)) {
+            outcome.error = tr("Reading %1 failed: %2").arg(path, in.errorString());
+            return outcome;
+        }
+        // A commit as format-patch writes it starts with "From <sha>"
+        const bool mail = in.peek(5) == "From ";
+        in.close();
+        const GitResult result = mail ? git.run({QStringLiteral("am"), QStringLiteral("--3way"), path})
+                                      : git.run({QStringLiteral("apply"), QStringLiteral("--whitespace=nowarn"), path});
+        if (result.ok()) {
+            outcome.notice = mail ? tr("Applied %1 as a commit.").arg(path) : tr("Applied %1 to the working tree.").arg(path);
+        } else {
+            // Nothing half done: an am that stopped is undone
+            if (mail)
+                git.run({QStringLiteral("am"), QStringLiteral("--abort")});
+            outcome.error = tr("Applying %1 failed: %2").arg(path, result.errorText().trimmed());
+        }
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+namespace {
+
+// What git bisect said last: how many are left, or the commit it found
+QString bisectNews(const GitResult &result)
+{
+    const QList<QByteArray> lines = result.out.trimmed().split('\n');
+    for (const QByteArray &line : lines) {
+        if (line.contains("is the first bad commit"))
+            return QString::fromUtf8(line);
+    }
+    return lines.isEmpty() ? QString() : QString::fromUtf8(lines.first());
+}
+
+} // namespace
+
+void Repository::bisectMark(const QString &sha, const QString &verdict)
+{
+    if (verdict != QLatin1String("good") && verdict != QLatin1String("bad"))
+        return;
+    if (m_plan) {
+        emit errorOccurred(tr("Bisecting is off while planning."));
+        return;
+    }
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true), sha, verdict,
+                             started = bisecting()](const GitRunner &git) {
+        Outcome outcome;
+        if (!started)
+            git.run({QStringLiteral("bisect"), QStringLiteral("start")});
+        const GitResult result = git.run({QStringLiteral("bisect"), verdict, sha});
+        if (result.ok())
+            outcome.notice = bisectNews(result).isEmpty() ? tr("Marked %1 %2.").arg(sha.left(10), verdict)
+                                                          : bisectNews(result);
+        else
+            outcome.error = tr("Bisecting: %1").arg(result.errorText().trimmed());
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::bisectCurrent(const QString &verdict)
+{
+    if (verdict != QLatin1String("good") && verdict != QLatin1String("bad") && verdict != QLatin1String("skip"))
+        return;
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true), verdict](const GitRunner &git) {
+        Outcome outcome;
+        const GitResult result = git.run({QStringLiteral("bisect"), verdict});
+        if (result.ok())
+            outcome.notice = bisectNews(result);
+        else
+            outcome.error = tr("Bisecting: %1").arg(result.errorText().trimmed());
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::bisectReset()
+{
+    enqueueGitWrite({QStringLiteral("bisect"), QStringLiteral("reset")}, tr("Stopped bisecting; back where it began."),
+                    tr("Stopping the bisection failed"));
 }
 
 void Repository::compareCommits(const QString &base, const QString &commit, const QString &baseName, bool threeDot)

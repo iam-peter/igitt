@@ -103,6 +103,7 @@ qt_add_qml_module(igitt_ui
         qml/RecentCommits.qml
         qml/BranchDialog.qml
         qml/BranchSwitcher.qml
+        qml/RepositoryTools.qml
         qml/ClusterGroupsView.qml
         qml/HunkCard.qml
         qml/ClusterMessageDialog.qml

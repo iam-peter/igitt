@@ -84,8 +84,23 @@ struct HistoryRequest
     PushSettings push;
 };
 
+struct RemoteInfo
+{
+    QString name;
+    QString url; // to fetch from
+};
+
+struct WorktreeInfo
+{
+    QString path;
+    QString branch; // empty when detached
+    bool bare = false;
+};
+
 struct HistoryState
 {
+    QList<RemoteInfo> remotes;
+    QList<WorktreeInfo> worktrees;
     QString head;
     bool wip = false; // uncommitted changes, shown as a row on top
     GraphRow wipGraph;

@@ -49,6 +49,13 @@ class Repository : public QObject
     Q_PROPERTY(QStringList stashes READ stashes NOTIFY headChanged)
     // The tags the history shows
     Q_PROPERTY(QStringList tags READ tags NOTIFY headChanged)
+    // [{name, url}]: the remotes; [{path, branch, current}]: the worktrees
+    Q_PROPERTY(QVariantList remotes READ remotes NOTIFY headChanged)
+    Q_PROPERTY(QVariantList worktrees READ worktrees NOTIFY headChanged)
+    // Whether the work tree has submodules (a .gitmodules)
+    Q_PROPERTY(bool hasSubmodules READ hasSubmodules NOTIFY headChanged)
+    // While git bisect looks for the commit that broke something
+    Q_PROPERTY(bool bisecting READ bisecting NOTIFY headChanged)
     Q_PROPERTY(QString headSha READ headSha NOTIFY headChanged)
     Q_PROPERTY(QString headMessage READ headMessage NOTIFY headChanged)
     Q_PROPERTY(QString upstream READ upstream NOTIFY headChanged)
@@ -159,6 +166,10 @@ public:
     QStringList remoteBranches() const { return m_remoteBranches; }
     QStringList stashes() const { return m_status.stashes; }
     QStringList tags() const { return m_tags; }
+    QVariantList remotes() const;
+    QVariantList worktrees() const;
+    bool hasSubmodules() const;
+    bool bisecting() const;
     QString headSha() const { return m_status.headSha; }
     QString headMessage() const { return m_headMessage; }
     QString upstream() const { return m_status.upstream; }
@@ -320,6 +331,43 @@ public:
     Q_INVOKABLE void createTag(const QString &name, const QString &sha, const QString &message);
     Q_INVOKABLE void deleteTag(const QString &name);
     Q_INVOKABLE void pushTag(const QString &name);
+
+    // A repository to work in: cloned from `url` into a folder of its name
+    // in `parent`, or a new one made in `folder`; opened once it is there.
+    Q_INVOKABLE void cloneRepository(const QString &url, const QString &parent);
+    Q_INVOKABLE void initRepository(const QString &folder);
+    // The folder a clone of `url` goes into: its last part, without .git
+    Q_INVOKABLE QString cloneFolderName(const QString &url) const;
+
+    // Remotes: added, renamed, pointed elsewhere, removed; a
+    // remote-tracking branch made the current branch's upstream. Off while
+    // planning.
+    Q_INVOKABLE void addRemote(const QString &name, const QString &url);
+    Q_INVOKABLE void renameRemote(const QString &from, const QString &to);
+    Q_INVOKABLE void setRemoteUrl(const QString &name, const QString &url);
+    Q_INVOKABLE void removeRemote(const QString &name);
+    Q_INVOKABLE void setUpstream(const QString &remoteBranch);
+
+    // Worktrees: another work tree of this repository at `path`, on
+    // `branch`, made from `start` when `create`; one removed (not the one
+    // open). Submodules brought to the commits recorded, cloned if new.
+    Q_INVOKABLE void addWorktree(const QString &path, const QString &branch, bool create, const QString &start);
+    Q_INVOKABLE void removeWorktree(const QString &path);
+    Q_INVOKABLE void updateSubmodules();
+
+    // Patches: a commit saved to a file as git format-patch writes it; one
+    // applied, as a commit with its message (git am) when it is such a
+    // file, else to the working tree (git apply).
+    Q_INVOKABLE void savePatch(const QString &sha, const QString &file);
+    Q_INVOKABLE void applyPatch(const QString &file);
+
+    // Bisecting: a commit marked "good" or "bad", starting a bisection if
+    // there is none; the commit checked out marked "good", "bad" or
+    // "skip"; the bisection ended, back where it began. What git found is
+    // its notice. Off while planning.
+    Q_INVOKABLE void bisectMark(const QString &sha, const QString &verdict);
+    Q_INVOKABLE void bisectCurrent(const QString &verdict);
+    Q_INVOKABLE void bisectReset();
     // Pushes as pushDescription says. A rejected push emits pushRejected()
     // so the UI can offer `force`, which uses --force-with-lease.
     // `review` holds options for the review host: {topic, state ("wip",
@@ -501,6 +549,8 @@ private:
     QStringList m_branches;
     QStringList m_remoteBranches;
     QStringList m_tags;
+    QList<RemoteInfo> m_remotes;
+    QList<WorktreeInfo> m_worktrees;
     QString m_historyHead;
     bool m_historyWip = false;
     GraphRow m_wipGraph;

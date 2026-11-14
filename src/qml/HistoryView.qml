@@ -46,6 +46,11 @@ Pane {
     signal tagRequested(string sha, string subject)
     signal pushTagRequested(string name)
     signal deleteTagRequested(string name)
+    // A commit saved as a patch; marked for a bisection; a remote-tracking
+    // branch made the current one's upstream
+    signal savePatchRequested(string sha)
+    signal bisectRequested(string sha, string verdict)
+    signal upstreamRequested(string name)
 
     // Selects the commit and shows it, as if clicked
     function select(sha: string) {
@@ -167,6 +172,17 @@ Pane {
         }
         MenuSeparator {}
         MenuItem {
+            objectName: "setUpstreamMenuItem"
+            visible: refMenu.kind === "remote" && view.repo.branch !== ""
+            height: visible ? implicitHeight : 0
+            text: view.repo.planning ? qsTr("Set as Upstream (off while planning)")
+                                     : qsTr("Set as Upstream of %1").arg(view.repo.branch)
+            enabled: !view.repo.planning && refMenu.name !== view.repo.upstream
+            icon.source: Icons.source("cloud-download")
+            icon.color: palette.windowText
+            onTriggered: view.upstreamRequested(refMenu.name)
+        }
+        MenuItem {
             objectName: "compareRefMenuItem"
             readonly property string branch: view.repo.branch || "HEAD"
             visible: !refMenu.current
@@ -283,6 +299,33 @@ Pane {
             icon.source: Icons.source("step-back")
             icon.color: palette.windowText
             onTriggered: view.resetRequested(commitMenu.sha, commitMenu.subject)
+        }
+        MenuSeparator {}
+        MenuItem {
+            objectName: "savePatchMenuItem"
+            text: qsTr("Save as Patch…")
+            icon.source: Icons.source("copy")
+            icon.color: palette.windowText
+            onTriggered: view.savePatchRequested(commitMenu.sha)
+        }
+        MenuItem {
+            objectName: "bisectBadMenuItem"
+            text: view.repo.planning ? qsTr("Bisect (off while planning)")
+                                     : view.repo.bisecting ? qsTr("Bisect: Mark as Bad") : qsTr("Bisect: Start, Bad Here")
+            enabled: !view.repo.planning && !view.repo.writing && view.repo.operation === ""
+            icon.source: Icons.source("x")
+            icon.color: palette.windowText
+            onTriggered: view.bisectRequested(commitMenu.sha, "bad")
+        }
+        MenuItem {
+            objectName: "bisectGoodMenuItem"
+            text: view.repo.bisecting ? qsTr("Bisect: Mark as Good") : qsTr("Bisect: Start, Good Here")
+            visible: !view.repo.planning
+            height: visible ? implicitHeight : 0
+            enabled: !view.repo.writing && view.repo.operation === ""
+            icon.source: Icons.source("check")
+            icon.color: palette.windowText
+            onTriggered: view.bisectRequested(commitMenu.sha, "good")
         }
         MenuSeparator {}
         MenuItem {

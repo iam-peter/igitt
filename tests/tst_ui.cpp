@@ -1402,6 +1402,86 @@ private slots:
         QVERIFY(!repo->tags().contains(u"v0.1"_s));
     }
 
+    // The repository menu's remotes, a bisection from a commit's menu with
+    // its banner, and a clone from the menu's dialog.
+    void managesTheRepository()
+    {
+        QTemporaryDir dir;
+        GitRunner git(dir.path());
+        const auto commit = [&](const QString &name) {
+            QFile file(dir.filePath(name));
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            file.write(name.toUtf8() + '\n');
+            file.close();
+            git.run({u"add"_s, name});
+            git.run({u"commit"_s, u"-q"_s, u"-m"_s, name});
+        };
+        git.run({u"init"_s, u"-q"_s, u"-b"_s, u"main"_s});
+        for (const QString &name : {u"a.txt"_s, u"b.txt"_s, u"c.txt"_s, u"d.txt"_s})
+            commit(name);
+        QTemporaryDir bare;
+        GitRunner(bare.path()).run({u"clone"_s, u"-q"_s, u"--bare"_s, dir.path(), bare.filePath(u"copy.git"_s)});
+
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        QVERIFY(QMetaObject::invokeMethod(window, "showHistory"));
+
+        // A remote added from the menu's dialog, and removed after asking
+        click(window, u"repositoryButton"_s);
+        click(window, u"remotesItem"_s);
+        click(window, u"addRemoteButton"_s);
+        auto *name = window->findChild<QQuickItem *>(u"remoteName"_s);
+        QTRY_VERIFY(name && name->isVisible());
+        QCOMPARE(name->property("text").toString(), u"origin"_s);
+        window->findChild<QQuickItem *>(u"remoteUrl"_s)->setProperty("text", bare.filePath(u"copy.git"_s));
+        click(window, u"remoteOkButton"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->remotes().size(), 1);
+        // Made by a Repeater, so in the scene, not among the window's children
+        QQuickItem *remove = nullptr;
+        QTRY_VERIFY((remove = findItem(window->contentItem(), u"removeRemoteButton"_s)));
+        clickItem(window, remove);
+        click(window, u"removeRemoteOkButton"_s);
+        QVERIFY(settle(*repo));
+        QVERIFY(repo->remotes().isEmpty());
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!window->property("popupOpen").toBool());
+
+        // A bisection: bad here, good there, then stopped from the banner
+        rightClickCommit(window, 0);
+        click(window, u"bisectBadMenuItem"_s);
+        QVERIFY(settle(*repo));
+        QVERIFY(repo->bisecting());
+        rightClickCommit(window, 3);
+        click(window, u"bisectGoodMenuItem"_s);
+        QVERIFY(settle(*repo));
+        auto *banner = window->findChild<QQuickItem *>(u"bisectBanner"_s);
+        QTRY_VERIFY(banner->isVisible());
+        click(window, u"bisectStopButton"_s);
+        QVERIFY(settle(*repo));
+        QVERIFY(!repo->bisecting());
+        QTRY_VERIFY(!banner->isVisible());
+
+        // A clone, opened once there
+        QTemporaryDir parent;
+        click(window, u"repositoryButton"_s);
+        click(window, u"cloneRepositoryItem"_s);
+        auto *url = window->findChild<QQuickItem *>(u"cloneUrl"_s);
+        QTRY_VERIFY(url && url->isVisible());
+        url->setProperty("text", bare.filePath(u"copy.git"_s));
+        window->findChild<QQuickItem *>(u"cloneParent"_s)->setProperty("text", parent.path());
+        QTRY_VERIFY(window->findChild<QQuickItem *>(u"cloneOkButton"_s)->isEnabled());
+        click(window, u"cloneOkButton"_s);
+        QVERIFY(settle(*repo));
+        QTRY_COMPARE(repo->path(), QDir(parent.filePath(u"copy"_s)).canonicalPath());
+        QCOMPARE(repo->commits()->rowCount(), 4);
+    }
+
     void blocksThePointerBehindModalDialogs()
     {
         QQmlApplicationEngine engine;

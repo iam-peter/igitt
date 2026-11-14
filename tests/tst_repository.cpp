@@ -899,6 +899,162 @@ private slots:
         QVERIFY(m_errors->isEmpty());
     }
 
+    // A repository cloned, and a new one made; each opened once there.
+    void clonesAndInits()
+    {
+        QTemporaryDir remote;
+        GitRunner(remote.path()).run({u"clone"_s, u"-q"_s, u"--bare"_s, m_dir->path(), remote.filePath(u"widget.git"_s)});
+        QTemporaryDir parent;
+        QCOMPARE(repo().cloneFolderName(remote.filePath(u"widget.git"_s)), u"widget"_s);
+        QCOMPARE(repo().cloneFolderName(u"git@github.com:acme/widget.git"_s), u"widget"_s);
+        QCOMPARE(repo().cloneFolderName(u"https://example.org/x/tool/"_s), u"tool"_s);
+        repo().cloneRepository(remote.filePath(u"widget.git"_s), parent.path());
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().path(), QDir(parent.filePath(u"widget"_s)).canonicalPath());
+        QCOMPARE(repo().commits()->rowCount(), 2);
+        QCOMPARE(repo().remotes().size(), 1);
+
+        repo().initRepository(parent.filePath(u"fresh"_s));
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().path(), QDir(parent.filePath(u"fresh"_s)).canonicalPath());
+        QVERIFY(repo().valid());
+        QCOMPARE(repo().commits()->rowCount(), 0);
+        QVERIFY(m_errors->isEmpty());
+    }
+
+    // Remotes added, renamed, pointed elsewhere and removed, and one's
+    // branch made the upstream.
+    void managesRemotes()
+    {
+        QTemporaryDir remote;
+        GitRunner(remote.path()).run({u"init"_s, u"-q"_s, u"--bare"_s, u"-b"_s, u"main"_s, remote.path()});
+        open(m_dir->path());
+        repo().addRemote(u"origin"_s, remote.path());
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().remotes().size(), 1);
+        QCOMPARE(repo().remotes().first().toMap().value(u"url"_s).toString(), remote.path());
+        git({"push", "-q", "origin", "main"});
+        repo().renameRemote(u"origin"_s, u"upstream"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().remotes().first().toMap().value(u"name"_s).toString(), u"upstream"_s);
+        repo().setUpstream(u"upstream/main"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().upstream(), u"upstream/main"_s);
+        repo().setRemoteUrl(u"upstream"_s, u"/elsewhere"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().remotes().first().toMap().value(u"url"_s).toString(), u"/elsewhere"_s);
+        repo().removeRemote(u"upstream"_s);
+        QVERIFY(settle(repo()));
+        QVERIFY(repo().remotes().isEmpty());
+        QVERIFY(m_errors->isEmpty());
+    }
+
+    // A worktree added on a new branch, listed, and removed; submodules
+    // brought to their commits.
+    void managesWorktreesAndSubmodules()
+    {
+        QTemporaryDir place;
+        open(m_dir->path());
+        const QString tree = place.filePath(u"side"_s);
+        repo().addWorktree(tree, u"side"_s, true, {});
+        QVERIFY(settle(repo()));
+        QVERIFY(QFile::exists(QDir(tree).filePath(u"f.txt"_s)));
+        QCOMPARE(repo().worktrees().size(), 2);
+        bool current = false;
+        for (const QVariant &w : repo().worktrees())
+            current = current || w.toMap().value(u"current"_s).toBool();
+        QVERIFY(current);
+        repo().removeWorktree(tree);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().worktrees().size(), 1);
+
+        // A submodule from a repository next to it
+        QTemporaryDir lib;
+        GitRunner libGit(lib.path());
+        libGit.run({u"init"_s, u"-q"_s, u"-b"_s, u"main"_s});
+        writeFile(lib.filePath(u"lib.txt"_s), "lib\n");
+        libGit.run({u"add"_s, u"lib.txt"_s});
+        libGit.run({u"commit"_s, u"-q"_s, u"-m"_s, u"Lib"_s});
+        git({"config", "protocol.file.allow", "always"});
+        git({"-c", "protocol.file.allow=always", "submodule", "add", "-q", lib.path(), "lib"});
+        git({"commit", "-q", "-m", "Add lib"});
+        QDir(m_dir->filePath(u"lib"_s)).removeRecursively();
+        QDir().mkpath(m_dir->filePath(u"lib"_s));
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        QVERIFY(repo().hasSubmodules());
+        QVERIFY(!QFile::exists(m_dir->filePath(u"lib/lib.txt"_s)));
+        repo().updateSubmodules();
+        QVERIFY(settle(repo()));
+        QVERIFY(QFile::exists(m_dir->filePath(u"lib/lib.txt"_s)));
+        QVERIFY(m_errors->isEmpty());
+    }
+
+    // A commit saved as a patch and applied elsewhere as a commit; a plain
+    // diff applied to the working tree.
+    void savesAndAppliesPatches()
+    {
+        open(m_dir->path());
+        QTemporaryDir out;
+        const QString patch = out.filePath(u"second.patch"_s);
+        repo().savePatch(QString::fromUtf8(git({"rev-parse", "HEAD"}).trimmed()), patch);
+        QVERIFY(settle(repo()));
+        QVERIFY(QFile(patch).size() > 0);
+
+        git({"reset", "-q", "--hard", "HEAD~1"});
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        repo().applyPatch(patch);
+        QVERIFY(settle(repo()));
+        QCOMPARE(git({"log", "-1", "--format=%s"}), "Second\n"_ba);
+
+        writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");
+        const QByteArray diff = git({"diff"});
+        git({"checkout", "--", "f.txt"});
+        writeFile(out.filePath(u"plain.diff"_s), diff);
+        repo().applyPatch(out.filePath(u"plain.diff"_s));
+        QVERIFY(settle(repo()));
+        QCOMPARE(readFile(file()), "one\nTWO\nthree\nfour\nfive\n"_ba);
+        QCOMPARE(git({"log", "-1", "--format=%s"}), "Second\n"_ba); // no commit
+        QVERIFY(m_errors->isEmpty());
+    }
+
+    // A bisection from a good and a bad commit to the first bad one, and
+    // back where it began.
+    void bisects()
+    {
+        for (int i = 3; i <= 8; ++i) {
+            writeFile(m_dir->filePath(u"n.txt"_s), QByteArray::number(i) + '\n');
+            git({"add", "n.txt"});
+            git({"commit", "-q", "-m", QStringLiteral("Step %1").arg(i)});
+        }
+        open(m_dir->path());
+        const QString good = QString::fromUtf8(git({"rev-parse", "HEAD~6"}).trimmed());
+        QVERIFY(!repo().bisecting());
+        repo().bisectMark(QString::fromUtf8(git({"rev-parse", "HEAD"}).trimmed()), u"bad"_s);
+        QVERIFY(settle(repo()));
+        QVERIFY(repo().bisecting());
+        repo().bisectMark(good, u"good"_s);
+        QVERIFY(settle(repo()));
+        // "Broken" from Step 6 on: answer until git names it
+        QSignalSpy notices(m_repo.get(), &Repository::notice);
+        for (int round = 0; round < 6; ++round) {
+            const int n = readFile(m_dir->filePath(u"n.txt"_s)).trimmed().toInt();
+            repo().bisectCurrent(n >= 6 ? u"bad"_s : u"good"_s);
+            QVERIFY(settle(repo()));
+            if (!notices.isEmpty() && notices.last().first().toString().contains(u"first bad commit"_s))
+                break;
+        }
+        QVERIFY(!notices.isEmpty());
+        QVERIFY(notices.last().first().toString().contains(u"first bad commit"_s));
+        QCOMPARE(git({"log", "-1", "--format=%s", "refs/bisect/bad"}), "Step 6\n"_ba);
+        repo().bisectReset();
+        QVERIFY(settle(repo()));
+        QVERIFY(!repo().bisecting());
+        QCOMPARE(repo().branch(), u"main"_s);
+        QVERIFY(m_errors->isEmpty());
+    }
+
 private:
     Repository &repo() { return *m_repo; }
     QString file() const { return m_dir->filePath("f.txt"); }

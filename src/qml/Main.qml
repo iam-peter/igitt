@@ -918,10 +918,9 @@ ApplicationWindow {
         }
     }
 
-    FolderDialog {
-        id: openDialog
-        title: qsTr("Open Repository")
-        onAccepted: repo.open(selectedFolder)
+    RepositoryTools {
+        id: tools
+        repo: repo
     }
 
     // Not while a dialog asks something about the repository as it is, or
@@ -949,7 +948,7 @@ ApplicationWindow {
     Shortcut {
         sequences: [StandardKey.Open]
         enabled: !root.popupOpen
-        onActivated: openDialog.open()
+        onActivated: tools.openRepository()
     }
 
     header: ToolBar {
@@ -998,12 +997,14 @@ ApplicationWindow {
             IconButton {
                 styles: [Styles.ButtonStyle.medium]
                 // Icons only, to leave the tool bar room
+                id: repositoryButton
+                objectName: "repositoryButton"
                 iconName: "folder-open"
-                Accessible.name: qsTr("Open…")
+                Accessible.name: qsTr("Repository")
                 ToolTip.visible: hovered
                 ToolTip.delay: 300
-                ToolTip.text: qsTr("Open… (Ctrl+O)")
-                onClicked: openDialog.open()
+                ToolTip.text: qsTr("Open, clone or make a repository; its remotes, worktrees, submodules and patches")
+                onClicked: tools.openMenu(repositoryButton)
             }
             IconButton {
                 styles: [Styles.ButtonStyle.medium]
@@ -1256,6 +1257,58 @@ ApplicationWindow {
             }
         }
 
+        // A bisection: the commit checked out is tested, and said to be good
+        // or bad, until git names the first bad one
+        Pane {
+            objectName: "bisectBanner"
+            Layout.fillWidth: true
+            visible: repo.bisecting
+            padding: 6
+            background: Rectangle {
+                color: Qt.alpha(Styles.TokenInterface.semantics.info_default, 0.2)
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                spacing: 8
+
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    text: qsTr("Bisecting: try the commit checked out (%1), then say whether it is good or bad.")
+                          .arg(repo.headSha.substring(0, 10))
+                }
+                IconButton {
+                    objectName: "bisectGoodButton"
+                    iconName: "check"
+                    text: qsTr("Good")
+                    enabled: !repo.writing
+                    onClicked: repo.bisectCurrent("good")
+                }
+                IconButton {
+                    objectName: "bisectBadButton"
+                    iconName: "x"
+                    text: qsTr("Bad")
+                    enabled: !repo.writing
+                    onClicked: repo.bisectCurrent("bad")
+                }
+                IconButton {
+                    objectName: "bisectSkipButton"
+                    iconName: "step-forward"
+                    text: qsTr("Skip")
+                    enabled: !repo.writing
+                    onClicked: repo.bisectCurrent("skip")
+                }
+                IconButton {
+                    objectName: "bisectStopButton"
+                    iconName: "undo-2"
+                    text: qsTr("Stop")
+                    enabled: !repo.writing
+                    onClicked: repo.bisectReset()
+                }
+            }
+        }
+
         // A merge, rebase, cherry-pick or revert stopped at conflicts: they
         // are resolved in the changes, then it goes on, or it is undone
         Pane {
@@ -1328,6 +1381,9 @@ ApplicationWindow {
                         onTagRequested: (sha, subject) => tagDialog.ask(sha, subject)
                         onPushTagRequested: name => repo.pushTag(name)
                         onDeleteTagRequested: name => deleteTagDialog.ask(name)
+                        onSavePatchRequested: sha => tools.savePatch(sha)
+                        onBisectRequested: (sha, verdict) => repo.bisectMark(sha, verdict)
+                        onUpstreamRequested: name => repo.setUpstream(name)
                         onRebaseRequested: name => repo.rebaseOnto(name)
                         SplitView.preferredHeight: root.height * 0.45
                         SplitView.minimumHeight: 100
