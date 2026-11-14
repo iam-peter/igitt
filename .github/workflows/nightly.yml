@@ -219,16 +219,27 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      # One rolling pre-release, its tag moves to the commit it was built from
+      # One rolling pre-release, its tag moves to the commit it was built from.
+      # GitHub at times refuses the create with a 403 the next run does not
+      # get, and the old release is gone by then: try once more, after
+      # clearing what the first try may have left.
       - name: Replace the nightly release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          publish() {
+            gh release create nightly artifacts/* --prerelease --target "$GITHUB_SHA" \
+              --title "Nightly $(date -u +%Y-%m-%d)" \
+              --notes "Built from $GITHUB_SHA. igitt runs the git command line, git 2.40 or newer has to be installed. The macOS app isn't signed: open it with a right click and Open the first time."
+          }
           gh release delete nightly --cleanup-tag --yes || true
-          gh release create nightly artifacts/* --prerelease --target "$GITHUB_SHA" \
-            --title "Nightly $(date -u +%Y-%m-%d)" \
-            --notes "Built from $GITHUB_SHA. igitt runs the git command line, git 2.40 or newer has to be installed. The macOS app isn't signed: open it with a right click and Open the first time."
+          if ! publish; then
+            echo "::warning::Creating the nightly release failed, trying again in 30 seconds"
+            sleep 30
+            gh release delete nightly --cleanup-tag --yes || true
+            publish
+          fi
 
   apt:
     needs: release
