@@ -175,11 +175,11 @@ void DiffLineText::updatePolish()
 
 QSGNode *DiffLineText::updatePaintNode(QSGNode *old, UpdatePaintNodeData *)
 {
-    QSGNode *root = old ? old : new QSGNode;
-    while (QSGNode *child = root->firstChild()) {
-        root->removeChildNode(child);
-        delete child;
-    }
+    // A new root each time: one whose children were replaced kept drawing
+    // nothing of its text after the theme changed, while a row made anew
+    // drew it. Deleting the old root takes it out of the scene.
+    delete old;
+    QSGNode *root = new QSGNode;
     for (const QRectF &rect : std::as_const(m_changeRects)) {
         QSGRectangleNode *mark = window()->createRectangleNode();
         mark->setRect(rect);

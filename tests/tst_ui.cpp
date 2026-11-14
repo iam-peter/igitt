@@ -1602,6 +1602,51 @@ private slots:
     // Every theme reaches the window, the graph and the controls without a
     // warning, and a theme written into the user's folder is shown as soon
     // as it is saved.
+    // A diff on display keeps its text when the theme changes: the lines
+    // laid out before drew nothing of it after.
+    void keepsDiffTextAcrossThemes()
+    {
+        Themes *themes = Themes::instance();
+        const QString chosen = themes->theme();
+        const auto restore = qScopeGuard([&] { themes->setTheme(chosen); });
+        themes->setTheme(u"light"_s);
+
+        write(u"themed.txt"_s, "one\ntwo\nthree\n");
+        const auto cleanup = qScopeGuard([&] { QFile::remove(m_dir.filePath(u"themed.txt"_s)); });
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, m_dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        QVERIFY(QMetaObject::invokeMethod(window, "showChanges"));
+        repo->showFile(u"themed.txt"_s, false);
+        QVERIFY(settle(*repo));
+        QQuickItem *line = diffLine(window, u"+two"_s);
+        QVERIFY(line);
+        // How much of the line differs from its background
+        const auto ink = [&] {
+            const QImage image = window->grabWindow();
+            const qreal dpr = image.devicePixelRatio();
+            const QRectF rect = line->mapRectToScene(QRectF(0, 0, line->width(), line->height()));
+            const QColor background = image.pixelColor(QPointF((rect.right() + 4) * dpr, rect.center().y() * dpr).toPoint());
+            int count = 0;
+            for (int y = int(rect.top() * dpr); y < int(rect.bottom() * dpr); ++y) {
+                for (int x = int(rect.left() * dpr); x < int(rect.right() * dpr); ++x) {
+                    if (std::abs(image.pixelColor(x, y).lightness() - background.lightness()) > 60)
+                        ++count;
+                }
+            }
+            return count;
+        };
+        QTest::qWait(100);
+        QVERIFY(ink() > 20);
+        themes->setTheme(u"dark"_s);
+        QTest::qWait(300);
+        QVERIFY2(ink() > 20, "the line's text is gone after the theme changed");
+    }
+
     void followsTheTheme()
     {
         Themes *themes = Themes::instance();
