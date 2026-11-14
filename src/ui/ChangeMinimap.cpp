@@ -65,10 +65,12 @@ void ChangeMinimap::paint(QPainter *painter)
     const qreal s = scale();
     painter->setPen(Qt::NoPen);
 
+    // The rows in sight, outlined to show on any theme
+    const QRectF view(0.5, yOf(m_firstVisible) + 0.5, width() - 1, std::max(MinMark, m_visibleCount * s) - 1);
     QColor band = m_bandColor;
     band.setAlphaF(0.22);
     painter->setBrush(band);
-    painter->drawRect(QRectF(0, yOf(m_firstVisible), width(), std::max(MinMark, m_visibleCount * s)));
+    painter->drawRect(view);
 
     // Each run of rows alike as one mark
     const auto colorOf = [&](int change) {
@@ -96,4 +98,10 @@ void ChangeMinimap::paint(QPainter *painter)
     painter->setBrush(m_removedColor);
     for (const int row : std::as_const(m_hiddenRemovals))
         painter->drawRect(QRectF(0, row * s - MinMark / 2, width(), MinMark));
+
+    QColor outline = m_bandColor;
+    outline.setAlphaF(0.8);
+    painter->setPen(QPen(outline, 1));
+    painter->setBrush(Qt::NoBrush);
+    painter->drawRect(view);
 }
