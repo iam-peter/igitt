@@ -1062,8 +1062,7 @@ private slots:
         QVERIFY(settle(*repo));
         QCOMPARE(repo->branch(), original);
 
-        // Deleted from its label's menu, merged as it is; the one at HEAD,
-        // behind "+1" in a narrow column, directly
+        // Deleted from its label's menu, merged as it is
         for (const QString &branch : {u"try/older"_s}) {
             QQuickItem *label = nullptr;
             QTRY_VERIFY((label = [&]() -> QQuickItem * {
@@ -1081,7 +1080,23 @@ private slots:
             QVERIFY(settle(*repo));
             QVERIFY2(!repo->branches().contains(branch), qPrintable(branch));
         }
-        repo->deleteBranch(u"try/here"_s, false);
+        // The one at HEAD, behind "+1" in a narrow column: from the switcher
+        click(window, u"branchButton"_s);
+        auto *branchList = window->findChild<QQuickItem *>(u"branchList"_s);
+        QQuickItem *entry = nullptr;
+        QTRY_VERIFY((entry = [&]() -> QQuickItem * {
+            for (int i = 0; i < branchList->property("count").toInt(); ++i) {
+                QQuickItem *item = nullptr;
+                QMetaObject::invokeMethod(branchList, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, item), Q_ARG(int, i));
+                if (item && item->property("modelData").toMap().value(u"name"_s) == u"try/here"_s)
+                    return item;
+            }
+            return nullptr;
+        }()));
+        QVERIFY(QQuickTest::qWaitForPolish(window));
+        QTest::mouseClick(window, Qt::RightButton, {}, entry->mapToScene({entry->width() / 2, entry->height() / 2}).toPoint());
+        click(window, u"switcherDeleteItem"_s);
+        click(window, u"deleteBranchOkButton"_s);
         QVERIFY(settle(*repo));
         QVERIFY(!repo->branches().contains(u"try/here"_s));
         QCOMPARE(repo->branch(), original);

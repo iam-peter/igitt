@@ -803,6 +803,8 @@ ApplicationWindow {
                     repo: repo
                     y: branchButton.height
                     onNewBranchRequested: branchDialog.create(repo.headSha, repo.headMessage)
+                    onRenameRequested: name => branchDialog.rename(name)
+                    onDeleteRequested: name => deleteBranchDialog.ask(name)
                 }
             }
             Item {
