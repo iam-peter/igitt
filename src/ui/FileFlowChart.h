@@ -9,7 +9,11 @@
 // top. Between two revisions, the lines kept flow in gray from their old
 // place to their new one and the lines changed in orange; the lines
 // removed narrow in red to where they went, the lines added widen in
-// green from where they came. Clicking a node asks for that revision.
+// green from where they came. A change belongs to the revision on the
+// right, which made it: its band takes its color toward that revision,
+// and the revision's bar shows its changes where they are in it, the
+// lines it added and changed, and ticks where it removed some. Clicking
+// a node asks for that revision.
 //
 // On the node of the current revision, a marker shows the lines in sight
 // in its code; clicking or dragging along that node asks for a line.

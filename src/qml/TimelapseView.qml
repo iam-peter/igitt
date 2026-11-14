@@ -163,7 +163,7 @@ Item {
                     }
                     ToolTip.visible: hovered
                     ToolTip.delay: 500
-                    ToolTip.text: qsTr("Show how the lines flow from revision to revision: kept, removed in red, added in green")
+                    ToolTip.text: qsTr("Show how the lines flow from revision to revision, each revision with its own changes on its bar: added in green, edited in orange, removed in red")
                 }
                 CheckBox {
                     id: evenSpacing

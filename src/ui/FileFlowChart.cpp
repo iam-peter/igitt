@@ -214,6 +214,17 @@ void FileFlowChart::paint(QPainter *painter)
         }
     };
 
+    // A change takes its color toward the revision that made it, on the
+    // right, from the gray of the lines kept on the left: a band of lines
+    // removed is widest on the left, where they were, and would otherwise
+    // look like a change of the revision there
+    const auto towards = [&](qreal x0, qreal x1, const QColor &color) {
+        QLinearGradient gradient(x0, 0, x1, 0);
+        gradient.setColorAt(0, kept);
+        gradient.setColorAt(1, color);
+        return QBrush(gradient);
+    };
+
     painter->setPen(Qt::NoPen);
     for (int i = std::max(1, first); i <= last; ++i) {
         const qreal x0 = xOf(i - 1) + BarWidth / 2;
@@ -229,16 +240,16 @@ void FileFlowChart::paint(QPainter *painter)
                 break;
             case LineChange::Removed:
                 widen(top0, bottom0);
-                painter->setBrush(removed);
+                painter->setBrush(towards(x0, x1, removed));
                 break;
             case LineChange::Added:
                 widen(top1, bottom1);
-                painter->setBrush(added);
+                painter->setBrush(towards(x0, x1, added));
                 break;
             case LineChange::Changed:
                 widen(top0, bottom0);
                 widen(top1, bottom1);
-                painter->setBrush(changed);
+                painter->setBrush(towards(x0, x1, changed));
                 break;
             }
             painter->drawPath(band(x0, top0, bottom0, x1, top1, bottom1));
@@ -262,6 +273,33 @@ void FileFlowChart::paint(QPainter *painter)
         painter->setPen(Qt::NoPen);
         painter->setBrush(i == m_current ? m_currentColor : m_nodeColor);
         painter->drawRoundedRect(bar, 2, 2);
+        // The revision's own changes on its bar, where they are in it: the
+        // lines it added and changed, and a tick where it removed some
+        for (const Run &run : step.runs) {
+            qreal top = yOf(run.newStart);
+            qreal bottom = yOf(run.newStart + run.newCount);
+            switch (LineChange(run.kind)) {
+            case LineChange::Kept:
+                continue;
+            case LineChange::Added:
+            case LineChange::Changed:
+                widen(top, bottom);
+                painter->setBrush(LineChange(run.kind) == LineChange::Added ? m_addedColor : m_changedColor);
+                painter->drawRect(QRectF(bar.left(), top, BarWidth, bottom - top));
+                break;
+            case LineChange::Removed:
+                painter->setBrush(m_removedColor);
+                painter->drawRect(QRectF(bar.left() - 2, top - MinBand / 2, BarWidth + 4, MinBand));
+                break;
+            }
+        }
+        // The revision shown stays marked, even with its bar all changes
+        if (i == m_current) {
+            painter->setPen(QPen(m_currentColor, 2));
+            painter->setBrush(Qt::NoBrush);
+            painter->drawRoundedRect(bar.adjusted(-1, -1, 1, 1), 2, 2);
+            painter->setPen(Qt::NoPen);
+        }
         // The lines in sight in the code, as a bracket around the bar
         if (i == m_current && m_viewEnd > m_viewStart) {
             qreal top = yOf(m_viewStart);
