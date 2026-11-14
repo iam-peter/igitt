@@ -7,13 +7,13 @@
 <p align="center"><a href="https://iam-peter.github.io/igitt/">iam-peter.github.io/igitt</a></p>
 
 A Qt Quick git tool combining what gitk (history browsing) and git gui
-(staging and committing) do, plus the operations neither of them offers —
-first of all folding working tree changes into any earlier commit,
-editing the history like `git rebase -i` without touching the working
-tree, and composing several commits at once from groups of related
-changes.
+(staging and committing) do, each in a mode of its own, plus the
+operations neither of them offers — first of all folding working tree
+changes into the commits not pushed yet, editing the history like `git
+rebase -i` without touching the working tree, and composing several
+commits at once from groups of related changes.
 
-![The history of igitt itself, with uncommitted changes to a test selected and the commit they belong in tagged "fold here"](docs/screenshots/history.png)
+![igitt's own history in the History mode: the graph above, the project's files and the diff of the commit picked below](docs/screenshots/history.png)
 
 ## Download
 
@@ -77,9 +77,29 @@ writes never overlap, and every read sees the writes queued before it. Only
 the UI thread touches the models, applying each job's result when it
 arrives; results for a diff the user has already left are dropped.
 
+## Modes
+
+The window has a mode for each job, picked at the left of the tool bar or
+with Ctrl+1, Ctrl+2 and Ctrl+3:
+
+- **History** explores, as gitk does: the commit graph above, and below
+  it the project's files beside the diff of the commit or file picked.
+- **Changes** commits, as git gui does: the changed files and the commit
+  form beside their diff, under a strip of the commits not pushed yet.
+  Changes are folded into those commits by dropping them on the strip.
+- **Compose** reworks the commits not pushed yet together with the
+  changes: groups of changes become commits, changes move between
+  commits, and commits are reworded, moved, squashed and dropped.
+
+The tool bar counts the changed files and the commits not pushed yet.
+The modes lead into each other: the uncommitted changes on top of the
+graph open Changes, a commit of the strip opens History, and a commit's
+**Edit in Compose** shows it in Compose. Each mode keeps its own diff,
+and the window opens on Changes when there are any.
+
 ## History
 
-The commit graph follows GitKraken's and GitLens': branch and tag labels in their own
+In the History mode, the commit graph follows GitKraken's and GitLens': branch and tag labels in their own
 column, colored like their lane and linked to the commit; commits drawn
 with the author's initials; uncommitted changes as a "// WIP" row on top,
 connected to HEAD; and a Changes column with the number of files and a
@@ -90,13 +110,15 @@ commits over time, the rows on screen and the selection; click it to
 jump. The search takes `author:`, `message:` and `sha:`, quoted phrases,
 and optional case-sensitive or regular-expression matching; Enter and
 Shift+Enter jump between matches. The scope selector limits the graph to
-the current branch.
+the current branch. Beside the diff, the project's files can be filtered
+by name; clicking one shows it, double-clicking opens its time-lapse.
 
 ## Time-lapse view
 
-Open a file's Time-lapse View from the **Files** tab (double-click a file
-of the project tree, or filter it by name first), or right-click a file
-in the change lists or a file header in any diff. It is modelled on Perforce's: a slider through every revision
+Open a file's Time-lapse View from the project's files in the History
+mode (double-click a file of the project tree, or filter it by name
+first), or right-click a file in the change lists or a file header in
+any diff. It is modelled on Perforce's: a slider through every revision
 of the file (following renames), and the file as it was at that revision
 with each line blamed to the revision that last changed it, shaded by
 age. The lines the revision added are green, the ones it edited orange,
@@ -171,7 +193,7 @@ trailers like Change-Id included.
 
 ## Reading diffs
 
-Diffs and files from the Files tab are highlighted: with KSyntaxHighlighting
+Diffs and the project's files are highlighted: with KSyntaxHighlighting
 when igitt is built with it, otherwise by a small built-in highlighter for
 C++, QML/JavaScript, CMake, Python and Markdown. Where a removed line is
 followed by its replacement, the words that changed are marked more
@@ -186,7 +208,7 @@ folded while white space is ignored: such a diff would not apply back.
 
 ## Staging
 
-As in git gui: click lines to select them (Shift+click for a range, a hunk
+In the Changes mode, as in git gui: click lines to select them (Shift+click for a range, a hunk
 header for the whole hunk) and stage or unstage the selection, or
 right-click a line for Stage Hunk and Stage Line. Double-click a file, or
 click its status badge, to stage or unstage all of it.
@@ -214,11 +236,14 @@ included. Staging a file records the file as it was at that moment.
 
 ## Folding changes into an earlier commit
 
-![Selected lines being dragged onto the commit they belong in](docs/screenshots/fold-drag.png)
+![The Changes mode: selected lines dragged onto the commit of the strip they belong in, tagged "fold here"](docs/screenshots/fold-drag.png)
 
-Select lines in the unstaged or staged diff, then drag the "Drag onto a
-commit to fold" handle onto a commit in the history, or right-click the
-commit. This is the interactive form of `git commit --fixup=<sha>` followed
+In the Changes mode, select lines in the unstaged or staged diff, then
+drag the "Drag onto a commit to fold" handle onto a commit in the strip
+above, which lists the commits not pushed yet and the pushed one they
+stand on. A file dragged out of the change lists onto a commit folds all
+its lines. The commit under the pointer turns green, or red with the
+reason where it cannot take the fold. This is the interactive form of `git commit --fixup=<sha>` followed
 by `git rebase -i --autosquash <sha>~`, done by `FoldEngine` without
 touching the working tree:
 
@@ -242,7 +267,7 @@ way `git absorb` does: `FoldSuggester` blames the lines each change modifies
 or borders and picks the newest local commit among them, since folding into
 an older one would conflict with it. Local commits are those after the
 merge base with the upstream branch and after the last merge commit. The
-suggested commit is tagged "fold here" in the history, and "Fold into
+suggested commit is tagged "fold here" in the strip, and "Fold into
 suggested" folds into it. A selection spanning several commits, or touching
 lines that are only staged, gets no suggestion, with the reason shown
 instead.
@@ -253,11 +278,13 @@ other branches that point into the rewritten range (like `rebase
 
 ## Editing the history
 
-Right-click a commit for **Reword…**, **Move Up**, **Move Down**,
-**Squash into Previous**, **Fix Up into Previous** (keeping only the
-previous commit's message) and **Drop…**, or drag a commit onto another
-one to move it there. This is `git rebase -i` done by `HistoryEditor`, the
-same way folds are done:
+In the Compose mode, each commit's column has a menu, from the button
+beside its subject or a right-click on its header: **Reword…**, **Move
+Earlier**, **Move Later**, **Squash into the One Before**, **Fix Up into
+the One Before** (keeping only the earlier commit's message) and
+**Drop…**. A commit a remote branch has, or one an edit cannot reach,
+says why not. This is `git rebase -i` done by `HistoryEditor`, the same
+way folds are done:
 
 1. Replay the commits from the oldest one the edit affects up to HEAD in
    their new order, each with `git merge-tree --write-tree
@@ -279,10 +306,10 @@ itself can be reworded.
 
 ## Composing commits
 
-![Commits not merged yet beside a group of changes, with the timeline above them](docs/screenshots/compose.png)
+![The Compose mode: the commits not pushed yet beside a group of changes, with the timeline above them](docs/screenshots/compose.png)
 
-**Compose** in the tool bar opens a window that puts commits together by
-what they are about rather than by file. Every changed line between HEAD
+The Compose mode puts commits together by what they are about rather
+than by file. Every changed line between HEAD
 and the working tree, staged or not and untracked files too, is a card on
 the left. Drag cards into groups, one per commit to be: a group has a
 title and a whole message, written as in the commit form, and is

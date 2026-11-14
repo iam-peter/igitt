@@ -108,9 +108,9 @@
   <header>
     <img src="igitt.svg" alt="">
     <h1>igitt</h1>
-    <p class="tagline">A git tool combining what gitk and git gui do, which also folds
-      changes into any earlier commit and edits the history without touching
-      the working tree.</p>
+    <p class="tagline">A git tool combining what gitk and git gui do, each in a mode of
+      its own, which also folds changes into the commits not pushed yet and edits
+      the history without touching the working tree.</p>
     <div class="buttons">
       <a class="button primary" href="https://github.com/iam-peter/igitt/releases/latest">Download</a>
       <a class="button" href="https://github.com/iam-peter/igitt/releases/tag/nightly">Nightly</a>
@@ -119,14 +119,15 @@
   </header>
 
   <img class="shot" src="history.png" width="1400" height="900"
-       alt="The history of igitt itself, with uncommitted changes selected and the commit they belong in tagged fold here">
+       alt="igitt's own history in the History mode: the graph above, the project's files and the diff of the commit picked below">
 
   <h2>What it does</h2>
   <ul class="features">
+    <li>Explore, commit and rework in three modes: History, Changes and Compose.</li>
     <li>Browse the history of every branch as a graph and search it.</li>
     <li>Step through every revision of a file in the time-lapse view, each line blamed, and see its whole history flow from revision to revision.</li>
     <li>Stage and commit single lines, hunks or files.</li>
-    <li>Drag changes onto any earlier commit to fold them in, with a suggestion where they belong.</li>
+    <li>Drag changes onto a commit not pushed yet to fold them in, with a suggestion where they belong.</li>
     <li>Reword, move, squash and drop commits like <code>git rebase -i</code>, without touching the working tree.</li>
     <li>Compose several commits at once: drag changes, or single lines of them, into groups, fold them into commits not merged yet, or take them out again.</li>
     <li>Resolve conflicts with ours and theirs side by side, picking each conflict's lines.</li>
@@ -134,15 +135,27 @@
     <li>Pick a theme: Light, Dark, Dracula, Alucard, the four Catppuccin flavors, or one of your own.</li>
   </ul>
 
+  <h2>Three modes</h2>
+  <p>History explores, as gitk does: the commit graph above, the project's files and
+    the diff of what you pick below. Changes commits, as git gui does: the changed
+    files and the commit form beside their diff, under a strip of the commits not
+    pushed yet. Drop selected lines or a whole file on one of those commits to fold
+    them in; igitt tags the commit they most likely belong in. Compose reworks those
+    commits together with the changes. Switch with the tool bar or Ctrl+1, 2 and 3.
+    <a href="https://github.com/iam-peter/igitt#modes">More in the README</a>.</p>
+  <img class="shot" src="fold-drag.png" width="1400" height="900" loading="lazy"
+       alt="The Changes mode: selected lines dragged onto the commit of the strip they belong in, tagged fold here">
+
   <h2>Composing commits</h2>
-  <p>The compose window puts commits together by what they are about rather than by
+  <p>The Compose mode puts commits together by what they are about rather than by
     file. Every changed line is a card; drag cards into groups, one per commit, each
     with its own message, and split a hunk by dragging over its lines. Scrolled to the
-    left are the commits of the branch not merged yet: drop a change onto one to fold
-    it in, or drag one of its changes back out into a group or onto another commit.
-    A timeline above shows where you are. <a href="https://github.com/iam-peter/igitt#composing-commits">More in the README</a>.</p>
+    left are the commits of the branch not pushed yet: drop a change onto one to fold
+    it in, drag one of its changes back out into a group or onto another commit, or
+    reword, move, squash and drop it from its menu. A timeline above shows where you
+    are. <a href="https://github.com/iam-peter/igitt#composing-commits">More in the README</a>.</p>
   <img class="shot" src="compose.png" width="1400" height="900" loading="lazy"
-       alt="The compose window: commits not merged yet beside a group of changes, with the timeline above them">
+       alt="The Compose mode: the commits not pushed yet beside a group of changes, with the timeline above them">
 
   <h2>A file's history</h2>
   <p>Switch on Flow in the time-lapse view to see a file's whole history at once, as a
