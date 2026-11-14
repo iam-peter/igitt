@@ -1745,10 +1745,11 @@ namespace {
 // What git bisect said last: how many are left, or the commit it found
 QString bisectNews(const GitResult &result)
 {
-    // Newer gits tell what they found on stderr, older ones on stdout
+    // "<sha> is the first bad commit"; newer gits quote the term:
+    // "is the first 'bad' commit"
     const QList<QByteArray> lines = (result.out + '\n' + result.err).trimmed().split('\n');
     for (const QByteArray &line : lines) {
-        if (line.contains("is the first bad commit"))
+        if (line.contains(" is the first "))
             return QString::fromUtf8(line);
     }
     return lines.isEmpty() ? QString() : QString::fromUtf8(lines.first());
@@ -1770,9 +1771,10 @@ void Repository::bisectMark(const QString &sha, const QString &verdict)
         if (!started)
             git.run({QStringLiteral("bisect"), QStringLiteral("start")});
         const GitResult result = git.run({QStringLiteral("bisect"), verdict, sha});
-        if (result.ok())
-            outcome.notice = bisectNews(result).isEmpty() ? tr("Marked %1 %2.").arg(sha.left(10), verdict)
-                                                          : bisectNews(result);
+        if (result.ok()) {
+            const QString news = bisectNews(result);
+            outcome.notice = news.isEmpty() ? tr("Marked %1 %2.").arg(sha.left(10), verdict) : news;
+        }
         else
             outcome.error = tr("Bisecting: %1").arg(result.errorText().trimmed());
         outcome.state = loadState(sourceFor(git, nullptr), request, history);

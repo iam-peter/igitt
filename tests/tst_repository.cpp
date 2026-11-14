@@ -4,7 +4,6 @@
 #include <QFile>
 #include <QSignalSpy>
 
-#include <cstdio>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -40,9 +39,6 @@ class TestRepository : public QObject
 private slots:
     void initTestCase()
     {
-        // Unbuffered: a test that crashes on Windows, where stdout into a
-        // pipe is buffered whole, otherwise takes everything it said along
-        setvbuf(stdout, nullptr, _IONBF, 0);
         // Keep the user's configuration (signing, hooks, aliases) out of it.
         qputenv("GIT_CONFIG_GLOBAL", "/dev/null");
         qputenv("GIT_CONFIG_NOSYSTEM", "1");
@@ -1098,11 +1094,11 @@ private slots:
             const int n = readFile(m_dir->filePath(u"n.txt"_s)).trimmed().toInt();
             repo().bisectCurrent(n >= 6 ? u"bad"_s : u"good"_s);
             QVERIFY(settle(repo()));
-            if (!notices.isEmpty() && notices.last().first().toString().contains(u"first bad commit"_s))
+            if (!notices.isEmpty() && notices.last().first().toString().contains(u" is the first "_s))
                 break;
         }
         QVERIFY(!notices.isEmpty());
-        QVERIFY(notices.last().first().toString().contains(u"first bad commit"_s));
+        QVERIFY(notices.last().first().toString().contains(u" is the first "_s));
         QCOMPARE(git({"log", "-1", "--format=%s", "refs/bisect/bad"}), "Step 6\n"_ba);
         repo().bisectReset();
         QVERIFY(settle(repo()));
