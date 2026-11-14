@@ -115,7 +115,7 @@ to show that revision; on the current one, a marker shows the lines in
 sight in the code, and clicking or dragging along it scrolls there. The
 wheel scrolls through the revisions, Ctrl+wheel zooms.
 
-![The flow of TimelapseWindow.qml through eight revisions, above the lines the newest one added, with the minimap beside them](docs/screenshots/flow.png)
+![The flow of TimelapseWindow.qml through eight commits, above the newest one's lines: added in green, edited in orange, deleted in red](docs/screenshots/flow.png)
 
 ![The time-lapse of Repository.h at the revision that moved git onto a background thread](docs/screenshots/timelapse.png)
 

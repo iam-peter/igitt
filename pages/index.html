@@ -60,6 +60,17 @@
     box-shadow: 0 20px 50px rgb(0 0 0 / 0.12);
   }
 
+  /* A close-up beside its text, half its pixels wide to stay sharp on a
+     high-density screen; under it on a phone */
+  .detail { display: flex; gap: 28px; align-items: center; margin: 8px 0 48px; }
+  .detail p { flex: 1; margin: 0; }
+  .detail img {
+    display: block; width: 420px; max-width: 100%; height: auto; flex: none;
+    border-radius: 12px; border: 1px solid var(--border);
+    box-shadow: 0 20px 50px rgb(0 0 0 / 0.12);
+  }
+  @media (max-width: 640px) { .detail { flex-direction: column; } }
+
   /* The themes side by side, two to a row, one on a phone */
   .themes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 16px 0 48px; }
   .themes figure { margin: 0; }
@@ -134,16 +145,27 @@
        alt="The compose window: commits not merged yet beside a group of changes, with the timeline above them">
 
   <h2>A file's history</h2>
-  <p>The time-lapse view shows a file as it was at any revision, each line blamed to
-    the revision that last changed it, with what that revision added, edited and
-    removed in green, orange and red, and a minimap of those changes beside the code.
-    Switch on Flow to see the whole history at once: each revision is a node as long as
-    the file was then, and the lines flow between them, kept ones in gray, removed ones
+  <p>Switch on Flow in the time-lapse view to see a file's whole history at once, as a
+    Sankey diagram. Each commit that touched the file is a node, a bar as long as the
+    file was then, line 1 at the top. Between two nodes the lines flow from their old
+    place to their new one: kept lines in gray, edited ones in orange, removed ones
     narrowing in red to where they went, added ones widening in green from where they
-    came. Click a node to show that revision, or drag along the current one to scroll
-    the code. <a href="https://github.com/iam-peter/igitt#time-lapse-view">More in the README</a>.</p>
+    came. Above each node its counts, below it its commit. Click a node to show that
+    revision underneath, with what it added, edited and removed in the same colors;
+    the wheel scrolls through the history and Ctrl+wheel zooms.
+    <a href="https://github.com/iam-peter/igitt#time-lapse-view">More in the README</a>.</p>
   <img class="shot" src="flow.png" width="1400" height="900" loading="lazy"
-       alt="The flow of a file through eight revisions above the lines the newest one added, with the minimap beside them">
+       alt="The flow of TimelapseWindow.qml through eight commits, above the newest one's lines: added in green, edited in orange, deleted in red">
+
+  <div class="detail">
+    <p>Beside the scroll bar, a strip shows the whole file at once with the changes of
+      the revision on display: green where it added lines, orange where it edited
+      them, red where it removed them, and a frame around the lines in sight. Click or
+      drag it to jump there. On the flow, the current node marks the same lines, and
+      dragging along it scrolls the code too.</p>
+    <img src="change-bar.png" width="840" height="876" loading="lazy"
+         alt="Close-up of the code beside its change strip: green, orange and red marks down the whole file, and a frame around the lines in sight">
+  </div>
 
   <h2>Themes</h2>
   <p>igitt draws its controls in a style of its own and takes every color from a theme,
