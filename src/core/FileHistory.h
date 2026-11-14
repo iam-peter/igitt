@@ -78,6 +78,12 @@ QList<FileRevision> loadFileRevisions(const GitRunner &git, const QString &path,
 // The file at `revisions[index]`, each line blamed to the revision that
 // last changed it and marked with what that revision did to it, against
 // the one before it as in the flow. With `withDeleted`, the lines it
-// removed are listed where they used to be.
+// removed are listed where they used to be. `runs` gets how the lines go
+// from the revision before, as in the flow.
 QList<TimelapseLine> loadTimelapse(const GitRunner &git, const QList<FileRevision> &revisions, int index,
-                                   bool withDeleted, QString *error = nullptr);
+                                   bool withDeleted, QString *error = nullptr, QList<FlowRun> *runs = nullptr);
+
+// Where a line (0-based, fractional within it) of one revision is in the
+// next, by the runs between them (`forward`), or in the one before: a
+// line removed or added is at the place it went or came from.
+qreal mapLine(const QList<FlowRun> &runs, qreal line, bool forward);

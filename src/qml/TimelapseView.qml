@@ -420,6 +420,48 @@ Item {
                     contentY = originY + Math.max(0, Math.min(contentHeight - height, top))
                 }
 
+                // The revision whose lines are shown, and the line of it at
+                // the top while another one is on its way: going between
+                // revisions keeps that line at the top, where it is in the
+                // next (Timelapse::mapLine()), instead of the start
+                property int shownRevision: -1
+                property real keptLine: -1
+
+                function keepPlace() {
+                    if (keptLine < 0 && shownRevision >= 0 && count > 0)
+                        keptLine = lapse.lineAt(firstRow)
+                }
+                function placeAgain() {
+                    if (keptLine >= 0) {
+                        const line = lapse.mapLine(shownRevision, lapse.revision, keptLine)
+                        // Once the new lines are laid out
+                        Qt.callLater(() => {
+                            const top = lapse.rowOf(line) * rowHeight
+                            contentY = originY + Math.max(0, Math.min(Math.max(0, contentHeight - height), top))
+                        })
+                    }
+                    shownRevision = lapse.revision
+                    keptLine = -1
+                }
+
+                Connections {
+                    target: lapse
+                    function onRevisionChanged() {
+                        lines.keepPlace()
+                    }
+                    function onShowDeletedChanged() {
+                        lines.keepPlace()
+                    }
+                    function onChangesChanged() {
+                        lines.placeAgain()
+                    }
+                    // Another file: from its start
+                    function onRevisionsChanged() {
+                        lines.shownRevision = -1
+                        lines.keptLine = -1
+                    }
+                }
+
                 objectName: "timelapseLines"
                 Layout.fillWidth: true
                 Layout.fillHeight: true

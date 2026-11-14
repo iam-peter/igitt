@@ -940,6 +940,27 @@ private slots:
         auto *list = window->findChild<QQuickItem *>(u"historyList"_s);
         QCOMPARE(repo->commits()->matchCount(), lapse->revisionCount());
 
+        // Going to the revision before keeps the code in sight where it was,
+        // not at the start
+        {
+            auto *code = findItem(window->contentItem(), u"timelapseLines"_s);
+            QVERIFY(code);
+            const qreal rowHeight = code->property("rowHeight").toReal();
+            QTRY_VERIFY(code->property("contentHeight").toReal() > code->height() + 10 * rowHeight);
+            code->setProperty("contentY", code->property("originY").toReal() + 12 * rowHeight);
+            QTest::qWait(50);
+            const int from = lapse->revision();
+            const qreal top = lapse->lineAt(code->property("firstRow").toReal());
+            QVERIFY(top > 5);
+            lapse->setRevision(from - 1);
+            QTRY_VERIFY(!lapse->busy() && code->property("shownRevision").toInt() == from - 1);
+            const qreal expected = lapse->mapLine(from, from - 1, top);
+            QTRY_VERIFY2(std::abs(lapse->lineAt(code->property("firstRow").toReal()) - expected) < 1,
+                         qPrintable(u"top line %1, expected %2"_s.arg(lapse->lineAt(code->property("firstRow").toReal())).arg(expected)));
+            QVERIFY(code->property("contentY").toReal() > code->property("originY").toReal());
+            QVERIFY(settle(*repo));
+        }
+
         // The oldest revision picked: its commit in the graph
         lapse->setRevision(0);
         QVERIFY(settle(*repo));

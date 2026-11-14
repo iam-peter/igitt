@@ -86,6 +86,7 @@ void Timelapse::loadRevisions()
         if (generation != m_generation)
             return;
         m_revisions = revisions;
+        m_stepRuns.clear();
         m_flow.clear();
         ++m_flowGeneration;
         emit flowChanged();
@@ -112,17 +113,20 @@ void Timelapse::loadLines()
     struct Lines
     {
         QList<TimelapseLine> lines;
+        QList<FlowRun> runs;
         QString error;
     };
     // With the deleted lines always, which showLines() leaves out when
     // hidden, still marking where they were
     run<Lines>([git = GitRunner(m_workDir), revisions = m_revisions, index = m_revision] {
         Lines result;
-        result.lines = loadTimelapse(git, revisions, index, true, &result.error);
+        result.lines = loadTimelapse(git, revisions, index, true, &result.error, &result.runs);
         return result;
-    }, [this, generation](const Lines &result) {
+    }, [this, generation, index = m_revision](const Lines &result) {
         if (generation != m_generation)
             return;
+        if (result.error.isEmpty())
+            m_stepRuns.insert(index, result.runs);
         m_allLines = result.lines;
         showLines();
         setError(result.error);
@@ -166,6 +170,27 @@ qreal Timelapse::lineAt(qreal row) const
     return m_lineOfRow[whole] + (removed ? 0 : row - whole);
 }
 
+qreal Timelapse::mapLine(int from, int to, qreal line) const
+{
+    const int count = int(m_revisions.size());
+    if (from < 0 || to < 0 || from >= count || to >= count || from == to)
+        return line;
+    // Step by step, each one known, or none of them
+    for (int i = std::min(from, to) + 1; i <= std::max(from, to); ++i) {
+        if (!m_stepRuns.contains(i))
+            return line;
+    }
+    qreal mapped = line;
+    if (from < to) {
+        for (int i = from + 1; i <= to; ++i)
+            mapped = ::mapLine(m_stepRuns.value(i), mapped, true);
+    } else {
+        for (int i = from; i > to; --i)
+            mapped = ::mapLine(m_stepRuns.value(i), mapped, false);
+    }
+    return mapped;
+}
+
 qreal Timelapse::rowOf(qreal line) const
 {
     if (m_lines.isEmpty())
@@ -193,6 +218,8 @@ void Timelapse::loadFlow()
         if (generation != m_flowGeneration)
             return;
         m_flow.clear();
+        for (int i = 0; i < steps.size(); ++i)
+            m_stepRuns.insert(i, steps[i].runs);
         for (const FlowStep &step : steps) {
             QVariantList runs;
             for (const FlowRun &run : step.runs) {

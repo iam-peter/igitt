@@ -166,7 +166,7 @@ QList<FlowStep> loadFileFlow(const GitRunner &git, const QList<FileRevision> &re
 }
 
 QList<TimelapseLine> loadTimelapse(const GitRunner &git, const QList<FileRevision> &revisions, int index,
-                                   bool withDeleted, QString *error)
+                                   bool withDeleted, QString *error, QList<FlowRun> *runs)
 {
     QList<TimelapseLine> lines;
     if (index < 0 || index >= revisions.size())
@@ -217,6 +217,8 @@ QList<TimelapseLine> loadTimelapse(const GitRunner &git, const QList<FileRevisio
     if (index == 0) {
         for (TimelapseLine &line : lines)
             line.change = LineChange::Added;
+        if (runs && !lines.isEmpty())
+            *runs = {{LineChange::Added, 0, 0, 0, int(lines.size())}};
         return lines;
     }
 
@@ -229,7 +231,15 @@ QList<TimelapseLine> loadTimelapse(const GitRunner &git, const QList<FileRevisio
                                                  revision.sha + QLatin1Char(':') + revision.path});
     QHash<int, LineChange> changes;
     QMap<int, QStringList> deletedBefore;
-    for (const FileDiff &file : parseDiff(diff.out)) {
+    const QList<FileDiff> files = parseDiff(diff.out);
+    if (runs) {
+        const QList<DiffHunk> hunks = files.isEmpty() ? QList<DiffHunk>() : files.first().hunks;
+        int before = int(lines.size());
+        for (const DiffHunk &hunk : hunks)
+            before += hunk.oldCount - hunk.newCount;
+        *runs = flowRuns(hunks, before);
+    }
+    for (const FileDiff &file : files) {
         for (const DiffHunk &hunk : file.hunks) {
             const QList<bool> edited = editedPairs(hunk);
             const int paired = int(edited.size());
@@ -272,4 +282,22 @@ QList<TimelapseLine> loadTimelapse(const GitRunner &git, const QList<FileRevisio
     }
     addDeleted(int(lines.size()) + 1);
     return merged;
+}
+
+qreal mapLine(const QList<FlowRun> &runs, qreal line, bool forward)
+{
+    qreal end = 0;
+    for (const FlowRun &run : runs) {
+        const int from = forward ? run.oldStart : run.newStart;
+        const int count = forward ? run.oldCount : run.newCount;
+        const int to = forward ? run.newStart : run.oldStart;
+        const int toCount = forward ? run.newCount : run.oldCount;
+        end = std::max<qreal>(end, to + toCount);
+        if (count == 0 || line < from || line >= from + count)
+            continue;
+        // Kept and changed lines keep their place in the run; the others
+        // are where they went or came from
+        return toCount == count ? to + (line - from) : to;
+    }
+    return end; // past the end of the file
 }

@@ -76,6 +76,10 @@ public:
     // deleted row at the line it was before; and the row of a line.
     Q_INVOKABLE qreal lineAt(qreal row) const;
     Q_INVOKABLE qreal rowOf(qreal line) const;
+    // Where a line of revision `from` is in revision `to`, through the
+    // revisions between as far as their changes are known (the revisions
+    // shown, or the flow); else the same line.
+    Q_INVOKABLE qreal mapLine(int from, int to, qreal line) const;
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -115,5 +119,6 @@ private:
     QList<int> m_changes;
     QList<int> m_hiddenRemovals;
     QList<int> m_lineOfRow; // the lines before each row
+    QHash<int, QList<FlowRun>> m_stepRuns; // how the lines go into each revision, where known
     QString m_error;
 };

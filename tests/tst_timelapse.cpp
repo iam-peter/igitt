@@ -111,6 +111,37 @@ private slots:
         QCOMPARE(runs(steps[2]), (QStringList{u"removed 0+1 0+0"_s, u"kept 1+5 0+5"_s}));
     }
 
+    // A line found again in the next revision and the one before: kept
+    // and changed lines where they went, removed and added ones where
+    // they went or came from; what a revision is shown with matches its
+    // flow.
+    void mapsLinesBetweenRevisions()
+    {
+        const QList<FileRevision> revisions = loadFileRevisions(m_git, u"g.txt"_s);
+        QCOMPARE(revisions.size(), 3);
+        const QList<FlowStep> steps = loadFileFlow(m_git, revisions);
+        // beta edited, delta replaced by DELTA, zeta came at the end
+        const QList<FlowRun> &runs = steps[1].runs;
+        QCOMPARE(mapLine(runs, 0.5, true), 0.5);  // alpha, kept
+        QCOMPARE(mapLine(runs, 1, true), 1.0);    // beta, changed
+        QCOMPARE(mapLine(runs, 3, true), 3.0);    // delta, removed where DELTA came
+        QCOMPARE(mapLine(runs, 4.25, true), 4.25); // epsilon
+        QCOMPARE(mapLine(runs, 5, false), 5.0);   // zeta, added after epsilon
+        QCOMPARE(mapLine(runs, 3, false), 4.0);   // DELTA, added where delta was
+        // Renamed, and alpha dropped: every line one up
+        QCOMPARE(mapLine(steps[2].runs, 3, true), 2.0);
+        QCOMPARE(mapLine(steps[2].runs, 0, true), 0.0);
+
+        QList<FlowRun> shown;
+        loadTimelapse(m_git, revisions, 1, true, nullptr, &shown);
+        QCOMPARE(shown.size(), runs.size());
+        for (int i = 0; i < runs.size(); ++i) {
+            QCOMPARE(int(shown[i].kind), int(runs[i].kind));
+            QCOMPARE(shown[i].oldStart, runs[i].oldStart);
+            QCOMPARE(shown[i].newStart, runs[i].newStart);
+        }
+    }
+
     // In one hunk, the lines paired as edits flow on as changed, the
     // others are removed and added where they are, the rest added after.
     void splitsAHunkIntoEditsAndReplacements()
@@ -177,6 +208,12 @@ private slots:
         QTRY_VERIFY(!lapse.busy() && lapse.rowCount() == 5);
         QCOMPARE(lapse.data(lapse.index(0), Timelapse::AgeRole).toReal(), 0.0);
         QCOMPARE(lapse.data(lapse.index(0), Timelapse::ChangeRole).toInt(), int(LineChange::Added));
+
+        // Every revision shown: a line of one found in another, step by
+        // step, through the revision that dropped alpha
+        QCOMPARE(lapse.mapLine(1, 2, 3), 2.0);
+        QCOMPARE(lapse.mapLine(2, 1, 2), 3.0);
+        QCOMPARE(lapse.mapLine(0, 2, 3), 2.0); // delta, then DELTA in its place
 
         lapse.setPath(u"missing.txt"_s);
         QTRY_VERIFY(!lapse.error().isEmpty());
