@@ -157,7 +157,7 @@ QVariant CommitModel::data(const QModelIndex &index, int role) const
     case AuthorRole: return c.authorName;
     case AuthorEmailRole: return c.authorEmail;
     case InitialsRole: return initials(c.authorName);
-    case DateRole: return c.authorDate.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+    case DateRole: return c.authorDate.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm"));
     case RefsRole: return m_refs.value(c.sha);
     case GraphRole: return QVariant::fromValue(m_graph[index.row()]);
     case LaneColorRole: return laneColorName(m_graph[index.row()].color);

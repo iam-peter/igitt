@@ -1,5 +1,8 @@
 #include "LogParser.h"
 
+#include <QHash>
+#include <QTimeZone>
+
 namespace {
 
 constexpr char FieldSep = '\x1f';
@@ -40,27 +43,56 @@ QStringList logFormatArgs()
 
 QList<CommitInfo> parseLog(const QByteArray &out)
 {
+    // Walked in place: no copy of a record or a field before it is a
+    // string, and each author's name and address made once and shared
     QList<CommitInfo> commits;
-    const QList<QByteArray> records = out.split('\0');
-    commits.reserve(records.size());
-    for (const QByteArray &record : records) {
+    commits.reserve(out.count('\0') + 1);
+    QHash<QByteArray, QString> names;
+    const auto shared = [&names](QByteArrayView bytes) {
+        auto it = names.constFind(bytes.toByteArray());
+        if (it == names.cend())
+            it = names.insert(bytes.toByteArray(), QString::fromUtf8(bytes));
+        return it.value();
+    };
+    const QByteArrayView all(out);
+    qsizetype from = 0;
+    while (from < all.size()) {
+        qsizetype end = all.indexOf('\0', from);
+        if (end < 0)
+            end = all.size();
         // With -z, git separates entries by NUL; trim the newline it may
         // still put between them.
-        const QByteArray rec = record.trimmed();
+        const QByteArrayView rec = all.sliced(from, end - from).trimmed();
+        from = end + 1;
         if (rec.isEmpty())
             continue;
-        const QList<QByteArray> fields = rec.split(FieldSep);
-        if (fields.size() < 6)
+        QByteArrayView fields[5];
+        qsizetype at = 0;
+        int count = 0;
+        for (; count < 5; ++count) {
+            const qsizetype sep = rec.indexOf(FieldSep, at);
+            if (sep < 0)
+                break;
+            fields[count] = rec.sliced(at, sep - at);
+            at = sep + 1;
+        }
+        if (count < 5)
             continue;
-
         CommitInfo c;
         c.sha = QString::fromLatin1(fields[0]);
-        const QString parents = QString::fromLatin1(fields[1]);
-        c.parents = parents.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-        c.authorName = QString::fromUtf8(fields[2]);
-        c.authorEmail = QString::fromUtf8(fields[3]);
-        c.authorDate = QDateTime::fromSecsSinceEpoch(fields[4].toLongLong());
-        c.subject = QString::fromUtf8(fields.mid(5).join(FieldSep));
+        for (qsizetype p = 0; p < fields[1].size();) {
+            qsizetype space = fields[1].indexOf(' ', p);
+            if (space < 0)
+                space = fields[1].size();
+            if (space > p)
+                c.parents.append(QString::fromLatin1(fields[1].sliced(p, space - p)));
+            p = space + 1;
+        }
+        c.authorName = shared(fields[2]);
+        c.authorEmail = shared(fields[3]);
+        // In UTC, which takes no time zone to work out; shown in local time
+        c.authorDate = QDateTime::fromSecsSinceEpoch(fields[4].toLongLong(), QTimeZone::UTC);
+        c.subject = QString::fromUtf8(rec.sliced(at)); // the rest, separators in it included
         commits.append(c);
     }
     return commits;

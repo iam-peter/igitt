@@ -1,7 +1,10 @@
 #include "core/DiffParser.h"
+#include "core/GitRunner.h"
+#include "core/GraphLayout.h"
 #include "core/LogParser.h"
 #include "core/StatusParser.h"
 
+#include <QElapsedTimer>
 #include <QTest>
 
 using namespace Qt::StringLiterals;
@@ -11,6 +14,27 @@ class TestParsers : public QObject
     Q_OBJECT
 
 private slots:
+    // How long a big history takes to parse and lay out
+    void benchHistory()
+    {
+        const QString path = qEnvironmentVariable("IGITT_BENCH_REPO");
+        if (qEnvironmentVariableIsEmpty("IGITT_BENCH") || path.isEmpty())
+            QSKIP("set IGITT_BENCH and IGITT_BENCH_REPO to run");
+        const GitResult log = GitRunner(path).run(QStringList{u"log"_s, u"--topo-order"_s, u"--max-count=20000"_s}
+                                                  + logFormatArgs() + QStringList{u"--branches"_s, u"--remotes"_s,
+                                                                                  u"--tags"_s, u"HEAD"_s, u"--"_s});
+        QVERIFY(log.ok());
+        QElapsedTimer timer;
+        timer.start();
+        QList<CommitInfo> commits;
+        for (int i = 0; i < 5; ++i)
+            commits = parseLog(log.out);
+        qInfo() << "parse" << timer.restart() / 5 << "ms," << commits.size() << "commits";
+        for (int i = 0; i < 5; ++i)
+            layoutGraph(commits);
+        qInfo() << "layout" << timer.restart() / 5 << "ms";
+    }
+
     void parseLogRecords()
     {
         const QByteArray out =
