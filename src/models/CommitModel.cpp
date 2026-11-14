@@ -287,16 +287,29 @@ bool CommitModel::termMatches(const SearchTerm &term, const CommitInfo &commit) 
     return contains(commit.subject) || contains(commit.authorName) || contains(commit.authorEmail) || shaMatches;
 }
 
+void CommitModel::setFocus(const QStringList &shas)
+{
+    const QSet<QString> focus(shas.cbegin(), shas.cend());
+    if (focus == m_focus)
+        return;
+    m_focus = focus;
+    updateMatches();
+    if (count() > 0)
+        emit dataChanged(index(0), index(count() - 1), {MatchedRole});
+    emit searchChanged();
+}
+
 void CommitModel::updateMatches()
 {
     m_matched.assign(m_commits.size(), false);
     m_matchCount = 0;
-    if (m_terms.isEmpty() || !m_searchError.isEmpty())
+    if (!searching() || !m_searchError.isEmpty())
         return;
     for (qsizetype row = 0; row < m_commits.size(); ++row) {
         const CommitInfo &commit = m_commits[row];
-        const bool all = std::all_of(m_terms.cbegin(), m_terms.cend(),
-                                     [&](const SearchTerm &term) { return termMatches(term, commit); });
+        const bool all = (m_focus.isEmpty() || m_focus.contains(commit.sha))
+                         && std::all_of(m_terms.cbegin(), m_terms.cend(),
+                                        [&](const SearchTerm &term) { return termMatches(term, commit); });
         m_matched[row] = all;
         m_matchCount += all ? 1 : 0;
     }

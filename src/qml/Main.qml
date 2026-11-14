@@ -173,6 +173,57 @@ ApplicationWindow {
     property bool modeChosen: false
     // The commit History showed last, to show again on coming back
     property string historySha
+    // The file whose history History shows below the graph, instead of a
+    // diff; none for the diff
+    property string historyFile
+    // While the time-lapse follows the graph, it leaves the graph alone
+    property bool followingGraph: false
+    // The history of that file, once it is loaded
+    readonly property Timelapse fileTimelapse: fileLapse.item ? (fileLapse.item as TimelapseView).timelapse : null
+
+    // History's view of a file: its time-lapse below the graph, which
+    // shows the commits that changed it
+    function showFileHistory(path: string) {
+        historyFile = path
+        setMode(Main.Mode.History)
+    }
+    function closeFileHistory() {
+        historyFile = ""
+        repo.commits.setFocus([])
+    }
+    // The file's revision as of a commit of the graph: the commit's own, or
+    // the newest one below it, for a commit that left the file as it was
+    function revisionAt(sha: string): int {
+        const lapse = root.fileTimelapse
+        if (!lapse)
+            return -1
+        const revisions = lapse.revisions
+        const exact = revisions.findIndex(revision => revision.sha === sha)
+        if (exact >= 0)
+            return exact
+        const row = repo.commits.rowOf(sha)
+        if (row < 0)
+            return -1
+        let best = -1
+        let bestRow = Infinity
+        for (let i = 0; i < revisions.length; ++i) {
+            const revisionRow = repo.commits.rowOf(revisions[i].sha)
+            if (revisionRow >= row && revisionRow < bestRow) {
+                best = i
+                bestRow = revisionRow
+            }
+        }
+        return best
+    }
+    // The revision on display, selected in the graph
+    function followFile() {
+        const lapse = root.fileTimelapse
+        if (followingGraph || !lapse || lapse.revision < 0 || lapse.revision >= lapse.revisionCount)
+            return
+        const sha = lapse.revisions[lapse.revision].sha
+        if (repo.diffSource !== Repository.CommitDiff || repo.diffCommit !== sha)
+            history.select(sha)
+    }
 
     function setMode(m: int) {
         mode = m
@@ -191,8 +242,16 @@ ApplicationWindow {
         target: repo
         function onDiffChanged() {
             root.foldPending()
-            if (repo.diffSource === Repository.CommitDiff)
+            if (repo.diffSource === Repository.CommitDiff) {
                 root.historySha = repo.diffCommit
+                // The file's time-lapse goes along with the graph
+                const revision = root.historyFile !== "" ? root.revisionAt(repo.diffCommit) : -1
+                if (revision >= 0 && root.fileTimelapse.revision !== revision) {
+                    root.followingGraph = true
+                    root.fileTimelapse.revision = revision
+                    root.followingGraph = false
+                }
+            }
             // The uncommitted changes, picked in History, are Changes' to show
             else if (root.mode === Main.Mode.History
                      && (repo.diffSource === Repository.UnstagedDiff || repo.diffSource === Repository.StagedDiff))
@@ -207,6 +266,7 @@ ApplicationWindow {
         function onPathChanged() {
             root.modeChosen = false
             root.historySha = ""
+            root.closeFileHistory()
         }
     }
     // Compose, with the commit's column first
@@ -728,13 +788,46 @@ ApplicationWindow {
 
                         FilesPane {
                             repo: repo
+                            currentFile: root.historyFile
                             SplitView.preferredWidth: 300
                             SplitView.minimumWidth: 200
-                            onTimelapseRequested: path => root.openTimelapse(path)
+                            onTimelapseRequested: path => root.showFileHistory(path)
                         }
                         Item {
                             id: historyDiff
                             SplitView.fillWidth: true
+
+                            // A file's history instead of the diff, linked
+                            // with the graph
+                            Loader {
+                                id: fileLapse
+                                anchors.fill: parent
+                                z: 1
+                                active: root.historyFile !== ""
+                                sourceComponent: TimelapseView {
+                                    objectName: "historyTimelapse"
+                                    embedded: true
+                                    workDir: repo.path
+                                    path: root.historyFile
+                                    monoFont: root.monoFont
+                                    active: root.mode === Main.Mode.History && root.active
+                                    onPopOutRequested: {
+                                        root.openTimelapse(path)
+                                        root.closeFileHistory()
+                                    }
+                                    onCloseRequested: root.closeFileHistory()
+                                }
+                            }
+                            Connections {
+                                target: root.fileTimelapse
+                                // The graph shows the commits of the file
+                                function onRevisionsChanged() {
+                                    repo.commits.setFocus(root.fileTimelapse.revisions.map(revision => revision.sha))
+                                }
+                                function onRevisionChanged() {
+                                    root.followFile()
+                                }
+                            }
                         }
                     }
                 }
@@ -769,7 +862,7 @@ ApplicationWindow {
                             }
                             SplitView.preferredWidth: 360
                             SplitView.minimumWidth: 220
-                            onTimelapseRequested: path => root.openTimelapse(path)
+                            onTimelapseRequested: path => root.showFileHistory(path)
                         }
                         Item {
                             id: changesDiff
@@ -808,6 +901,8 @@ ApplicationWindow {
         DiffView {
             parent: root.mode === Main.Mode.Changes ? changesDiff : historyDiff
             anchors.fill: parent
+            // Not under a file's history in History
+            visible: root.mode === Main.Mode.Changes || root.historyFile === ""
             repo: repo
             monoFont: root.monoFont
             // The selected lines fold into a commit of the strip above
@@ -819,7 +914,7 @@ ApplicationWindow {
                     root.requestFold(sha)
             }
             onFoldRequested: sha => root.requestFold(sha)
-            onTimelapseRequested: path => root.openTimelapse(path)
+            onTimelapseRequested: path => root.showFileHistory(path)
         }
     }
 

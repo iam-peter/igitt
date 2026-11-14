@@ -291,19 +291,30 @@ private slots:
         QQuickItem *match = nullptr;
         QTRY_VERIFY(QMetaObject::invokeMethod(matches, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, match), Q_ARG(int, 0))
                     && match);
-        // A click shows the file.
+        // A click shows the file's history below the graph, which shows
+        // the commits that changed it and selects the one on display
         clickItem(window, match);
+        QQuickItem *fileHistory = nullptr;
+        QTRY_VERIFY((fileHistory = findItem(window->contentItem(), u"historyTimelapse"_s)));
+        auto *fileLapse = window->findChild<Timelapse *>();
+        QVERIFY(fileLapse);
+        QTRY_VERIFY(fileLapse->revisionCount() >= 1 && !fileLapse->busy());
+        QCOMPARE(fileLapse->path(), u"feature.txt"_s);
+        QVERIFY(repo->commits()->focused());
+        QCOMPARE(repo->commits()->matchCount(), fileLapse->revisionCount());
         QVERIFY(settle(*repo));
-        QCOMPARE(repo->diffSource(), Repository::FileContent);
-        QCOMPARE(repo->diffPath(), u"feature.txt"_s);
-        QCOMPARE(repo->diff()->data(repo->diff()->index(0), DiffModel::TextRole).toString(), u"feature"_s);
-        QCOMPARE(repo->diff()->rowCount(), 1); // just the line, nothing to collapse
-        QVERIFY(window->findChild<QQuickItem *>(u"fileTimelapseButton"_s)->isVisible());
-        screenshot(window, u"file-content"_s);
-        QTest::mouseDClick(window, Qt::LeftButton, {}, match->mapToScene({match->width() / 2, match->height() / 2}).toPoint());
+        const QString newest = fileLapse->revisions().last().toMap().value(u"sha"_s).toString();
+        QTRY_COMPARE(repo->diffCommit(), newest);
+        QCOMPARE(window->findChild<QQuickItem *>(u"historyList"_s)->property("currentIndex").toInt(),
+                 repo->commits()->rowOf(newest));
+        screenshot(window, u"file-history"_s);
+        // Out into a window of its own, which leaves the diff below the graph
+        click(window, u"timelapsePopOut"_s);
         QQuickWindow *featureLapse = nullptr;
         QTRY_VERIFY((featureLapse = timelapseWindow()));
         QVERIFY(featureLapse->title().contains("feature.txt"_L1));
+        QTRY_VERIFY(!findItem(window->contentItem(), u"historyTimelapse"_s));
+        QVERIFY(!repo->commits()->focused());
         featureLapse->close();
         QTRY_VERIFY(!timelapseWindow());
         findItem(window->contentItem(), u"fileFilter"_s)->setProperty("text", QString());
@@ -903,6 +914,78 @@ private slots:
         QVERIFY(!window->findChild<QQuickItem *>(u"composePlanButton"_s)->isVisible());
         git({"reset", "-q", "HEAD~1"});
         QFile::remove(m_dir.filePath(u"modes.txt"_s));
+    }
+
+    // History shows a file's history below the graph, and the two go along:
+    // a revision picked selects its commit, a commit picked shows the file
+    // as it was then.
+    void showsAFilesHistoryInHistory()
+    {
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, m_dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        QVERIFY(QMetaObject::invokeMethod(window, "showFileHistory", Q_ARG(QString, u"app.txt"_s)));
+        QTRY_COMPARE(window->property("mode").toInt(), 0);
+        Timelapse *lapse = nullptr;
+        QTRY_VERIFY((lapse = window->findChild<Timelapse *>()));
+        QTRY_VERIFY(lapse->revisionCount() >= 3 && !lapse->busy());
+        QVERIFY(settle(*repo));
+        const auto shaOf = [lapse](int revision) {
+            return lapse->revisions().value(revision).toMap().value(u"sha"_s).toString();
+        };
+        auto *list = window->findChild<QQuickItem *>(u"historyList"_s);
+        QCOMPARE(repo->commits()->matchCount(), lapse->revisionCount());
+
+        // The oldest revision picked: its commit in the graph
+        lapse->setRevision(0);
+        QVERIFY(settle(*repo));
+        QTRY_COMPARE(repo->diffCommit(), shaOf(0));
+        QCOMPARE(list->property("currentIndex").toInt(), repo->commits()->rowOf(shaOf(0)));
+
+        // One of the file's commits clicked in the graph: that revision
+        QQuickItem *row = historyRow(window, repo->commits()->rowOf(shaOf(1)));
+        QVERIFY(row);
+        clickItem(window, row);
+        QVERIFY(settle(*repo));
+        QTRY_COMPARE(lapse->revision(), 1);
+
+        // A commit that left the file alone: it stays picked, and the file
+        // is shown as the newest revision below it left it
+        QStringList shas;
+        for (int i = 0; i < lapse->revisionCount(); ++i)
+            shas.append(shaOf(i));
+        int other = 0;
+        while (other < repo->commits()->rowCount() && shas.contains(repo->commits()->shaAt(other)))
+            ++other;
+        QVERIFY(other < repo->commits()->rowCount());
+        int expected = -1;
+        int expectedRow = INT_MAX;
+        for (int i = 0; i < shas.size(); ++i) {
+            const int r = repo->commits()->rowOf(shas[i]);
+            if (r >= other && r < expectedRow) {
+                expected = i;
+                expectedRow = r;
+            }
+        }
+        list->setProperty("contentY", 0);
+        row = historyRow(window, other);
+        QVERIFY(row);
+        clickItem(window, row);
+        QVERIFY(settle(*repo));
+        QTRY_COMPARE(lapse->revision(), expected);
+        QTest::qWait(100);
+        QCOMPARE(repo->diffCommit(), repo->commits()->shaAt(other));
+
+        // Closed: the diff of that commit again, and every commit
+        click(window, u"timelapseClose"_s);
+        QTRY_VERIFY(!findItem(window->contentItem(), u"historyTimelapse"_s));
+        QVERIFY(!repo->commits()->focused());
+        QTRY_VERIFY(window->findChild<QQuickItem *>(u"diffList"_s)->isVisible());
+        QCOMPARE(repo->diffCommit(), repo->commits()->shaAt(other));
     }
 
     void blocksThePointerBehindModalDialogs()

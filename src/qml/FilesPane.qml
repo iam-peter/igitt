@@ -19,6 +19,10 @@ Pane {
     property string loadedHead: "-"
     readonly property string filter: filterField.text.trim()
 
+    // The file History shows the history of
+    property string currentFile
+
+    // A file picked, to show its history
     signal timelapseRequested(string path)
 
     // At the end of a row: a file's status letter, or a dot for a
@@ -146,8 +150,7 @@ Pane {
                 // padding, the content started below the middle
                 topPadding: 4
                 bottomPadding: 4
-                highlighted: !entry.isDir && pane.repo.diffSource === Repository.FileContent
-                             && pane.repo.diffPath === entry.path
+                highlighted: !entry.isDir && entry.path === pane.currentFile
                 contentItem: RowLayout {
                     spacing: 6
 
@@ -175,7 +178,7 @@ Pane {
                         if (entry.isDir)
                             tree.toggleExpanded(entry.row)
                         else
-                            pane.repo.showFileContent(entry.path)
+                            pane.timelapseRequested(entry.path)
                     }
                     onDoubleTapped: if (!entry.isDir) pane.timelapseRequested(entry.path)
                 }
@@ -214,8 +217,8 @@ Pane {
                 height: 26
                 topPadding: 4
                 bottomPadding: 4
-                highlighted: pane.repo.diffSource === Repository.FileContent && pane.repo.diffPath === modelData
-                onClicked: pane.repo.showFileContent(modelData)
+                highlighted: modelData === pane.currentFile
+                onClicked: pane.timelapseRequested(modelData)
                 onDoubleClicked: pane.timelapseRequested(modelData)
 
                 contentItem: RowLayout {

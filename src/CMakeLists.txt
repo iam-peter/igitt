@@ -89,6 +89,7 @@ qt_add_qml_module(igitt_ui
         qml/SettingsDialog.qml
         qml/AppSettings.qml
         qml/TimelapseWindow.qml
+        qml/TimelapseView.qml
         qml/ConflictView.qml
         qml/Icons.qml
         qml/IconButton.qml
@@ -129,6 +130,7 @@ qt_add_qml_module(igitt_ui
         icons/cloud-upload.svg
         icons/columns-3.svg
         icons/copy.svg
+        icons/external-link.svg
         icons/file.svg
         icons/files.svg
         icons/fold-vertical.svg

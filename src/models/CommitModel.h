@@ -18,6 +18,8 @@ class CommitModel : public QAbstractListModel
     Q_PROPERTY(bool searching READ searching NOTIFY searchChanged)
     Q_PROPERTY(int matchCount READ matchCount NOTIFY searchChanged)
     Q_PROPERTY(QString searchError READ searchError NOTIFY searchChanged)
+    // Whether the history is narrowed to some commits (setFocus())
+    Q_PROPERTY(bool focused READ focused NOTIFY searchChanged)
 
 public:
     enum Roles {
@@ -70,7 +72,11 @@ public:
     // keep it together. `author:`, `message:` and `sha:` restrict a term
     // to that field; a plain term matches any of them (SHAs by prefix).
     Q_INVOKABLE void setSearch(const QString &query, bool caseSensitive = false, bool regex = false);
-    bool searching() const { return !m_terms.isEmpty(); }
+    bool searching() const { return !m_terms.isEmpty() || !m_focus.isEmpty(); }
+    // Only these commits match, together with the search: the history of
+    // a file, say. None for all of them.
+    Q_INVOKABLE void setFocus(const QStringList &shas);
+    bool focused() const { return !m_focus.isEmpty(); }
     int matchCount() const { return m_matchCount; }
     QString searchError() const { return m_searchError; }
     Q_INVOKABLE bool matches(int row) const;
@@ -117,4 +123,5 @@ private:
     QString m_searchError;
     QList<bool> m_matched;
     int m_matchCount = 0;
+    QSet<QString> m_focus;
 };
