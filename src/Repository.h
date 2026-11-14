@@ -520,6 +520,8 @@ private:
     void reloadDiff();
     DiffRequest diffRequest() const;
     HistoryRequest historyRequest(bool force) const;
+    // For another repository: all of it read, nothing kept from this one
+    HistoryRequest freshHistoryRequest() const;
     void loadRequestedStats();
     void forgetFold();
     void updateFoldSuggestion();
@@ -548,6 +550,13 @@ private:
     QStringList m_remoteBranches;
     QStringList m_tags;
     QStringList m_stashes;
+    // The commits on display and their graph, and what they were read for,
+    // to keep when nothing they depend on moved (HistoryRequest)
+    QList<CommitInfo> m_shownCommits;
+    QList<GraphRow> m_shownGraph;
+    std::optional<HistoryFilter> m_shownFilter;
+    QStringList m_shownTargets;
+    QSet<QString> m_shownShas;
     // As QML reads them, made once per reading of the history
     QVariantList m_remoteList;
     QVariantList m_worktreeList;

@@ -123,8 +123,31 @@ StatusInfo loadSimulatedStatus(const StateSource &source)
     return info;
 }
 
+namespace {
+
+bool sameFilter(const HistoryFilter &a, const HistoryFilter &b)
+{
+    return a.remotes == b.remotes && a.tags == b.tags && a.currentBranchOnly == b.currentBranchOnly;
+}
+
+} // namespace
+
+QStringList refTargets(const QList<RefInfo> &refs, const QString &head)
+{
+    QStringList targets;
+    for (const RefInfo &ref : refs) {
+        if (ref.kind != RefInfo::Stash)
+            targets.append(ref.sha);
+    }
+    if (!head.isEmpty())
+        targets.append(head);
+    targets.sort();
+    targets.removeDuplicates();
+    return targets;
+}
+
 HistoryState loadHistory(const StateSource &source, const StatusInfo &status, const HistoryFilter &filter,
-                         const PushSettings &push)
+                         const PushSettings &push, const HistoryRequest &request)
 {
     const GitRunner &git = source.git;
     HistoryState history;
@@ -196,6 +219,28 @@ HistoryState loadHistory(const StateSource &source, const StatusInfo &status, co
         return history;
     }
 
+    // Nothing the commits on display depend on moved: they stay, with
+    // their graph, and only what the refs say is read again
+    if (!source.simulated && request.knownFilter && !request.knownCommits.isEmpty()
+        && sameFilter(*request.knownFilter, filter) && status.headSha == request.knownHead
+        && history.wip == request.knownWip) {
+        QStringList targets = refTargets(history.refs, status.headSha);
+        bool same = true;
+        for (const QString &known : request.knownTargets)
+            same = same && std::binary_search(targets.cbegin(), targets.cend(), known);
+        // A ref new or moved points at a commit read already; the others
+        // may point beyond the commits read, as they did before
+        for (const QString &target : std::as_const(targets)) {
+            if (!std::binary_search(request.knownTargets.cbegin(), request.knownTargets.cend(), target))
+                same = same && request.knownCommits.contains(target);
+        }
+        if (same) {
+            history.reused = true;
+            loadHistoryTail(git, source, status.headSha, history);
+            return history;
+        }
+    }
+
     QStringList args{QStringLiteral("log"), QStringLiteral("--topo-order"),
                      QStringLiteral("--max-count=%1").arg(MaxHistory)};
     args += logFormatArgs();
@@ -224,7 +269,14 @@ HistoryState loadHistory(const StateSource &source, const StatusInfo &status, co
 
     if (status.headSha.isEmpty())
         return history;
-    const QString head = status.headSha;
+    loadHistoryTail(git, source, status.headSha, history);
+    return history;
+}
+
+namespace {
+
+void loadHistoryTailImpl(const GitRunner &git, const StateSource &source, const QString &head, HistoryState &history)
+{
     history.headMessage = QString::fromUtf8(git.run({QStringLiteral("log"), QStringLiteral("-1"),
                                                      QStringLiteral("--format=%B"), head}).out).trimmed();
 
@@ -252,7 +304,13 @@ HistoryState loadHistory(const StateSource &source, const StatusInfo &status, co
         for (const QString &sha : lines(git.run(planned).out))
             history.planned.insert(sha);
     }
-    return history;
+}
+
+} // namespace
+
+void loadHistoryTail(const GitRunner &git, const StateSource &source, const QString &head, HistoryState &history)
+{
+    loadHistoryTailImpl(git, source, head, history);
 }
 
 DiffState loadDiff(const StateSource &source, const DiffRequest &request, const StatusInfo &status)
@@ -413,7 +471,7 @@ RepositoryState loadState(const StateSource &source, const DiffRequest &diff, co
     }
     if (history.force || state.status->headSha != history.knownHead
         || state.status->entries.isEmpty() == history.knownWip)
-        state.history = loadHistory(source, *state.status, history.filter, history.push);
+        state.history = loadHistory(source, *state.status, history.filter, history.push, history);
     if (diff.kind == DiffKind::Unstaged || diff.kind == DiffKind::Staged)
         state.diff = loadDiff(source, diff, *state.status);
     return state;

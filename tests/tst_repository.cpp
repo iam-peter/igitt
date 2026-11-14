@@ -1106,6 +1106,85 @@ private slots:
         QVERIFY(m_errors->isEmpty());
     }
 
+    // The history keeps the commits it read while nothing they depend on
+    // moved, and reads them again when something did.
+    void keepsTheHistoryUntilItMoves()
+    {
+        git({"checkout", "-q", "-b", "side"});
+        writeFile(m_dir->filePath(u"side.txt"_s), "side\n");
+        git({"add", "side.txt"});
+        git({"commit", "-q", "-m", "Side"});
+        git({"checkout", "-q", "main"});
+        open(m_dir->path());
+        QCOMPARE(repo().commits()->rowCount(), 3);
+
+        // A tag at a commit read: shown, the commits as they were
+        repo().createTag(u"v1"_s, QString::fromUtf8(git({"rev-parse", "HEAD~1"}).trimmed()), {});
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().commits()->rowCount(), 3);
+        const int row = repo().commits()->rowOf(QString::fromUtf8(git({"rev-parse", "HEAD~1"}).trimmed()));
+        bool tagged = false;
+        for (const QVariant &label : repo().commits()->data(repo().commits()->index(row), CommitModel::RefsRole).toList())
+            tagged = tagged || label.toMap().value(u"name"_s).toString() == u"v1"_s;
+        QVERIFY(tagged);
+
+        // The branch deleted: its commit gone with it
+        repo().deleteBranch(u"side"_s, true);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().commits()->rowCount(), 2);
+
+        // A commit made elsewhere: read
+        writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");
+        git({"commit", "-qam", "Third"});
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().commits()->rowCount(), 3);
+
+        // Only the current branch: read again, as the filter changed
+        git({"branch", "other", "HEAD~1"});
+        git({"checkout", "-q", "other"});
+        writeFile(m_dir->filePath(u"other.txt"_s), "other\n");
+        git({"add", "other.txt"});
+        git({"commit", "-q", "-m", "Other"});
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().commits()->rowCount(), 4);
+        repo().setCurrentBranchOnly(true);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().commits()->rowCount(), 3);
+        QVERIFY(m_errors->isEmpty());
+    }
+
+    // How long reading a big repository takes: opening it, reading it all
+    // again, its status, and its commits one after the other. Only reads.
+    void benchReading()
+    {
+        const QString path = qEnvironmentVariable("IGITT_BENCH_REPO");
+        if (qEnvironmentVariableIsEmpty("IGITT_BENCH") || path.isEmpty())
+            QSKIP("set IGITT_BENCH and IGITT_BENCH_REPO to run");
+        QElapsedTimer timer;
+        timer.start();
+        repo().open(path);
+        QVERIFY(settle(repo()));
+        qInfo() << "open" << timer.restart() << "ms," << repo().commits()->rowCount() << "commits";
+        for (int i = 0; i < 5; ++i) {
+            repo().refresh();
+            QVERIFY(settle(repo()));
+        }
+        qInfo() << "refresh" << timer.restart() / 5 << "ms each";
+        for (int i = 0; i < 10; ++i) {
+            repo().refreshStatus();
+            QVERIFY(settle(repo()));
+        }
+        qInfo() << "status" << timer.restart() / 10 << "ms each";
+        for (int row = 0; row < 20; ++row) {
+            repo().showCommit(repo().commits()->shaAt(row));
+            QVERIFY(settle(repo()));
+        }
+        qInfo() << "commit diff" << timer.restart() / 20 << "ms each";
+        m_errors->clear();
+    }
+
 private:
     Repository &repo() { return *m_repo; }
     QString file() const { return m_dir->filePath("f.txt"); }

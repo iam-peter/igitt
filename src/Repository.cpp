@@ -158,12 +158,22 @@ void Repository::applyState(const RepositoryState &state)
         m_historyWip = history.wip;
         m_pushTarget = history.pushTarget;
         scheduleReviewQuery();
-        m_wipGraph = history.wipGraph;
+        if (!history.reused) {
+            m_wipGraph = history.wipGraph;
+            m_shownCommits = history.commits;
+            m_shownGraph = history.graph;
+            m_shownShas.clear();
+            for (const CommitInfo &commit : history.commits)
+                m_shownShas.insert(commit.sha);
+        }
+        // What they are for: the filter, and where the refs point
+        m_shownFilter = m_plan ? std::nullopt : std::optional<HistoryFilter>(m_filter);
+        m_shownTargets = refTargets(history.refs, history.head);
         m_headMessage = history.headMessage;
         m_foldTargets = QSet<QString>(history.foldTargets.cbegin(), history.foldTargets.cend());
         m_editChain = history.foldTargets;
         m_unpublished = history.unpublished;
-        m_commits.setCommits(history.commits, history.graph, history.refs, history.head, m_status.branch,
+        m_commits.setCommits(m_shownCommits, m_shownGraph, history.refs, history.head, m_status.branch,
                              history.planned);
         m_branches.clear();
         m_remoteBranches.clear();
@@ -229,7 +239,7 @@ void Repository::open(const QString &pathOrUrl)
         endPlan();
     const QUrl url(pathOrUrl);
     const QString path = url.isLocalFile() ? url.toLocalFile() : pathOrUrl;
-    enqueue(JobKind::Read, [path, history = historyRequest(true)](const GitRunner &) {
+    enqueue(JobKind::Read, [path, history = freshHistoryRequest()](const GitRunner &) {
         Outcome outcome;
         const GitResult result = GitRunner(path).run({QStringLiteral("rev-parse"),
                                                       QStringLiteral("--show-toplevel")});
@@ -1132,9 +1142,22 @@ void Repository::setIgnoreWhitespace(bool ignore)
     reloadDiff();
 }
 
+HistoryRequest Repository::freshHistoryRequest() const
+{
+    HistoryRequest request{true, {}, false, m_filter, m_pushSettings};
+    return request;
+}
+
 HistoryRequest Repository::historyRequest(bool force) const
 {
-    return {force, m_historyHead, m_historyWip, m_filter, m_pushSettings};
+    HistoryRequest request{force, m_historyHead, m_historyWip, m_filter, m_pushSettings};
+    // Not while planning: the simulation reads it all
+    if (!m_plan) {
+        request.knownFilter = m_shownFilter;
+        request.knownTargets = m_shownTargets;
+        request.knownCommits = m_shownShas;
+    }
+    return request;
 }
 
 void Repository::scheduleReviewQuery()
@@ -1546,7 +1569,7 @@ void Repository::cloneRepository(const QString &url, const QString &parent)
     const QString folder = QDir(parent).filePath(cloneFolderName(url));
     if (m_plan)
         endPlan();
-    enqueue(JobKind::Write, [url, folder, parent, history = historyRequest(true)](const GitRunner &) {
+    enqueue(JobKind::Write, [url, folder, parent, history = freshHistoryRequest()](const GitRunner &) {
         Outcome outcome;
         const GitResult result = GitRunner(parent).run({QStringLiteral("clone"), url, folder});
         if (!result.ok()) {
@@ -1569,7 +1592,7 @@ void Repository::initRepository(const QString &folder)
     const QString path = url.isLocalFile() ? url.toLocalFile() : folder;
     if (m_plan)
         endPlan();
-    enqueue(JobKind::Write, [path, history = historyRequest(true)](const GitRunner &) {
+    enqueue(JobKind::Write, [path, history = freshHistoryRequest()](const GitRunner &) {
         Outcome outcome;
         QDir().mkpath(path);
         const GitResult result = GitRunner(path).run({QStringLiteral("init"), QStringLiteral("-q"), path});

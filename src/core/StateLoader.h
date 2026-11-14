@@ -82,6 +82,14 @@ struct HistoryRequest
     bool knownWip = false;
     HistoryFilter filter;
     PushSettings push;
+    // What the commits on display were read for: the filter, and the
+    // commits the refs pointed at, sorted; and the commits read. With the
+    // same filter, HEAD and uncommitted changes, and refs that point at
+    // the same commits or at more of those read, the commits and their
+    // graph are not read again (HistoryState::reused).
+    std::optional<HistoryFilter> knownFilter;
+    QStringList knownTargets;
+    QSet<QString> knownCommits;
 };
 
 struct RemoteInfo
@@ -100,6 +108,9 @@ struct WorktreeInfo
 
 struct HistoryState
 {
+    // The commits and their graph are the ones on display: not read again
+    // (HistoryRequest), and left empty here
+    bool reused = false;
     QList<RemoteInfo> remotes;
     QList<WorktreeInfo> worktrees;
     QStringList tagNames;  // every tag, also when the refs leave tags out
@@ -135,7 +146,12 @@ QStringList diffFormatArgs();
 // assembles the same information from plumbing commands.
 StatusInfo loadSimulatedStatus(const StateSource &source);
 HistoryState loadHistory(const StateSource &source, const StatusInfo &status, const HistoryFilter &filter = {},
-                         const PushSettings &push = {});
+                         const PushSettings &push = {}, const HistoryRequest &request = {});
+// What the history reads besides its commits: HEAD's message, the
+// commits a fold can reach, those not pushed, those planned.
+void loadHistoryTail(const GitRunner &git, const StateSource &source, const QString &head, HistoryState &history);
+// The commits the refs and HEAD point at, sorted, each once (stashes not)
+QStringList refTargets(const QList<RefInfo> &refs, const QString &head);
 DiffState loadDiff(const StateSource &source, const DiffRequest &request, const StatusInfo &status);
 
 // Status; history as `history` asks; the working tree diff `diff` asks
