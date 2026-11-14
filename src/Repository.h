@@ -288,6 +288,16 @@ public:
     Q_INVOKABLE void stash(const QString &message, bool includeUntracked);
     Q_INVOKABLE void applyStash(int index, bool pop);
     Q_INVOKABLE void dropStash(int index);
+
+    // Commits of other places: one picked onto the current branch, one
+    // undone by a new commit; a merge commit by its first parent's side.
+    // Stopped at conflicts, they wait as merges do (continueOperation()).
+    // The current branch reset to a commit: `mode` soft keeps what lies
+    // between staged, mixed unstaged, hard throws it and every
+    // uncommitted change away. Off while planning.
+    Q_INVOKABLE void cherryPick(const QString &sha);
+    Q_INVOKABLE void revertCommit(const QString &sha);
+    Q_INVOKABLE void resetTo(const QString &sha, const QString &mode);
     // Pushes as pushDescription says. A rejected push emits pushRejected()
     // so the UI can offer `force`, which uses --force-with-lease.
     // `review` holds options for the review host: {topic, state ("wip",

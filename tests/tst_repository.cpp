@@ -795,6 +795,52 @@ private slots:
         QVERIFY(m_errors->isEmpty());
     }
 
+    // A commit picked from another branch, one undone by a new one, and the
+    // branch reset to an earlier commit in each of git's modes.
+    void picksRevertsAndResets()
+    {
+        git({"checkout", "-q", "-b", "other"});
+        writeFile(m_dir->filePath(u"picked.txt"_s), "picked\n");
+        git({"add", "picked.txt"});
+        git({"commit", "-q", "-m", "Picked"});
+        const QString picked = QString::fromUtf8(git({"rev-parse", "HEAD"}).trimmed());
+        git({"checkout", "-q", "main"});
+        open(m_dir->path());
+
+        repo().cherryPick(picked);
+        QVERIFY(settle(repo()));
+        QCOMPARE(git({"log", "-1", "--format=%s"}), "Picked\n"_ba);
+        QVERIFY(QFile::exists(m_dir->filePath(u"picked.txt"_s)));
+
+        repo().revertCommit(QString::fromUtf8(git({"rev-parse", "HEAD"}).trimmed()));
+        QVERIFY(settle(repo()));
+        QVERIFY(git({"log", "-1", "--format=%s"}).startsWith("Revert \"Picked\""));
+        QVERIFY(!QFile::exists(m_dir->filePath(u"picked.txt"_s)));
+
+        // Back to Second: soft keeps what lies between staged
+        const QString second = QString::fromUtf8(git({"rev-parse", "HEAD~2"}).trimmed());
+        const QString tip = QString::fromUtf8(git({"rev-parse", "HEAD"}).trimmed());
+        repo().resetTo(second, u"soft"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().headSha(), second);
+        QCOMPARE(git({"diff", "--cached", "--name-only"}), QByteArray()); // picked and reverted: nothing in all
+        git({"reset", "-q", "--hard", tip});
+
+        writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        repo().resetTo(QString::fromUtf8(git({"rev-parse", "HEAD~3"}).trimmed()), u"mixed"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().staged()->count(), 0);
+        QVERIFY(repo().unstaged()->count() >= 2); // g.txt back as untracked, f.txt changed
+
+        repo().resetTo(tip, u"hard"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().headSha(), tip);
+        QCOMPARE(readFile(file()), "one\ntwo\nthree\nfour\nfive\n"_ba);
+        QVERIFY(m_errors->isEmpty());
+    }
+
 private:
     Repository &repo() { return *m_repo; }
     QString file() const { return m_dir->filePath("f.txt"); }

@@ -1721,6 +1721,65 @@ void Repository::dropStash(int index)
                     tr("Dropping %1 failed").arg(ref));
 }
 
+namespace {
+
+// For a merge commit, the side to take: its first parent's
+QStringList mainline(const GitRunner &git, const QString &sha)
+{
+    const QList<QByteArray> ids = git.run({QStringLiteral("rev-list"), QStringLiteral("--parents"),
+                                           QStringLiteral("-n1"), sha}).out.trimmed().split(' ');
+    return ids.size() > 2 ? QStringList{QStringLiteral("-m"), QStringLiteral("1")} : QStringList();
+}
+
+} // namespace
+
+void Repository::cherryPick(const QString &sha)
+{
+    if (m_plan) {
+        emit errorOccurred(tr("Cherry-picking is off while planning."));
+        return;
+    }
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true), sha](const GitRunner &git) {
+        Outcome outcome;
+        const GitResult result = git.run(QStringList{QStringLiteral("cherry-pick")} + mainline(git, sha) + QStringList{sha});
+        if (result.ok())
+            outcome.notice = tr("Picked %1.").arg(sha.left(10));
+        else
+            outcome.error = tr("Cherry-picking %1: %2").arg(sha.left(10), stoppedAt(git, result));
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::revertCommit(const QString &sha)
+{
+    if (m_plan) {
+        emit errorOccurred(tr("Reverting is off while planning."));
+        return;
+    }
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true), sha](const GitRunner &git) {
+        Outcome outcome;
+        const GitResult result = git.run(QStringList{QStringLiteral("revert"), QStringLiteral("--no-edit")}
+                                         + mainline(git, sha) + QStringList{sha});
+        if (result.ok())
+            outcome.notice = tr("Reverted %1 with a new commit.").arg(sha.left(10));
+        else
+            outcome.error = tr("Reverting %1: %2").arg(sha.left(10), stoppedAt(git, result));
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::resetTo(const QString &sha, const QString &mode)
+{
+    if (mode != QLatin1String("soft") && mode != QLatin1String("mixed") && mode != QLatin1String("hard"))
+        return;
+    enqueueGitWrite({QStringLiteral("reset"), QStringLiteral("--") + mode, sha},
+                    tr("Reset %1 to %2.").arg(m_status.branch.isEmpty() ? QStringLiteral("HEAD") : m_status.branch,
+                                              sha.left(10)),
+                    tr("Resetting failed"));
+}
+
 void Repository::fetch()
 {
     if (m_plan) {

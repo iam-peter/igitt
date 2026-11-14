@@ -34,6 +34,11 @@ Pane {
     // rebased onto it
     signal mergeRequested(string name)
     signal rebaseRequested(string name)
+    // A commit picked onto the current branch, undone by a new one, or the
+    // current branch reset to it
+    signal cherryPickRequested(string sha)
+    signal revertRequested(string sha)
+    signal resetRequested(string sha, string subject)
 
     // Selects the commit and shows it, as if clicked
     function select(sha: string) {
@@ -187,6 +192,34 @@ Pane {
             icon.color: palette.windowText
             onTriggered: view.branchRequested(commitMenu.sha, commitMenu.subject)
         }
+        MenuItem {
+            objectName: "cherryPickMenuItem"
+            readonly property bool off: view.repo.planning || view.repo.operation !== ""
+            text: view.repo.planning ? qsTr("Cherry-Pick (off while planning)")
+                                     : qsTr("Cherry-Pick onto %1").arg(view.repo.branch || "HEAD")
+            enabled: !off && !view.repo.writing
+            icon.source: Icons.source("git-commit-horizontal")
+            icon.color: palette.windowText
+            onTriggered: view.cherryPickRequested(commitMenu.sha)
+        }
+        MenuItem {
+            objectName: "revertMenuItem"
+            text: view.repo.planning ? qsTr("Revert (off while planning)") : qsTr("Revert with a New Commit")
+            enabled: !view.repo.planning && view.repo.operation === "" && !view.repo.writing
+            icon.source: Icons.source("undo-2")
+            icon.color: palette.windowText
+            onTriggered: view.revertRequested(commitMenu.sha)
+        }
+        MenuItem {
+            objectName: "resetMenuItem"
+            text: view.repo.planning ? qsTr("Reset (off while planning)")
+                                     : qsTr("Reset %1 to Here…").arg(view.repo.branch || "HEAD")
+            enabled: !view.repo.planning && view.repo.operation === "" && !view.repo.writing
+            icon.source: Icons.source("step-back")
+            icon.color: palette.windowText
+            onTriggered: view.resetRequested(commitMenu.sha, commitMenu.subject)
+        }
+        MenuSeparator {}
         MenuItem {
             objectName: "composeMenuItem"
             text: qsTr("Edit in Compose")

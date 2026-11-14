@@ -525,6 +525,79 @@ ApplicationWindow {
         }
     }
 
+    // The current branch reset to a commit: what lies between kept staged,
+    // unstaged, or with every uncommitted change thrown away, which is
+    // red and says so
+    ModalDialog {
+        id: resetDialog
+
+        property string sha
+        property string subject
+        readonly property string mode: resetSoft.checked ? "soft" : resetHard.checked ? "hard" : "mixed"
+
+        function ask(commit: string, text: string) {
+            sha = commit
+            subject = text
+            resetMixed.checked = true
+            open()
+        }
+        function styleOk() {
+            const ok = standardButton(Dialog.Ok)
+            const styled = ok as Styles.Button
+            if (styled)
+                styled.styles = mode === "hard" ? [Styles.ButtonStyle.destructive] : [Styles.ButtonStyle.primary]
+        }
+
+        objectName: "resetDialog"
+        width: Math.min(500, root.width - 40)
+        title: qsTr("Reset %1 to %2?").arg(repo.branch || "HEAD").arg(sha.substring(0, 10))
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onModeChanged: styleOk()
+        onOpened: styleOk()
+        onAccepted: repo.resetTo(sha, mode)
+        Component.onCompleted: {
+            standardButton(Dialog.Ok).objectName = "resetOkButton"
+            standardButton(Dialog.Ok).text = qsTr("Reset")
+        }
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 6
+
+            Label {
+                Layout.fillWidth: true
+                text: resetDialog.subject
+                textFormat: Text.PlainText
+                elide: Text.ElideRight
+                color: Styles.TokenInterface.semantics.text_muted
+            }
+            RadioButton {
+                id: resetSoft
+                objectName: "resetSoft"
+                text: qsTr("Keep what the commits after it changed, staged")
+            }
+            RadioButton {
+                id: resetMixed
+                objectName: "resetMixed"
+                text: qsTr("Keep it, unstaged")
+                checked: true
+            }
+            RadioButton {
+                id: resetHard
+                objectName: "resetHard"
+                text: qsTr("Throw it away, and every uncommitted change")
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: resetHard.checked
+                wrapMode: Text.Wrap
+                text: qsTr("This cannot be undone here: the uncommitted changes are lost for good, and the "
+                           + "commits after it can only be found again in the reflog.")
+                color: Styles.TokenInterface.semantics.danger_default
+            }
+        }
+    }
+
     // Dropping a stash cannot be undone either
     ModalDialog {
         id: dropStashDialog
@@ -1148,6 +1221,9 @@ ApplicationWindow {
                         onRenameBranchRequested: name => branchDialog.rename(name)
                         onDeleteBranchRequested: name => deleteBranchDialog.ask(name)
                         onMergeRequested: name => repo.mergeBranch(name)
+                        onCherryPickRequested: sha => repo.cherryPick(sha)
+                        onRevertRequested: sha => repo.revertCommit(sha)
+                        onResetRequested: (sha, subject) => resetDialog.ask(sha, subject)
                         onRebaseRequested: name => repo.rebaseOnto(name)
                         SplitView.preferredHeight: root.height * 0.45
                         SplitView.minimumHeight: 100

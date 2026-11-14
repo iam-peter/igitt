@@ -1292,6 +1292,51 @@ private slots:
         QVERIFY(repo->stashes().isEmpty());
     }
 
+    // A commit's menu resets the branch to it, the mode chosen in a dialog,
+    // and reverts it.
+    void resetsAndReverts()
+    {
+        QTemporaryDir dir;
+        GitRunner git(dir.path());
+        const auto commit = [&](const QString &name, const QByteArray &content) {
+            QFile file(dir.filePath(name));
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            file.write(content);
+            file.close();
+            git.run({u"add"_s, name});
+            git.run({u"commit"_s, u"-q"_s, u"-m"_s, name});
+        };
+        git.run({u"init"_s, u"-q"_s, u"-b"_s, u"main"_s});
+        commit(u"a.txt"_s, "a\n");
+        commit(u"b.txt"_s, "b\n");
+        commit(u"c.txt"_s, "c\n");
+
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        QVERIFY(QMetaObject::invokeMethod(window, "showHistory"));
+        const QString second = repo->commits()->shaAt(1);
+
+        rightClickCommit(window, 1);
+        click(window, u"resetMenuItem"_s);
+        QTRY_VERIFY(window->findChild<QQuickItem *>(u"resetOkButton"_s)->isVisible());
+        click(window, u"resetHard"_s);
+        click(window, u"resetOkButton"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->headSha(), second);
+        QVERIFY(!QFile::exists(dir.filePath(u"c.txt"_s)));
+
+        rightClickCommit(window, 0);
+        click(window, u"revertMenuItem"_s);
+        QVERIFY(settle(*repo));
+        QVERIFY(!QFile::exists(dir.filePath(u"b.txt"_s)));
+        QCOMPARE(repo->commits()->rowCount(), 3);
+    }
+
     void blocksThePointerBehindModalDialogs()
     {
         QQmlApplicationEngine engine;
