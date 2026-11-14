@@ -52,11 +52,11 @@ Control {
     signal refMenuRequested(string name, string kind, bool current, point position)
     signal refActivated(string name, string kind, bool current)
 
-    // The branch label at a point of the row, or null
+    // The branch or tag label at a point of the row, or null
     function branchLabelAt(position: point): var {
         const at = labels.mapFromItem(delegate, position.x, position.y)
         const label = labels.childAt(at.x, at.y) as RefLabel
-        return label && (label.kind === "branch" || label.kind === "remote") ? label : null
+        return label && (label.kind === "branch" || label.kind === "remote" || label.kind === "tag") ? label : null
     }
     // The row is dragged to move the commit.
     signal moveDragMoved(point scenePos)

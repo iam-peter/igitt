@@ -1337,6 +1337,71 @@ private slots:
         QCOMPARE(repo->commits()->rowCount(), 3);
     }
 
+    // A tag made at a commit from its menu, compared, and deleted from its
+    // label's menu after the guard.
+    void tagsAndCompares()
+    {
+        QTemporaryDir dir;
+        GitRunner git(dir.path());
+        const auto commit = [&](const QString &name) {
+            QFile file(dir.filePath(name));
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            file.write(name.toUtf8() + '\n');
+            file.close();
+            git.run({u"add"_s, name});
+            git.run({u"commit"_s, u"-q"_s, u"-m"_s, name});
+        };
+        git.run({u"init"_s, u"-q"_s, u"-b"_s, u"main"_s});
+        commit(u"a.txt"_s);
+        commit(u"b.txt"_s);
+        commit(u"c.txt"_s);
+
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        QVERIFY(QMetaObject::invokeMethod(window, "showHistory"));
+
+        rightClickCommit(window, 2);
+        click(window, u"createTagMenuItem"_s);
+        auto *name = window->findChild<QQuickItem *>(u"tagName"_s);
+        QTRY_VERIFY(name && name->isVisible());
+        name->setProperty("text", u"v0.1"_s);
+        QTRY_VERIFY(window->findChild<QQuickItem *>(u"tagOkButton"_s)->isEnabled());
+        click(window, u"tagOkButton"_s);
+        QVERIFY(settle(*repo));
+        QVERIFY(repo->tags().contains(u"v0.1"_s));
+
+        // The newest compared with the oldest, shown
+        repo->showCommit(repo->commits()->shaAt(2));
+        QVERIFY(settle(*repo));
+        rightClickCommit(window, 0);
+        click(window, u"compareMenuItem"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->diffSource(), Repository::CompareDiff);
+        QCOMPARE(repo->diff()->fileCount(), 2);
+
+        QQuickItem *label = nullptr;
+        QTRY_VERIFY((label = [&]() -> QQuickItem * {
+            for (QQuickItem *item : findItems(window->contentItem(), u"refLabel"_s)) {
+                if (item->property("name").toString() == u"v0.1"_s)
+                    return item;
+            }
+            return nullptr;
+        }()));
+        QVERIFY(QQuickTest::qWaitForPolish(window));
+        QTest::mouseClick(window, Qt::RightButton, {}, label->mapToScene({label->width() / 2, label->height() / 2}).toPoint());
+        QTRY_VERIFY(window->findChild<QQuickItem *>(u"deleteTagMenuItem"_s)->isVisible());
+        QVERIFY(!window->findChild<QQuickItem *>(u"checkoutMenuItem"_s)->isVisible());
+        click(window, u"deleteTagMenuItem"_s);
+        click(window, u"deleteTagOkButton"_s);
+        QVERIFY(settle(*repo));
+        QVERIFY(!repo->tags().contains(u"v0.1"_s));
+    }
+
     void blocksThePointerBehindModalDialogs()
     {
         QQmlApplicationEngine engine;

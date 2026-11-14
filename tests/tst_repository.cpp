@@ -841,6 +841,64 @@ private slots:
         QVERIFY(m_errors->isEmpty());
     }
 
+    // Two commits compared, and what a branch changed since it split off,
+    // without what happened on the other side meanwhile.
+    void comparesCommits()
+    {
+        const QString first = QString::fromUtf8(git({"rev-parse", "HEAD~1"}).trimmed());
+        git({"checkout", "-q", "-b", "other"});
+        writeFile(m_dir->filePath(u"theirs.txt"_s), "theirs\n");
+        git({"add", "theirs.txt"});
+        git({"commit", "-q", "-m", "Theirs"});
+        git({"checkout", "-q", "main"});
+        writeFile(m_dir->filePath(u"ours.txt"_s), "ours\n");
+        git({"add", "ours.txt"});
+        git({"commit", "-q", "-m", "Ours"});
+        open(m_dir->path());
+
+        repo().compareCommits(first, u"HEAD"_s, u"First"_s, false);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().diffSource(), Repository::CompareDiff);
+        QCOMPARE(repo().diffBaseName(), u"First"_s);
+        QCOMPARE(repo().diff()->fileCount(), 2); // g.txt and ours.txt
+
+        repo().compareCommits(u"HEAD"_s, u"other"_s, u"main"_s, true);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().diff()->fileCount(), 1); // theirs.txt only, not ours.txt
+        QVERIFY(repo().commitDetails().contains(u"since it split off"_s));
+        QVERIFY(m_errors->isEmpty());
+    }
+
+    // Tags made, light and annotated, pushed and deleted.
+    void tagsCommits()
+    {
+        QTemporaryDir remote;
+        GitRunner(remote.path()).run({u"init"_s, u"-q"_s, u"--bare"_s, u"-b"_s, u"main"_s, remote.path()});
+        git({"remote", "add", "origin", remote.path()});
+        git({"push", "-q", "-u", "origin", "main"});
+        open(m_dir->path());
+        QVERIFY(repo().tagNameError(u"v1.0"_s).isEmpty());
+        QVERIFY(!repo().tagNameError(u"v 1"_s).isEmpty());
+
+        repo().createTag(u"v1.0"_s, QString::fromUtf8(git({"rev-parse", "HEAD~1"}).trimmed()), {});
+        QVERIFY(settle(repo()));
+        repo().createTag(u"v1.1"_s, {}, u"The second"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(git({"cat-file", "-t", "v1.0"}).trimmed(), "commit"_ba); // light
+        QCOMPARE(git({"cat-file", "-t", "v1.1"}).trimmed(), "tag"_ba);    // annotated
+        QVERIFY(repo().tags().contains(u"v1.1"_s));
+        QVERIFY(!repo().tagNameError(u"v1.1"_s).isEmpty()); // taken
+
+        repo().pushTag(u"v1.1"_s);
+        QVERIFY(settle(repo()));
+        QVERIFY(GitRunner(remote.path()).run({u"rev-parse"_s, u"-q"_s, u"--verify"_s, u"refs/tags/v1.1"_s}).ok());
+
+        repo().deleteTag(u"v1.0"_s);
+        QVERIFY(settle(repo()));
+        QVERIFY(!repo().tags().contains(u"v1.0"_s));
+        QVERIFY(m_errors->isEmpty());
+    }
+
 private:
     Repository &repo() { return *m_repo; }
     QString file() const { return m_dir->filePath("f.txt"); }

@@ -24,6 +24,7 @@ DiffKind diffKind(Repository::DiffSource source)
     case Repository::CommitDiff: return DiffKind::Commit;
     case Repository::FileContent: return DiffKind::Content;
     case Repository::PatchSetDiff: return DiffKind::Range;
+    case Repository::CompareDiff: return DiffKind::Range;
     case Repository::NoDiff: break;
     }
     return DiffKind::None;
@@ -166,11 +167,14 @@ void Repository::applyState(const RepositoryState &state)
                              history.planned);
         m_branches.clear();
         m_remoteBranches.clear();
+        m_tags.clear();
         for (const RefInfo &ref : history.refs) {
             if (ref.kind == RefInfo::LocalBranch)
                 m_branches.append(ref.name);
             else if (ref.kind == RefInfo::RemoteBranch && !ref.name.endsWith(QLatin1String("/HEAD")))
                 m_remoteBranches.append(ref.name);
+            else if (ref.kind == RefInfo::Tag)
+                m_tags.append(ref.name);
         }
         m_branches.sort(Qt::CaseInsensitive);
         m_remoteBranches.sort(Qt::CaseInsensitive);
@@ -1056,7 +1060,7 @@ void Repository::setDiffView(DiffSource source, const QString &path, const QStri
     m_diffCommit = commit;
     m_diffPatchSet = patchSet;
     m_diffBase.clear();
-    if (source != CommitDiff && source != PatchSetDiff)
+    if (source != CommitDiff && source != PatchSetDiff && source != CompareDiff)
         m_commitDetails.clear();
     m_diffConflicted = false;
     ++*m_diffGeneration;
@@ -1075,6 +1079,11 @@ DiffRequest Repository::diffRequest() const
     if (m_diffSource == PatchSetDiff) {
         request.base = m_diffBase;
         request.baseName = tr("patch set %1").arg(m_diffPatchSet);
+        request.patchSet = true;
+    } else if (m_diffSource == CompareDiff) {
+        request.base = m_diffBase;
+        request.baseName = m_diffBaseName;
+        request.threeDot = m_diffThreeDot;
     }
     return request;
 }
@@ -1093,6 +1102,9 @@ void Repository::reloadDiff()
         break;
     case PatchSetDiff:
         comparePatchSet(m_diffPatchSet);
+        break;
+    case CompareDiff:
+        compareCommits(m_diffBase, commit, m_diffBaseName, m_diffThreeDot);
         break;
     case FileContent:
     case NoDiff:
@@ -1424,26 +1436,103 @@ QString Repository::operation() const
     return {};
 }
 
-QString Repository::branchNameError(const QString &name) const
+namespace {
+
+// What git's check-ref-format refuses in a name of a ref, without running
+// git on the UI thread
+QString refFormatError(const QString &name)
 {
-    // git check-ref-format --branch, without running git on this thread
-    if (name.isEmpty())
-        return tr("Give the branch a name.");
+    const auto tr = [](const char *text) { return QCoreApplication::translate("Repository", text); };
     if (name == QLatin1String("HEAD") || name == QLatin1String("@") || name.startsWith(QLatin1Char('-')))
-        return tr("“%1” cannot be a branch name.").arg(name);
+        return tr("“%1” cannot be a name.").arg(name);
     static const QRegularExpression bad(QStringLiteral("[\\x00-\\x20\\x7f~^:?*\\[\\\\]"));
     if (const QRegularExpressionMatch m = bad.match(name); m.hasMatch()) {
         const QString what = m.captured(0) == QLatin1String(" ") ? tr("spaces") : QStringLiteral("“%1”").arg(m.captured(0));
-        return tr("A branch name cannot have %1 in it.").arg(what);
+        return tr("A name cannot have %1 in it.").arg(what);
     }
     if (name.contains(QLatin1String("..")) || name.contains(QLatin1String("@{")) || name.contains(QLatin1String("//")))
-        return tr("A branch name cannot have “..”, “@{” or “//” in it.");
+        return tr("A name cannot have “..”, “@{” or “//” in it.");
     if (name.endsWith(QLatin1Char('/')) || name.endsWith(QLatin1Char('.')))
-        return tr("A branch name cannot end with “/” or “.”.");
+        return tr("A name cannot end with “/” or “.”.");
     for (const QString &part : name.split(QLatin1Char('/'))) {
         if (part.startsWith(QLatin1Char('.')) || part.endsWith(QLatin1String(".lock")))
-            return tr("No part of a branch name can start with “.” or end with “.lock”.");
+            return tr("No part of a name can start with “.” or end with “.lock”.");
     }
+    return {};
+}
+
+} // namespace
+
+QString Repository::tagNameError(const QString &name) const
+{
+    if (name.isEmpty())
+        return tr("Give the tag a name.");
+    if (const QString error = refFormatError(name); !error.isEmpty())
+        return error;
+    if (m_tags.contains(name))
+        return tr("There is a tag %1 already.").arg(name);
+    return {};
+}
+
+void Repository::createTag(const QString &name, const QString &sha, const QString &message)
+{
+    QStringList args{QStringLiteral("tag")};
+    if (!message.trimmed().isEmpty())
+        args += {QStringLiteral("-a"), QStringLiteral("-m"), message.trimmed()};
+    args += {name, sha.isEmpty() ? QStringLiteral("HEAD") : sha};
+    enqueueGitWrite(args, tr("Tagged %1.").arg(name), tr("Tagging %1 failed").arg(name));
+}
+
+void Repository::deleteTag(const QString &name)
+{
+    enqueueGitWrite({QStringLiteral("tag"), QStringLiteral("-d"), name}, tr("Deleted the tag %1.").arg(name),
+                    tr("Deleting the tag %1 failed").arg(name));
+}
+
+void Repository::pushTag(const QString &name)
+{
+    if (m_plan) {
+        emit errorOccurred(tr("Pushing is off while planning."));
+        return;
+    }
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(false), name](const GitRunner &git) {
+        Outcome outcome;
+        QString remote = upstreamRemote(git);
+        if (remote.isEmpty())
+            remote = QStringLiteral("origin");
+        const GitResult result = git.run({QStringLiteral("push"), remote, QStringLiteral("refs/tags/") + name});
+        if (result.ok())
+            outcome.notice = tr("Pushed the tag %1 to %2.").arg(name, remote);
+        else
+            outcome.error = tr("Pushing the tag %1 failed: %2").arg(name, result.errorText().trimmed());
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::compareCommits(const QString &base, const QString &commit, const QString &baseName, bool threeDot)
+{
+    if (base.isEmpty() || commit.isEmpty() || !valid())
+        return;
+    setDiffView(CompareDiff, {}, commit);
+    m_diffBase = base;
+    m_diffBaseName = baseName;
+    m_diffThreeDot = threeDot;
+    emit diffChanged();
+    enqueue(JobKind::Read, [request = diffRequest(), current = m_diffGeneration, plan = m_plan](const GitRunner &git) {
+        Outcome outcome;
+        if (request.generation == *current)
+            outcome.state.diff = loadDiff(sourceFor(git, plan), request, {});
+        return outcome;
+    });
+}
+
+QString Repository::branchNameError(const QString &name) const
+{
+    if (name.isEmpty())
+        return tr("Give the branch a name.");
+    if (const QString error = refFormatError(name); !error.isEmpty())
+        return error;
     if (m_branches.contains(name))
         return tr("There is a branch %1 already.").arg(name);
     // refs/heads/a cannot be both a branch and a folder of branches

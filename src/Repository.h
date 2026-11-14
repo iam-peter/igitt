@@ -47,6 +47,8 @@ class Repository : public QObject
     Q_PROPERTY(QStringList remoteBranches READ remoteBranches NOTIFY headChanged)
     // The stashes' messages, the newest first: stash@{0}, stash@{1}, ...
     Q_PROPERTY(QStringList stashes READ stashes NOTIFY headChanged)
+    // The tags the history shows
+    Q_PROPERTY(QStringList tags READ tags NOTIFY headChanged)
     Q_PROPERTY(QString headSha READ headSha NOTIFY headChanged)
     Q_PROPERTY(QString headMessage READ headMessage NOTIFY headChanged)
     Q_PROPERTY(QString upstream READ upstream NOTIFY headChanged)
@@ -61,6 +63,8 @@ class Repository : public QObject
     Q_PROPERTY(DiffSource diffSource READ diffSource NOTIFY diffChanged)
     Q_PROPERTY(QString diffPath READ diffPath NOTIFY diffChanged)
     Q_PROPERTY(QString diffCommit READ diffCommit NOTIFY diffChanged)
+    // CompareDiff: what the commit is compared with
+    Q_PROPERTY(QString diffBaseName READ diffBaseName NOTIFY diffChanged)
     Q_PROPERTY(QString commitDetails READ commitDetails NOTIFY diffChanged)
     // PatchSetDiff: the patch set the commit on display is compared with.
     Q_PROPERTY(int diffPatchSet READ diffPatchSet NOTIFY diffChanged)
@@ -138,7 +142,9 @@ class Repository : public QObject
 public:
     // PatchSetDiff: from a Gerrit patch set (diffPatchSet) to the commit
     // on display (diffCommit).
-    enum DiffSource { NoDiff, UnstagedDiff, StagedDiff, CommitDiff, FileContent, PatchSetDiff };
+    // CompareDiff: from one commit (diffBaseName) to another (diffCommit),
+    // or what the other changed since it split off.
+    enum DiffSource { NoDiff, UnstagedDiff, StagedDiff, CommitDiff, FileContent, PatchSetDiff, CompareDiff };
     Q_ENUM(DiffSource)
 
     explicit Repository(QObject *parent = nullptr);
@@ -152,6 +158,7 @@ public:
     QStringList branches() const { return m_branches; }
     QStringList remoteBranches() const { return m_remoteBranches; }
     QStringList stashes() const { return m_status.stashes; }
+    QStringList tags() const { return m_tags; }
     QString headSha() const { return m_status.headSha; }
     QString headMessage() const { return m_headMessage; }
     QString upstream() const { return m_status.upstream; }
@@ -167,6 +174,7 @@ public:
     QString diffCommit() const { return m_diffCommit; }
     QString commitDetails() const { return m_commitDetails; }
     int diffPatchSet() const { return m_diffSource == PatchSetDiff ? m_diffPatchSet : 0; }
+    QString diffBaseName() const { return m_diffSource == CompareDiff ? m_diffBaseName : QString(); }
     QVariantMap commitReview() const;
     QVariantMap diffComments() const;
     bool diffConflicted() const { return m_diffConflicted; }
@@ -298,6 +306,20 @@ public:
     Q_INVOKABLE void cherryPick(const QString &sha);
     Q_INVOKABLE void revertCommit(const QString &sha);
     Q_INVOKABLE void resetTo(const QString &sha, const QString &mode);
+
+    // Two commits compared: from `base` to `commit`, or with `threeDot`
+    // what `commit` changed since it split off from `base`; `baseName`
+    // says what `base` is.
+    Q_INVOKABLE void compareCommits(const QString &base, const QString &commit, const QString &baseName,
+                                    bool threeDot);
+
+    // Tags: what is wrong with a name for a new one; one made at a commit,
+    // annotated with `message` if there is one; one deleted; one pushed to
+    // the upstream's remote (origin without one). Off while planning.
+    Q_INVOKABLE QString tagNameError(const QString &name) const;
+    Q_INVOKABLE void createTag(const QString &name, const QString &sha, const QString &message);
+    Q_INVOKABLE void deleteTag(const QString &name);
+    Q_INVOKABLE void pushTag(const QString &name);
     // Pushes as pushDescription says. A rejected push emits pushRejected()
     // so the UI can offer `force`, which uses --force-with-lease.
     // `review` holds options for the review host: {topic, state ("wip",
@@ -478,6 +500,7 @@ private:
     StatusInfo m_status;
     QStringList m_branches;
     QStringList m_remoteBranches;
+    QStringList m_tags;
     QString m_historyHead;
     bool m_historyWip = false;
     GraphRow m_wipGraph;
@@ -501,7 +524,9 @@ private:
     QString m_diffPath;
     QString m_diffCommit;
     int m_diffPatchSet = 0;
-    QString m_diffBase; // PatchSetDiff: the patch set's revision
+    QString m_diffBase; // PatchSetDiff: the patch set's revision; CompareDiff: the other commit
+    QString m_diffBaseName; // CompareDiff
+    bool m_diffThreeDot = false; // CompareDiff
     QString m_commitDetails;
     bool m_diffConflicted = false;
     bool m_ignoreWhitespace = false;

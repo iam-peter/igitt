@@ -39,6 +39,13 @@ Pane {
     signal cherryPickRequested(string sha)
     signal revertRequested(string sha)
     signal resetRequested(string sha, string subject)
+    // Two commits compared, `threeDot` for what `commit` changed since it
+    // split off from `base`
+    signal compareRequested(string base, string commit, string baseName, bool threeDot)
+    // Tags: one to make at a commit, to push, to delete
+    signal tagRequested(string sha, string subject)
+    signal pushTagRequested(string name)
+    signal deleteTagRequested(string name)
 
     // Selects the commit and shows it, as if clicked
     function select(sha: string) {
@@ -125,6 +132,8 @@ Pane {
 
         MenuItem {
             objectName: "checkoutMenuItem"
+            visible: refMenu.kind !== "tag"
+            height: visible ? implicitHeight : 0
             text: (refMenu.kind === "remote" ? qsTr("Check Out as a Local Branch") : qsTr("Check Out"))
                   + (view.repo.planning ? qsTr(" (off while planning)") : "")
             enabled: !refMenu.current && !view.repo.planning
@@ -134,6 +143,8 @@ Pane {
         }
         MenuItem {
             objectName: "mergeBranchMenuItem"
+            visible: refMenu.kind !== "tag"
+            height: visible ? implicitHeight : 0
             readonly property string branch: view.repo.branch
             text: view.repo.planning ? qsTr("Merge (off while planning)")
                                      : qsTr("Merge into %1").arg(branch)
@@ -144,6 +155,8 @@ Pane {
         }
         MenuItem {
             objectName: "rebaseBranchMenuItem"
+            visible: refMenu.kind !== "tag"
+            height: visible ? implicitHeight : 0
             readonly property string branch: view.repo.branch
             text: view.repo.planning ? qsTr("Rebase (off while planning)")
                                      : qsTr("Rebase %1 onto This").arg(branch)
@@ -153,6 +166,36 @@ Pane {
             onTriggered: view.rebaseRequested(refMenu.name)
         }
         MenuSeparator {}
+        MenuItem {
+            objectName: "compareRefMenuItem"
+            readonly property string branch: view.repo.branch || "HEAD"
+            visible: !refMenu.current
+            height: visible ? implicitHeight : 0
+            text: qsTr("Compare with %1").arg(branch)
+            icon.source: Icons.source("git-compare")
+            icon.color: palette.windowText
+            onTriggered: view.compareRequested("HEAD", refMenu.name, branch, true)
+        }
+        MenuItem {
+            objectName: "pushTagMenuItem"
+            visible: refMenu.kind === "tag"
+            height: visible ? implicitHeight : 0
+            text: view.repo.planning ? qsTr("Push Tag (off while planning)") : qsTr("Push Tag")
+            enabled: !view.repo.planning && !view.repo.writing
+            icon.source: Icons.source("cloud-upload")
+            icon.color: palette.windowText
+            onTriggered: view.pushTagRequested(refMenu.name)
+        }
+        MenuItem {
+            objectName: "deleteTagMenuItem"
+            visible: refMenu.kind === "tag"
+            height: visible ? implicitHeight : 0
+            text: view.repo.planning ? qsTr("Delete Tag (off while planning)") : qsTr("Delete Tag…")
+            enabled: !view.repo.planning && !view.repo.writing
+            icon.source: Icons.source("trash-2")
+            icon.color: palette.windowText
+            onTriggered: view.deleteTagRequested(refMenu.name)
+        }
         MenuItem {
             objectName: "renameBranchMenuItem"
             visible: refMenu.kind === "branch"
@@ -192,6 +235,28 @@ Pane {
             icon.color: palette.windowText
             onTriggered: view.branchRequested(commitMenu.sha, commitMenu.subject)
         }
+        MenuItem {
+            objectName: "createTagMenuItem"
+            text: view.repo.planning ? qsTr("Create Tag Here (off while planning)") : qsTr("Create Tag Here…")
+            enabled: !view.repo.planning
+            icon.source: Icons.source("tag")
+            icon.color: palette.windowText
+            onTriggered: view.tagRequested(commitMenu.sha, commitMenu.subject)
+        }
+        MenuItem {
+            objectName: "compareMenuItem"
+            // With the commit on display, if it is another one
+            readonly property string shown: view.repo.diffSource === Repository.CommitDiff ? view.repo.diffCommit : ""
+            visible: shown !== "" && shown !== commitMenu.sha
+            height: visible ? implicitHeight : 0
+            text: qsTr("Compare with %1").arg(shown.substring(0, 10))
+            icon.source: Icons.source("git-compare")
+            icon.color: palette.windowText
+            onTriggered: view.compareRequested(shown, commitMenu.sha,
+                                               `${shown.substring(0, 10)} ${view.repo.commits.subjectAt(view.repo.commits.rowOf(shown))}`,
+                                               false)
+        }
+        MenuSeparator {}
         MenuItem {
             objectName: "cherryPickMenuItem"
             readonly property bool off: view.repo.planning || view.repo.operation !== ""

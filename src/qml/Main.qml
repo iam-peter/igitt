@@ -598,6 +598,106 @@ ApplicationWindow {
         }
     }
 
+    // A tag at a commit: a name, and a message that makes it annotated
+    ModalDialog {
+        id: tagDialog
+
+        property string sha
+        property string subject
+        readonly property string name: tagName.text.trim()
+        readonly property string error: repo.tagNameError(name)
+
+        function ask(commit: string, text: string) {
+            sha = commit
+            subject = text
+            tagName.text = ""
+            tagMessage.text = ""
+            open()
+        }
+        function allowOk() {
+            const ok = standardButton(Dialog.Ok)
+            if (ok)
+                ok.enabled = error === ""
+        }
+
+        objectName: "tagDialog"
+        width: Math.min(460, root.width - 40)
+        title: qsTr("New Tag")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onErrorChanged: allowOk()
+        onOpened: {
+            allowOk()
+            tagName.forceActiveFocus()
+        }
+        onAccepted: repo.createTag(name, sha, tagMessage.text)
+        Component.onCompleted: standardButton(Dialog.Ok).objectName = "tagOkButton"
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 8
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("At %1  %2").arg(tagDialog.sha.substring(0, 10)).arg(tagDialog.subject)
+                textFormat: Text.PlainText
+                elide: Text.ElideRight
+                color: Styles.TokenInterface.semantics.text_muted
+            }
+            TextField {
+                id: tagName
+                objectName: "tagName"
+                Layout.fillWidth: true
+                placeholderText: qsTr("Name, e.g. v1.2.0")
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: tagDialog.name !== "" && tagDialog.error !== ""
+                text: tagDialog.error
+                wrapMode: Text.Wrap
+                color: Styles.TokenInterface.semantics.danger_default
+            }
+            TextField {
+                id: tagMessage
+                objectName: "tagMessage"
+                Layout.fillWidth: true
+                placeholderText: qsTr("Message, which makes it annotated (optional)")
+            }
+        }
+    }
+
+    // Deleting a tag: here only, which a push does not undo either
+    ModalDialog {
+        id: deleteTagDialog
+
+        property string name
+
+        function ask(tag: string) {
+            name = tag
+            open()
+        }
+
+        objectName: "deleteTagDialog"
+        width: Math.min(460, root.width - 40)
+        title: qsTr("Delete the tag %1?").arg(name)
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: repo.deleteTag(name)
+        Component.onCompleted: {
+            const ok = standardButton(Dialog.Ok)
+            ok.objectName = "deleteTagOkButton"
+            ok.text = qsTr("Delete Tag")
+            const styled = ok as Styles.Button
+            if (styled)
+                styled.styles = [Styles.ButtonStyle.destructive]
+        }
+
+        Label {
+            width: parent.width
+            wrapMode: Text.Wrap
+            text: qsTr("The tag is deleted here; a remote that has it keeps it. An annotated tag's message "
+                       + "cannot be brought back here.")
+        }
+    }
+
     // Dropping a stash cannot be undone either
     ModalDialog {
         id: dropStashDialog
@@ -1224,6 +1324,10 @@ ApplicationWindow {
                         onCherryPickRequested: sha => repo.cherryPick(sha)
                         onRevertRequested: sha => repo.revertCommit(sha)
                         onResetRequested: (sha, subject) => resetDialog.ask(sha, subject)
+                        onCompareRequested: (base, commit, baseName, threeDot) => repo.compareCommits(base, commit, baseName, threeDot)
+                        onTagRequested: (sha, subject) => tagDialog.ask(sha, subject)
+                        onPushTagRequested: name => repo.pushTag(name)
+                        onDeleteTagRequested: name => deleteTagDialog.ask(name)
                         onRebaseRequested: name => repo.rebaseOnto(name)
                         SplitView.preferredHeight: root.height * 0.45
                         SplitView.minimumHeight: 100

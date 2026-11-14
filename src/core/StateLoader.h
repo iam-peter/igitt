@@ -39,6 +39,11 @@ struct DiffRequest
     QString commit; // Commit, Range
     QString base;   // Range
     QString baseName; // Range: what `base` is, e.g. "patch set 2"
+    // Range: what `commit` changed since it split off from `base`
+    // (git diff base...commit), not the difference between the two
+    bool threeDot = false;
+    // Range: a patch set, whose parent may differ after a rebase
+    bool patchSet = false;
     int generation = 0; // lets the UI drop results for a view it has left
     // `git diff -w`. Such a diff cannot be applied back, so no line of it
     // can be staged.

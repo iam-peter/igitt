@@ -127,6 +127,9 @@ Pane {
                         case Repository.PatchSetDiff:
                             return qsTr("Patch set %1 → commit %2").arg(view.repo.diffPatchSet)
                                 .arg(view.repo.diffCommit.substring(0, 10))
+                        case Repository.CompareDiff:
+                            return qsTr("Compared: %1 → %2").arg(view.repo.diffBaseName)
+                                .arg(view.repo.diffCommit.substring(0, 10))
                         default: return ""
                         }
                     }
@@ -307,6 +310,7 @@ Pane {
             Layout.fillWidth: true
             Layout.preferredHeight: Math.min(details.implicitHeight + 12, view.height * (review.visible ? 0.25 : 0.35))
             visible: view.repo.diffSource === Repository.CommitDiff || view.repo.diffSource === Repository.PatchSetDiff
+                     || view.repo.diffSource === Repository.CompareDiff
             objectName: "commitDetailsView"
             onHeightChanged: details.renderAgain()
 
