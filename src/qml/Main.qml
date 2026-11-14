@@ -133,6 +133,55 @@ ApplicationWindow {
             composer.close()
     }
 
+    // The window's three modes, one for each job: exploring the history
+    // (as gitk), committing changes (as git gui), and reworking commits not
+    // pushed yet, where the two meet (composing).
+    enum Mode { History, Changes, Compose }
+    property int mode: Main.Mode.History
+    // Chosen once the repository is read: Changes when there are any
+    property bool modeChosen: false
+    // The commit History showed last, to show again on coming back
+    property string historySha
+
+    function setMode(m: int) {
+        mode = m
+        modeChosen = true
+    }
+    // Each mode shows its own diff: History a commit or a file, Changes the
+    // working tree
+    onModeChanged: {
+        const working = repo.diffSource === Repository.UnstagedDiff || repo.diffSource === Repository.StagedDiff
+        if (mode === Main.Mode.Changes && !working && repo.hasWip)
+            repo.showWorkingTree()
+        else if (mode === Main.Mode.History && working)
+            history.select(historySha !== "" ? historySha : repo.headSha)
+    }
+    Connections {
+        target: repo
+        function onDiffChanged() {
+            if (repo.diffSource === Repository.CommitDiff)
+                root.historySha = repo.diffCommit
+            // The uncommitted changes, picked in History, are Changes' to show
+            else if (root.mode === Main.Mode.History
+                     && (repo.diffSource === Repository.UnstagedDiff || repo.diffSource === Repository.StagedDiff))
+                root.setMode(Main.Mode.Changes)
+        }
+        function onHeadChanged() {
+            if (!root.modeChosen && repo.valid) {
+                root.modeChosen = true
+                root.mode = repo.hasWip ? Main.Mode.Changes : Main.Mode.History
+            }
+        }
+        function onPathChanged() {
+            root.modeChosen = false
+            root.historySha = ""
+        }
+    }
+    function showCommitInHistory(sha: string) {
+        setMode(Main.Mode.History)
+        history.select(sha)
+    }
+
     function openSettings() {
         settingsDialog.open()
     }
@@ -140,7 +189,13 @@ ApplicationWindow {
         settingsDialog.close()
     }
     function showChanges() {
-        leftTabs.currentIndex = 0
+        setMode(Main.Mode.Changes)
+    }
+    function showFiles() {
+        setMode(Main.Mode.History)
+    }
+    function showHistory() {
+        setMode(Main.Mode.History)
     }
 
     function setPlanning(on: bool) {
@@ -405,6 +460,21 @@ ApplicationWindow {
         onActivated: repo.refresh()
     }
     Shortcut {
+        sequence: "Ctrl+1"
+        enabled: !root.popupOpen
+        onActivated: root.setMode(Main.Mode.History)
+    }
+    Shortcut {
+        sequence: "Ctrl+2"
+        enabled: !root.popupOpen
+        onActivated: root.setMode(Main.Mode.Changes)
+    }
+    Shortcut {
+        sequence: "Ctrl+3"
+        enabled: !root.popupOpen && repo.valid
+        onActivated: root.setMode(Main.Mode.Compose)
+    }
+    Shortcut {
         sequences: [StandardKey.Open]
         enabled: !root.popupOpen
         onActivated: openDialog.open()
@@ -416,6 +486,43 @@ ApplicationWindow {
             anchors.leftMargin: 6
             anchors.rightMargin: 6
 
+            // The modes, side by side, the current one checked
+            component ModeButton: IconButton {
+                required property int target
+                property string shortcut
+
+                styles: [Styles.ButtonStyle.medium]
+                checkable: true
+                checked: root.mode === target
+                onClicked: root.setMode(target)
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+            }
+            ModeButton {
+                objectName: "historyModeButton"
+                target: Main.Mode.History
+                iconName: "history"
+                text: qsTr("History")
+                ToolTip.text: qsTr("Explore the history and the files (Ctrl+1)")
+            }
+            ModeButton {
+                objectName: "changesModeButton"
+                readonly property int count: (repo.wipCounts.modified ?? 0) + (repo.wipCounts.added ?? 0)
+                                             + (repo.wipCounts.deleted ?? 0)
+                target: Main.Mode.Changes
+                iconName: "files"
+                text: count > 0 ? qsTr("Changes  %1").arg(count) : qsTr("Changes")
+                ToolTip.text: qsTr("Stage and commit the changes (Ctrl+2)")
+            }
+            ModeButton {
+                objectName: "composeButton"
+                target: Main.Mode.Compose
+                enabled: repo.valid
+                iconName: "boxes"
+                text: repo.ahead > 0 ? qsTr("Compose  ↑%1").arg(repo.ahead) : qsTr("Compose")
+                ToolTip.text: qsTr("Group the changes into commits, and rework the commits not pushed yet (Ctrl+3)")
+            }
+            ToolSeparator {}
             IconButton {
                 styles: [Styles.ButtonStyle.medium]
                 iconName: "folder-open"
@@ -446,17 +553,6 @@ ApplicationWindow {
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
                 ToolTip.text: qsTr("Collect actions in a plan, review the commands, and execute them together")
-            }
-            IconButton {
-                styles: [Styles.ButtonStyle.medium]
-                objectName: "composeButton"
-                iconName: "boxes"
-                text: qsTr("Compose")
-                enabled: repo.valid
-                onClicked: root.openCompose()
-                ToolTip.visible: hovered
-                ToolTip.delay: 500
-                ToolTip.text: qsTr("Group the changes into clusters of related work and commit each one")
             }
             ToolSeparator {}
             IconButton {
@@ -561,90 +657,111 @@ ApplicationWindow {
         }
 
         SplitView {
-
             handle: SplitterHandle {}
             Layout.fillWidth: true
             Layout.fillHeight: true
-            orientation: Qt.Vertical
+            orientation: Qt.Horizontal
 
-            HistoryView {
-                id: history
-                repo: repo
-                onFoldRequested: sha => root.requestFold(sha)
-                onEditRequested: (kind, sha, to) => root.requestEdit(kind, sha, to, "")
-                onRewordRequested: sha => root.requestReword(sha)
-                SplitView.preferredHeight: root.height * 0.4
-                SplitView.minimumHeight: 100
-            }
+            StackLayout {
+                id: modes
+                SplitView.fillWidth: true
+                currentIndex: root.mode
 
-            SplitView {
+                // History: the graph above, a commit's or a file's diff
+                // below, beside every file of the project
+                SplitView {
+                    handle: SplitterHandle {}
+                    orientation: Qt.Vertical
 
-                handle: SplitterHandle {}
-                SplitView.fillHeight: true
-                orientation: Qt.Horizontal
+                    HistoryView {
+                        id: history
+                        repo: repo
+                        onFoldRequested: sha => root.requestFold(sha)
+                        onEditRequested: (kind, sha, to) => root.requestEdit(kind, sha, to, "")
+                        onRewordRequested: sha => root.requestReword(sha)
+                        onComposeRequested: sha => root.setMode(Main.Mode.Compose)
+                        SplitView.preferredHeight: root.height * 0.45
+                        SplitView.minimumHeight: 100
+                    }
+                    SplitView {
+                        handle: SplitterHandle {}
+                        SplitView.fillHeight: true
+                        orientation: Qt.Horizontal
 
-                // Changes to stage and commit, or every file of the project.
-                ColumnLayout {
-                    SplitView.preferredWidth: 360
-                    SplitView.minimumWidth: 220
-                    spacing: 0
-
-                    TabBar {
-                        id: leftTabs
-                        Layout.fillWidth: true
-
-                        TabButton {
-                            styles: [Styles.TabStyle.small]
-                            text: qsTr("Changes")
-                            icon.source: Icons.source("files")
-                            icon.color: palette.buttonText
-                            icon.width: 16
-                            icon.height: 16
+                        FilesPane {
+                            repo: repo
+                            SplitView.preferredWidth: 300
+                            SplitView.minimumWidth: 200
+                            onTimelapseRequested: path => root.openTimelapse(path)
                         }
-                        TabButton {
-                            styles: [Styles.TabStyle.small]
-                            objectName: "filesTab"
-                            text: qsTr("Files")
-                            icon.source: Icons.source("folder-tree")
-                            icon.color: palette.buttonText
-                            icon.width: 16
-                            icon.height: 16
+                        Item {
+                            id: historyDiff
+                            SplitView.fillWidth: true
                         }
                     }
-                    StackLayout {
+                }
+
+                // Changes: the last commits for context, then the changes to
+                // stage and commit beside their diff
+                ColumnLayout {
+                    spacing: 0
+
+                    RecentCommits {
+                        Layout.fillWidth: true
+                        repo: repo
+                        onCommitClicked: sha => root.showCommitInHistory(sha)
+                    }
+                    SplitView {
+                        handle: SplitterHandle {}
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        currentIndex: leftTabs.currentIndex
+                        orientation: Qt.Horizontal
 
                         ChangesPane {
                             repo: repo
                             monoFont: root.monoFont
+                            SplitView.preferredWidth: 360
+                            SplitView.minimumWidth: 220
                             onTimelapseRequested: path => root.openTimelapse(path)
                         }
-                        FilesPane {
-                            repo: repo
-                            onTimelapseRequested: path => root.openTimelapse(path)
+                        Item {
+                            id: changesDiff
+                            SplitView.fillWidth: true
                         }
                     }
                 }
-                DiffView {
-                    repo: repo
-                    monoFont: root.monoFont
-                    onFoldDragMoved: pos => history.updateDrop(pos)
-                    onFoldDragFinished: pos => history.finishDrop(pos)
-                    onFoldRequested: sha => root.requestFold(sha)
-                    onTimelapseRequested: path => root.openTimelapse(path)
-                    SplitView.fillWidth: true
-                }
-                PlanPane {
-                    visible: repo.planning
-                    repo: repo
-                    monoFont: root.monoFont
-                    SplitView.preferredWidth: 380
-                    SplitView.minimumWidth: 240
-                    onDiscardRequested: root.setPlanning(false)
+
+                // Compose: commits not pushed yet beside the changes in
+                // groups; read only while in sight
+                Loader {
+                    active: root.mode === Main.Mode.Compose || item !== null
+                    sourceComponent: ComposeView {
+                        repo: repo
+                        monoFont: root.monoFont
+                        setPlanning: root.setPlanning
+                        showPlanButtons: false
+                        active: root.mode === Main.Mode.Compose && root.active
+                    }
                 }
             }
+            PlanPane {
+                visible: repo.planning
+                repo: repo
+                monoFont: root.monoFont
+                SplitView.preferredWidth: 380
+                SplitView.minimumWidth: 240
+                onDiscardRequested: root.setPlanning(false)
+            }
+        }
+
+        // One diff, for History and Changes, in the mode shown
+        DiffView {
+            parent: root.mode === Main.Mode.Changes ? changesDiff : historyDiff
+            anchors.fill: parent
+            repo: repo
+            monoFont: root.monoFont
+            onFoldRequested: sha => root.requestFold(sha)
+            onTimelapseRequested: path => root.openTimelapse(path)
         }
     }
 

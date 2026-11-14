@@ -23,6 +23,18 @@ Pane {
     // A history edit, see Repository.editCommit().
     signal editRequested(string kind, string sha, string to)
     signal rewordRequested(string sha)
+    // The commit, not pushed yet, to rework in the Compose mode
+    signal composeRequested(string sha)
+
+    // Selects the commit and shows it, as if clicked
+    function select(sha: string) {
+        const row = repo.commits.rowOf(sha)
+        if (row < 0)
+            return
+        list.currentIndex = row
+        list.positionViewAtIndex(row, ListView.Contain)
+        list.showCurrent()
+    }
 
     function rowAt(scenePos: point): int {
         const local = list.mapFromItem(null, scenePos.x, scenePos.y)
@@ -112,6 +124,18 @@ Pane {
             ToolTip.delay: 300
         }
 
+        MenuItem {
+            objectName: "composeMenuItem"
+            text: qsTr("Edit in Compose")
+            enabled: commitMenu.visible && !view.repo.isPublished(commitMenu.sha)
+            icon.source: Icons.source("boxes")
+            icon.color: palette.windowText
+            onTriggered: view.composeRequested(commitMenu.sha)
+            ToolTip.visible: hovered && !enabled
+            ToolTip.text: qsTr("A remote branch has it; changing it would need a force push")
+            ToolTip.delay: 300
+        }
+        MenuSeparator {}
         MenuItem {
             text: commitMenu.blocker === ""
                   ? qsTr("Fold %n selected line(s) into this commit", "", view.repo.diff.selectedCount)

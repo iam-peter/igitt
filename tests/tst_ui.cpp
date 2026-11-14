@@ -115,7 +115,9 @@ private slots:
         screenshot(window, u"line-menu"_s);
         QTest::keyClick(window, Qt::Key_Escape);
 
-        dragSelectionOntoCommit(window, 2);
+        // Changes has no graph to drag onto; its diff folds by a button,
+        // as the window does here
+        QVERIFY(QMetaObject::invokeMethod(window, "requestFold", Q_ARG(QString, repo->commits()->shaAt(2))));
         QVERIFY(settle(*repo));
         QVERIFY(repo->canUndoFold());
         QCOMPARE(repo->commits()->rowCount(), 9);
@@ -149,6 +151,7 @@ private slots:
 
         // History edits: reword from the context menu, move by drag and
         // drop, drop with confirmation; each can be undone.
+        QVERIFY(QMetaObject::invokeMethod(window, "showHistory"));
         {
             const QByteArray before = gitOut({"log", "--format=%s"});
             rightClickCommit(window, 1);
@@ -258,7 +261,7 @@ private slots:
         repo->diff()->clearSelection();
 
         // Every file of the project, for the time-lapse view.
-        click(window, u"filesTab"_s);
+        QVERIFY(QMetaObject::invokeMethod(window, "showFiles"));
         QVERIFY(settle(*repo));
         QTRY_VERIFY(repo->files()->fileCount() >= 3);
         auto *tree = findItem(window->contentItem(), u"fileTree"_s);
@@ -360,6 +363,7 @@ private slots:
         QTest::qWait(300);
 
         // Searching dims what doesn't match; the minimap is above the graph.
+        QVERIFY(QMetaObject::invokeMethod(window, "showHistory"));
         auto *search = window->findChild<QQuickItem *>(u"historySearch"_s);
         QVERIFY(search);
         search->setProperty("text", u"message:line author:ada"_s);
@@ -368,6 +372,7 @@ private slots:
         screenshot(window, u"search"_s);
         search->setProperty("text", QString());
         QVERIFY(!repo->commits()->searching());
+        QVERIFY(QMetaObject::invokeMethod(window, "showChanges"));
 
         // Plan mode: stage and commit, review, execute.
         const QByteArray realHead = gitOut({"rev-parse", "HEAD"});
@@ -597,6 +602,7 @@ private slots:
             QVERIFY(settle(*repo));
             QCOMPARE(repo->reviewHost(), u"github"_s);
             QTRY_VERIFY(!repo->branchReview().isEmpty());
+            QVERIFY(QMetaObject::invokeMethod(window, "showHistory"));
             QQuickItem *tag = nullptr;
             QTRY_VERIFY((tag = [window] {
                 const QList<QQuickItem *> tags = findItems(window->contentItem(), u"reviewTag"_s);
@@ -760,6 +766,72 @@ private slots:
     // While a modal dialog is open, nothing behind it takes the pointer:
     // not where the dialog has nothing of its own to press, and not beside
     // it. No row is dragged or chosen.
+    // The window's modes: History to explore, Changes to commit, Compose to
+    // rework the commits not pushed yet; each shows its own diff.
+    void switchesModes()
+    {
+        // A change of its own, whatever the tests before left
+        write(u"modes.txt"_s, "a change\n");
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, m_dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        enum { History, Changes, Compose };
+        const auto mode = [window] { return window->property("mode").toInt(); };
+        // With changes, it opens on them
+        QTRY_COMPARE(mode(), int(Changes));
+        auto *changesButton = window->findChild<QQuickItem *>(u"changesModeButton"_s);
+        QVERIFY(changesButton->property("text").toString().contains(QRegularExpression(u"\\d"_s))); // how many
+        QVERIFY(window->findChild<QQuickItem *>(u"commitBox"_s)->isVisible());
+        QVERIFY(!window->findChild<QQuickItem *>(u"historyList"_s)->isVisible());
+
+        // A recent commit is shown in History
+        auto *recent = window->findChild<QQuickItem *>(u"recentCommits"_s);
+        QVERIFY(recent && recent->isVisible());
+        QQuickItem *second = nullptr;
+        QTRY_VERIFY(QMetaObject::invokeMethod(recent, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, second), Q_ARG(int, 1))
+                    && second);
+        clickItem(window, second);
+        QTRY_COMPARE(mode(), int(History));
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->diffSource(), Repository::CommitDiff);
+        QCOMPARE(repo->diffCommit(), repo->commits()->shaAt(1));
+        QVERIFY(window->findChild<QQuickItem *>(u"historyList"_s)->isVisible());
+        QVERIFY(window->findChild<QQuickItem *>(u"fileTree"_s)->isVisible());
+
+        // Back in Changes, its diff is the working tree's again; in
+        // History, the commit shown before
+        QTest::keyClick(window, Qt::Key_2, Qt::ControlModifier);
+        QTRY_COMPARE(mode(), int(Changes));
+        QVERIFY(settle(*repo));
+        QVERIFY(repo->diffSource() == Repository::UnstagedDiff || repo->diffSource() == Repository::StagedDiff);
+        QTest::keyClick(window, Qt::Key_1, Qt::ControlModifier);
+        QTRY_COMPARE(mode(), int(History));
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->diffCommit(), repo->commits()->shaAt(1));
+
+        // The uncommitted changes on top of the graph lead to Changes
+        auto *list = window->findChild<QQuickItem *>(u"historyList"_s);
+        QQuickItem *wip = list->property("headerItem").value<QQuickItem *>();
+        QVERIFY(wip && wip->isVisible());
+        clickItem(window, wip);
+        QTRY_COMPARE(mode(), int(Changes));
+
+        // Compose reads the changes in the window itself
+        QVERIFY(!window->findChild<ChangeClusters *>());
+        QTest::keyClick(window, Qt::Key_3, Qt::ControlModifier);
+        QTRY_COMPARE(mode(), int(Compose));
+        ChangeClusters *clusters = nullptr;
+        QTRY_VERIFY((clusters = window->findChild<ChangeClusters *>()));
+        QTRY_VERIFY(clusters->pieceCount() > 0);
+        QVERIFY(window->findChild<QQuickItem *>(u"groupsView"_s)->isVisible());
+        QVERIFY(!window->findChild<QQuickItem *>(u"composePlanButton"_s)->isVisible());
+        QFile::remove(m_dir.filePath(u"modes.txt"_s));
+    }
+
     void blocksThePointerBehindModalDialogs()
     {
         QQmlApplicationEngine engine;
@@ -770,6 +842,7 @@ private slots:
         QVERIFY(QTest::qWaitForWindowExposed(window));
         auto *repo = window->findChild<Repository *>();
         QVERIFY(settle(*repo));
+        QVERIFY(QMetaObject::invokeMethod(window, "showHistory"));
         auto *list = window->findChild<QQuickItem *>(u"historyList"_s);
         QVERIFY(list);
         list->setProperty("currentIndex", 0);
@@ -899,7 +972,7 @@ private slots:
         auto *repo = window->findChild<Repository *>();
         QVERIFY(settle(*repo));
 
-        click(window, u"composeButton"_s);
+        QVERIFY(QMetaObject::invokeMethod(window, "openCompose"));
         QQuickWindow *compose = nullptr;
         QTRY_VERIFY([&] {
             for (QWindow *w : QGuiApplication::topLevelWindows()) {
@@ -933,7 +1006,7 @@ private slots:
         repo->startPlanning();
         QVERIFY(settle(*repo));
         QTRY_VERIFY(repo->planning());
-        QVERIFY(QMetaObject::invokeMethod(compose, "commitCluster", Q_ARG(int, cluster)));
+        QVERIFY(QMetaObject::invokeMethod(composeView(compose), "commitCluster", Q_ARG(int, cluster)));
         QVERIFY(settle(*repo));
         QTRY_COMPARE(repo->plan()->count(), 1);
         QTRY_VERIFY(clusters->clusters().isEmpty());
@@ -985,7 +1058,7 @@ private slots:
         QVERIFY(QTest::qWaitForWindowExposed(window));
         QVERIFY(settle(*window->findChild<Repository *>()));
 
-        click(window, u"composeButton"_s);
+        QVERIFY(QMetaObject::invokeMethod(window, "openCompose"));
         QQuickWindow *compose = nullptr;
         QTRY_VERIFY([&] {
             for (QWindow *w : QGuiApplication::topLevelWindows()) {
@@ -1046,7 +1119,7 @@ private slots:
 
         // Lines picked as in any list, and two carried into a new group.
         // Lines of a new file are rows 0 to 3, their index the same.
-        QVERIFY(QMetaObject::invokeMethod(compose, "splitHunk", Q_ARG(QString, hunk + u"/none"_s)));
+        QVERIFY(QMetaObject::invokeMethod(composeView(compose), "splitHunk", Q_ARG(QString, hunk + u"/none"_s)));
         QVERIFY(QQuickTest::qWaitForPolish(compose));
         QQuickItem *card = openCard();
         QVERIFY(card);
@@ -1085,7 +1158,7 @@ private slots:
         const int group = clusters->clusters().first().toMap().value(u"id"_s).toInt();
         QTRY_COMPARE(pieces(), (QMap<int, int>{{-1, 2}, {group, 2}}));
         // The rest stays open, to split further
-        QCOMPARE(compose->property("splitPiece").toString(), hunk + u"/none"_s);
+        QCOMPARE(composeView(compose)->property("splitPiece").toString(), hunk + u"/none"_s);
 
         // One more, carried into that group
         QVERIFY(QQuickTest::qWaitForPolish(compose));
@@ -1142,7 +1215,7 @@ private slots:
         auto *repo = window->findChild<Repository *>();
         QVERIFY(settle(*repo));
 
-        click(window, u"composeButton"_s);
+        QVERIFY(QMetaObject::invokeMethod(window, "openCompose"));
         QQuickWindow *compose = nullptr;
         QTRY_VERIFY([&] {
             for (QWindow *w : QGuiApplication::topLevelWindows()) {
@@ -1405,7 +1478,7 @@ private slots:
         QVERIFY(settle(*window->findChild<Repository *>()));
         QElapsedTimer timer;
         timer.start();
-        click(window, u"composeButton"_s);
+        QVERIFY(QMetaObject::invokeMethod(window, "openCompose"));
         QQuickWindow *compose = nullptr;
         QTRY_VERIFY([&] {
             for (QWindow *w : QGuiApplication::topLevelWindows()) {
@@ -1440,9 +1513,9 @@ private slots:
         const QVariantMap loose = clusters->hunks().last().toMap();
         const QString head = clusters->commits().last().toMap().value(u"sha"_s).toString();
         timer.restart();
-        QVERIFY(QMetaObject::invokeMethod(compose, "placeInCommit", Q_ARG(QVariant, QVariant(loose)),
+        QVERIFY(QMetaObject::invokeMethod(composeView(compose), "placeInCommit", Q_ARG(QVariant, QVariant(loose)),
                                           Q_ARG(QString, head)));
-        QTRY_VERIFY(!compose->property("moving").toBool());
+        QTRY_VERIFY(!composeView(compose)->property("moving").toBool());
         QTRY_VERIFY(clusters->commits().last().toMap().value(u"sha"_s).toString() != head);
         QVERIFY(QQuickTest::qWaitForPolish(compose));
         compose->grabWindow();
@@ -1634,6 +1707,12 @@ private:
         QTRY_VERIFY(item->isVisible() && item->isEnabled());
         QTest::mouseClick(window, Qt::LeftButton, {},
                           item->mapToScene({item->width() / 2, item->height() / 2}).toPoint());
+    }
+
+    // The view of a compose window, which composes the commits
+    static QObject *composeView(QQuickWindow *window)
+    {
+        return window->findChild<QObject *>(u"composeView"_s);
     }
 
     static QQuickWindow *timelapseWindow()
