@@ -45,6 +45,9 @@ struct ConflictFile
 // "Merging", "Rebasing", ... while git is stopped in such an operation;
 // empty otherwise.
 QString operationInProgress(const GitRunner &git);
+// The git command of that operation, to continue or abort it with:
+// "merge", "rebase", "cherry-pick" or "revert"; "" if there is none.
+QString operationCommand(const GitRunner &git);
 
 QList<ConflictChunk> parseMergeOutput(const QByteArray &merged);
 ConflictFile loadConflict(const GitRunner &git, const QString &path);

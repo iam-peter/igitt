@@ -260,6 +260,17 @@ public:
     Q_INVOKABLE void checkoutBranch(const QString &name);
     Q_INVOKABLE void renameBranch(const QString &from, const QString &to);
     Q_INVOKABLE void deleteBranch(const QString &name, bool force);
+
+    // Others' changes: pulling fetches the upstream's remote and merges the
+    // upstream, or rebases onto it as pull.rebase says; merging a branch
+    // into the current one, rebasing the current one onto a branch. One
+    // that stops at conflicts leaves them to resolve in the merge tool, and
+    // the operation (operation) to continue or abort. Off while planning.
+    Q_INVOKABLE void pull();
+    Q_INVOKABLE void mergeBranch(const QString &name);
+    Q_INVOKABLE void rebaseOnto(const QString &name);
+    Q_INVOKABLE void continueOperation();
+    Q_INVOKABLE void abortOperation();
     // Pushes as pushDescription says. A rejected push emits pushRejected()
     // so the UI can offer `force`, which uses --force-with-lease.
     // `review` holds options for the review host: {topic, state ("wip",
@@ -391,9 +402,13 @@ private:
     void applyState(const RepositoryState &state);
     // Runs `args`, then reloads the state.
     void enqueueCommand(const QString &what, const QStringList &args, const QByteArray &input = {});
-    // A branch command, then the state again: `done` on success, else
-    // `failed` with git's reason
-    void enqueueBranchCommand(const QStringList &args, const QString &done, const QString &failed);
+    // A write by git, then the state again, the history in full: `done` on
+    // success, else `failed` with git's reason. Refused while planning.
+    void enqueueGitWrite(const QStringList &args, const QString &done, const QString &failed);
+    void enqueueBranchCommand(const QStringList &args, const QString &done, const QString &failed)
+    {
+        enqueueGitWrite(args, done, failed);
+    }
     void enqueuePlanEntry(const PlanEntry &entry);
     void endPlan();
     void scheduleReviewQuery();

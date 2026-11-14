@@ -644,6 +644,89 @@ private slots:
         QCOMPARE(git({"rev-parse", "--abbrev-ref", "topic@{upstream}"}).trimmed(), "origin/topic"_ba);
     }
 
+    // Pulling brings in what the upstream has, merged or rebased as
+    // pull.rebase says.
+    void pullsTheUpstream()
+    {
+        QTemporaryDir remote;
+        GitRunner(remote.path()).run({u"init"_s, u"-q"_s, u"--bare"_s, u"-b"_s, u"main"_s, remote.path()});
+        git({"remote", "add", "origin", remote.path()});
+        git({"push", "-q", "-u", "origin", "main"});
+        // Someone else's commit on the remote
+        QTemporaryDir other;
+        GitRunner(other.path()).run({u"clone"_s, u"-q"_s, remote.path(), other.path()});
+        GitRunner them(other.path());
+        writeFile(other.filePath(u"theirs.txt"_s), "theirs\n");
+        them.run({u"add"_s, u"theirs.txt"_s});
+        them.run({u"commit"_s, u"-q"_s, u"-m"_s, u"Theirs"_s});
+        them.run({u"push"_s, u"-q"_s});
+
+        open(m_dir->path());
+        repo().pull();
+        QVERIFY(settle(repo()));
+        QVERIFY(QFile::exists(m_dir->filePath(u"theirs.txt"_s)));
+        QCOMPARE(repo().behind(), 0);
+
+        // A commit of ours and another of theirs: rebased onto theirs
+        writeFile(m_dir->filePath(u"ours.txt"_s), "ours\n");
+        git({"add", "ours.txt"});
+        git({"commit", "-q", "-m", "Ours"});
+        writeFile(other.filePath(u"later.txt"_s), "later\n");
+        them.run({u"pull"_s, u"-q"_s});
+        them.run({u"add"_s, u"later.txt"_s});
+        them.run({u"commit"_s, u"-q"_s, u"-m"_s, u"Later"_s});
+        them.run({u"push"_s, u"-q"_s});
+        git({"config", "pull.rebase", "true"});
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        repo().pull();
+        QVERIFY(settle(repo()));
+        QCOMPARE(git({"log", "-3", "--format=%s"}), "Ours\nLater\nTheirs\n"_ba); // no merge commit
+        QVERIFY(m_errors->isEmpty());
+    }
+
+    // A merge that stops at a conflict waits for it; resolved and staged,
+    // it goes on to its commit. A rebase stopped so is aborted, and
+    // everything is as before.
+    void continuesAndAbortsOperations()
+    {
+        git({"checkout", "-q", "-b", "other"});
+        writeFile(file(), "one\nTWO there\nthree\nfour\nfive\n");
+        git({"commit", "-q", "-am", "There"});
+        git({"checkout", "-q", "main"});
+        writeFile(file(), "one\nTWO here\nthree\nfour\nfive\n");
+        git({"commit", "-q", "-am", "Here"});
+        open(m_dir->path());
+        const QByteArray before = git({"rev-parse", "HEAD"});
+
+        repo().mergeBranch(u"other"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().operation(), u"Merging"_s);
+        QCOMPARE(m_errors->size(), 1);
+        QVERIFY(m_errors->takeFirst().first().toString().contains(u"conflicts"_s));
+        writeFile(file(), "one\nTWO both\nthree\nfour\nfive\n");
+        git({"add", "f.txt"});
+        repo().continueOperation();
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().operation(), QString());
+        QCOMPARE(git({"log", "-1", "--format=%P"}).trimmed().split(' ').size(), 2); // a merge commit
+        QVERIFY(m_errors->isEmpty());
+
+        git({"reset", "-q", "--hard", QString::fromUtf8(before.trimmed())});
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        repo().rebaseOnto(u"other"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().operation(), u"Rebasing"_s);
+        m_errors->clear();
+        repo().abortOperation();
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().operation(), QString());
+        QCOMPARE(git({"rev-parse", "HEAD"}), before);
+        QCOMPARE(repo().branch(), u"main"_s);
+        QVERIFY(m_errors->isEmpty());
+    }
+
 private:
     Repository &repo() { return *m_repo; }
     QString file() const { return m_dir->filePath("f.txt"); }

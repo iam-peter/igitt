@@ -707,20 +707,32 @@ ApplicationWindow {
             ToolSeparator {}
             IconButton {
                 styles: [Styles.ButtonStyle.medium]
+                // Icons only, to leave the tool bar room
                 iconName: "folder-open"
-                text: qsTr("Open…")
+                Accessible.name: qsTr("Open…")
+                ToolTip.visible: hovered
+                ToolTip.delay: 300
+                ToolTip.text: qsTr("Open… (Ctrl+O)")
                 onClicked: openDialog.open()
             }
             IconButton {
                 styles: [Styles.ButtonStyle.medium]
+                // Icons only, to leave the tool bar room
                 iconName: "refresh-cw"
-                text: qsTr("Refresh")
+                Accessible.name: qsTr("Refresh")
+                ToolTip.visible: hovered
+                ToolTip.delay: 300
+                ToolTip.text: qsTr("Refresh (F5)")
                 onClicked: repo.refresh()
             }
             IconButton {
                 styles: [Styles.ButtonStyle.medium]
+                // Icons only, to leave the tool bar room
                 iconName: "settings"
-                text: qsTr("Settings…")
+                Accessible.name: qsTr("Settings…")
+                ToolTip.visible: hovered
+                ToolTip.delay: 300
+                ToolTip.text: qsTr("Settings…")
                 onClicked: settingsDialog.open()
             }
             IconButton {
@@ -747,6 +759,19 @@ ApplicationWindow {
                 ToolTip.visible: hovered
                 ToolTip.text: repo.planning ? qsTr("Off while planning")
                                             : qsTr("Fetch the upstream's remote and prune deleted branches")
+            }
+            IconButton {
+                styles: [Styles.ButtonStyle.medium]
+                objectName: "pullButton"
+                iconName: "arrow-down"
+                text: qsTr("Pull") + (repo.behind > 0 ? `  ↓${repo.behind}` : "")
+                enabled: repo.valid && repo.upstream !== "" && !repo.writing && !repo.planning && repo.operation === ""
+                onClicked: repo.pull()
+                ToolTip.visible: hovered
+                ToolTip.text: repo.planning ? qsTr("Off while planning")
+                            : repo.operation !== "" ? qsTr("Finish the %1 first").arg(repo.operation.toLowerCase())
+                            : repo.upstream === "" ? qsTr("The branch has no upstream to pull from")
+                            : qsTr("Fetch %1 and merge it, or rebase onto it as pull.rebase says").arg(repo.upstream)
             }
             IconButton {
                 id: pushButton
@@ -877,6 +902,44 @@ ApplicationWindow {
             }
         }
 
+        // A merge, rebase, cherry-pick or revert stopped at conflicts: they
+        // are resolved in the changes, then it goes on, or it is undone
+        Pane {
+            objectName: "operationBanner"
+            Layout.fillWidth: true
+            visible: repo.operation !== ""
+            padding: 6
+            background: Rectangle {
+                color: Qt.alpha(Styles.TokenInterface.semantics.warning_default, 0.2)
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                spacing: 8
+
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    text: qsTr("%1: resolve the conflicts in Changes and stage them, then continue; "
+                               + "or abort, which puts everything back as it was.").arg(repo.operation)
+                }
+                IconButton {
+                    objectName: "continueOperationButton"
+                    iconName: "play"
+                    text: qsTr("Continue")
+                    enabled: !repo.writing
+                    onClicked: repo.continueOperation()
+                }
+                IconButton {
+                    objectName: "abortOperationButton"
+                    iconName: "undo-2"
+                    text: qsTr("Abort")
+                    enabled: !repo.writing
+                    onClicked: repo.abortOperation()
+                }
+            }
+        }
+
         SplitView {
             handle: SplitterHandle {}
             Layout.fillWidth: true
@@ -903,6 +966,8 @@ ApplicationWindow {
                         onCheckoutRequested: name => repo.checkoutBranch(name)
                         onRenameBranchRequested: name => branchDialog.rename(name)
                         onDeleteBranchRequested: name => deleteBranchDialog.ask(name)
+                        onMergeRequested: name => repo.mergeBranch(name)
+                        onRebaseRequested: name => repo.rebaseOnto(name)
                         SplitView.preferredHeight: root.height * 0.45
                         SplitView.minimumHeight: 100
                     }

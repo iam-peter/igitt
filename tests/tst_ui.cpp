@@ -804,7 +804,7 @@ private slots:
         // tests before left
         write(u"modes.txt"_s, "one\n");
         git({"add", "modes.txt"});
-        git({"commit", "-q", "-m", "Try the modes"});
+        git({"commit", "-q", "-m", "Try the modes", "--", "modes.txt"}); // that file only, whatever else is staged
         write(u"modes.txt"_s, "one\ntwo\n");
         QQmlApplicationEngine engine;
         engine.setInitialProperties({{u"initialPath"_s, m_dir.path()}});
@@ -913,7 +913,9 @@ private slots:
         QTRY_VERIFY(clusters->pieceCount() > 0);
         QVERIFY(window->findChild<QQuickItem *>(u"groupsView"_s)->isVisible());
         QVERIFY(!window->findChild<QQuickItem *>(u"composePlanButton"_s)->isVisible());
-        git({"reset", "-q", "HEAD~1"});
+        // The commit and the file gone, what was staged before still staged
+        git({"reset", "-q", "--soft", "HEAD~1"});
+        git({"rm", "-q", "--cached", "-f", "modes.txt"});
         QFile::remove(m_dir.filePath(u"modes.txt"_s));
     }
 
@@ -1164,6 +1166,45 @@ private slots:
         repo->createBranch(u"planned"_s, {}, true);
         QCOMPARE(errors.size(), 1);
         QVERIFY(!repo->branches().contains(u"planned"_s));
+    }
+
+    // A merge stopped at a conflict shows a banner to continue or abort it.
+    void showsTheOperationInProgress()
+    {
+        QTemporaryDir dir;
+        GitRunner git(dir.path());
+        const auto write = [&](const QByteArray &content) {
+            QFile file(dir.filePath(u"a.txt"_s));
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            file.write(content);
+        };
+        git.run({u"init"_s, u"-q"_s, u"-b"_s, u"main"_s});
+        write("one\n");
+        git.run({u"add"_s, u"a.txt"_s});
+        git.run({u"commit"_s, u"-q"_s, u"-m"_s, u"One"_s});
+        git.run({u"checkout"_s, u"-q"_s, u"-b"_s, u"other"_s});
+        write("there\n");
+        git.run({u"commit"_s, u"-q"_s, u"-am"_s, u"There"_s});
+        git.run({u"checkout"_s, u"-q"_s, u"main"_s});
+        write("here\n");
+        git.run({u"commit"_s, u"-q"_s, u"-am"_s, u"Here"_s});
+        QVERIFY(!git.run({u"merge"_s, u"other"_s}).ok());
+
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->operation(), u"Merging"_s);
+        auto *banner = window->findChild<QQuickItem *>(u"operationBanner"_s);
+        QTRY_VERIFY(banner && banner->isVisible());
+        QVERIFY(!window->findChild<QQuickItem *>(u"pullButton"_s)->isEnabled());
+        click(window, u"abortOperationButton"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->operation(), QString());
+        QTRY_VERIFY(!banner->isVisible());
     }
 
     void blocksThePointerBehindModalDialogs()

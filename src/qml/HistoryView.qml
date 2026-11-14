@@ -30,6 +30,10 @@ Pane {
     signal checkoutRequested(string name)
     signal renameBranchRequested(string name)
     signal deleteBranchRequested(string name)
+    // Another branch merged into the current one, or the current one
+    // rebased onto it
+    signal mergeRequested(string name)
+    signal rebaseRequested(string name)
 
     // Selects the commit and shows it, as if clicked
     function select(sha: string) {
@@ -123,6 +127,27 @@ Pane {
             icon.color: palette.windowText
             onTriggered: view.checkoutRequested(refMenu.name)
         }
+        MenuItem {
+            objectName: "mergeBranchMenuItem"
+            readonly property string branch: view.repo.branch
+            text: view.repo.planning ? qsTr("Merge (off while planning)")
+                                     : qsTr("Merge into %1").arg(branch)
+            enabled: !refMenu.current && !view.repo.planning && branch !== "" && view.repo.operation === ""
+            icon.source: Icons.source("git-merge")
+            icon.color: palette.windowText
+            onTriggered: view.mergeRequested(refMenu.name)
+        }
+        MenuItem {
+            objectName: "rebaseBranchMenuItem"
+            readonly property string branch: view.repo.branch
+            text: view.repo.planning ? qsTr("Rebase (off while planning)")
+                                     : qsTr("Rebase %1 onto This").arg(branch)
+            enabled: !refMenu.current && !view.repo.planning && branch !== "" && view.repo.operation === ""
+            icon.source: Icons.source("git-branch")
+            icon.color: palette.windowText
+            onTriggered: view.rebaseRequested(refMenu.name)
+        }
+        MenuSeparator {}
         MenuItem {
             objectName: "renameBranchMenuItem"
             visible: refMenu.kind === "branch"

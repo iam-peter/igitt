@@ -5,6 +5,7 @@
 #include "core/GerritReview.h"
 #include "core/HistoryEditor.h"
 #include "core/LaneColors.h"
+#include "core/MergeConflict.h"
 #include "core/PatchCommit.h"
 #include "core/PatchBuilder.h"
 
@@ -1453,10 +1454,10 @@ QString Repository::branchNameError(const QString &name) const
     return {};
 }
 
-void Repository::enqueueBranchCommand(const QStringList &args, const QString &done, const QString &failed)
+void Repository::enqueueGitWrite(const QStringList &args, const QString &done, const QString &failed)
 {
     if (m_plan) {
-        emit errorOccurred(tr("Branches cannot be changed while planning."));
+        emit errorOccurred(tr("That cannot be planned; end planning first."));
         return;
     }
     // The history again whatever HEAD does: a branch made elsewhere, or
@@ -1513,6 +1514,144 @@ void Repository::deleteBranch(const QString &name, bool force)
 {
     enqueueBranchCommand({QStringLiteral("branch"), force ? QStringLiteral("-D") : QStringLiteral("-d"), name},
                          tr("Deleted the branch %1.").arg(name), tr("Deleting %1 failed").arg(name));
+}
+
+namespace {
+
+// Continuing never stops at an editor: the message git prepared stands
+const QStringList NoEditor{QStringLiteral("-c"), QStringLiteral("core.editor=true")};
+
+// What git said, and that the operation waits for its conflicts, if it
+// stopped at them
+QString stoppedAt(const GitRunner &git, const GitResult &result)
+{
+    QString text = result.errorText().trimmed();
+    if (text.isEmpty())
+        text = QString::fromUtf8(result.out).trimmed();
+    const QString operation = operationInProgress(git);
+    if (!operation.isEmpty())
+        return QCoreApplication::translate("Repository", "%1 stopped at conflicts: resolve them in the changes, "
+                                                         "then continue, or abort.\n%2").arg(operation, text);
+    return text;
+}
+
+} // namespace
+
+void Repository::pull()
+{
+    if (m_plan) {
+        emit errorOccurred(tr("Pulling is off while planning."));
+        return;
+    }
+    if (m_status.upstream.isEmpty()) {
+        emit errorOccurred(tr("%1 has no upstream to pull from.").arg(m_status.branch));
+        return;
+    }
+    const QString upstream = m_status.upstream;
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true), upstream](const GitRunner &git) {
+        Outcome outcome;
+        const QString remote = upstreamRemote(git);
+        const NetworkResult fetched = fetchFrom(git, remote);
+        if (!fetched.ok) {
+            outcome.error = tr("Pulling failed: %1").arg(fetched.message);
+        } else {
+            const QString mode = QString::fromUtf8(git.run({QStringLiteral("config"), QStringLiteral("--get"),
+                                                            QStringLiteral("pull.rebase")}).out).trimmed();
+            const bool rebase = !mode.isEmpty() && mode != QLatin1String("false");
+            const GitResult result = rebase ? git.run({QStringLiteral("rebase"), upstream})
+                                            : git.run({QStringLiteral("merge"), QStringLiteral("--no-edit"), upstream});
+            if (result.ok())
+                outcome.notice = rebase ? tr("Pulled %1 and rebased onto it.").arg(upstream)
+                                        : tr("Pulled %1.").arg(upstream);
+            else
+                outcome.error = tr("Pulling %1: %2").arg(upstream, stoppedAt(git, result));
+        }
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::mergeBranch(const QString &name)
+{
+    if (m_plan) {
+        emit errorOccurred(tr("Merging is off while planning."));
+        return;
+    }
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true), name](const GitRunner &git) {
+        Outcome outcome;
+        const GitResult result = git.run({QStringLiteral("merge"), QStringLiteral("--no-edit"), name});
+        if (result.ok())
+            outcome.notice = tr("Merged %1.").arg(name);
+        else
+            outcome.error = tr("Merging %1: %2").arg(name, stoppedAt(git, result));
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::rebaseOnto(const QString &name)
+{
+    if (m_plan) {
+        emit errorOccurred(tr("Rebasing is off while planning."));
+        return;
+    }
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true), name](const GitRunner &git) {
+        Outcome outcome;
+        const GitResult result = git.run({QStringLiteral("rebase"), name});
+        if (result.ok())
+            outcome.notice = tr("Rebased onto %1.").arg(name);
+        else
+            outcome.error = tr("Rebasing onto %1: %2").arg(name, stoppedAt(git, result));
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::continueOperation()
+{
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true)](const GitRunner &git) {
+        Outcome outcome;
+        const QString operation = operationInProgress(git);
+        const QString command = operationCommand(git);
+        // A merge is continued by committing it
+        QStringList args;
+        if (command == QLatin1String("merge"))
+            args = {QStringLiteral("commit"), QStringLiteral("--no-edit")};
+        else if (!command.isEmpty())
+            args = NoEditor + QStringList{command, QStringLiteral("--continue")};
+        if (args.isEmpty()) {
+            outcome.error = tr("Nothing is waiting to be continued.");
+        } else {
+            const GitResult result = git.run(args);
+            if (result.ok())
+                outcome.notice = operationInProgress(git).isEmpty() ? tr("%1 finished.").arg(operation)
+                                                                    : tr("%1 goes on.").arg(operation);
+            else
+                outcome.error = tr("%1: %2").arg(operation, stoppedAt(git, result));
+        }
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::abortOperation()
+{
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true)](const GitRunner &git) {
+        Outcome outcome;
+        const QString operation = operationInProgress(git);
+        const QString command = operationCommand(git);
+        if (command.isEmpty()) {
+            outcome.error = tr("Nothing is waiting to be aborted.");
+        } else {
+            const GitResult result = git.run({command, QStringLiteral("--abort")});
+            if (result.ok())
+                outcome.notice = tr("%1 aborted; everything is as before.").arg(operation);
+            else
+                outcome.error = tr("Aborting failed: %1").arg(result.errorText().trimmed());
+        }
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
 }
 
 void Repository::fetch()

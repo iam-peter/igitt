@@ -49,6 +49,16 @@ QString operationRef(const GitRunner &git, QString *operation)
 
 } // namespace
 
+QString operationCommand(const GitRunner &git)
+{
+    const QString ref = operationRef(git, nullptr);
+    return ref == QLatin1String("MERGE_HEAD")         ? QStringLiteral("merge")
+         : ref == QLatin1String("REBASE_HEAD")        ? QStringLiteral("rebase")
+         : ref == QLatin1String("CHERRY_PICK_HEAD")   ? QStringLiteral("cherry-pick")
+         : ref == QLatin1String("REVERT_HEAD")        ? QStringLiteral("revert")
+                                                      : QString();
+}
+
 QString operationInProgress(const GitRunner &git)
 {
     QString operation;
