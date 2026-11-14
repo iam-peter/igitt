@@ -17,6 +17,7 @@
 #include <QFile>
 #include <QFontDatabase>
 #include <QQmlApplicationEngine>
+#include <QSignalSpy>
 #include <QGuiApplication>
 #include <QWheelEvent>
 #include <QQuickItem>
@@ -1076,7 +1077,7 @@ private slots:
             QTest::mouseClick(window, Qt::RightButton, {},
                               label->mapToScene({label->width() / 2, label->height() / 2}).toPoint());
             click(window, u"deleteBranchMenuItem"_s);
-            click(window, u"deleteBranchOkButton"_s);
+            confirmDelete(window, branch);
             QVERIFY(settle(*repo));
             QVERIFY2(!repo->branches().contains(branch), qPrintable(branch));
         }
@@ -1096,10 +1097,73 @@ private slots:
         QVERIFY(QQuickTest::qWaitForPolish(window));
         QTest::mouseClick(window, Qt::RightButton, {}, entry->mapToScene({entry->width() / 2, entry->height() / 2}).toPoint());
         click(window, u"switcherDeleteItem"_s);
-        click(window, u"deleteBranchOkButton"_s);
+        confirmDelete(window, u"try/here"_s);
         QVERIFY(settle(*repo));
         QVERIFY(!repo->branches().contains(u"try/here"_s));
         QCOMPARE(repo->branch(), original);
+    }
+
+    // Branches cannot be planned: while planning, the switcher and the
+    // branch actions of the menus are off, and say so.
+    void keepsBranchesWhilePlanning()
+    {
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, m_dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        const QString branch = repo->branch();
+        QVERIFY(QMetaObject::invokeMethod(window, "showHistory"));
+        auto *button = window->findChild<QQuickItem *>(u"branchButton"_s);
+        QVERIFY(button->isEnabled());
+        repo->startPlanning();
+        QVERIFY(settle(*repo));
+        const auto discard = qScopeGuard([&] {
+            repo->discardPlan();
+            QVERIFY(settle(*repo));
+        });
+        QTRY_VERIFY(!button->isEnabled());
+
+        rightClickCommit(window, 1);
+        auto *create = window->findChild<QQuickItem *>(u"createBranchMenuItem"_s);
+        QTRY_VERIFY(create && create->isVisible());
+        QVERIFY(!create->isEnabled());
+        QVERIFY(create->property("text").toString().contains(u"planning"_s));
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!window->property("popupOpen").toBool());
+
+        // A label's menu, and a double-click on it, switch nothing
+        QQuickItem *label = nullptr;
+        QTRY_VERIFY((label = [&]() -> QQuickItem * {
+            for (QQuickItem *item : findItems(window->contentItem(), u"refLabel"_s)) {
+                if (item->property("name").toString() != branch && item->property("kind").toString() == u"branch"_s)
+                    return item;
+            }
+            return nullptr;
+        }()));
+        QVERIFY(QQuickTest::qWaitForPolish(window));
+        const QPoint at = label->mapToScene({label->width() / 2, label->height() / 2}).toPoint();
+        QTest::mouseClick(window, Qt::RightButton, {}, at);
+        for (const QString &item : {u"checkoutMenuItem"_s, u"renameBranchMenuItem"_s, u"deleteBranchMenuItem"_s}) {
+            auto *entry = window->findChild<QQuickItem *>(item);
+            QTRY_VERIFY2(entry && entry->isVisible(), qPrintable(item));
+            QVERIFY2(!entry->isEnabled(), qPrintable(item));
+            QVERIFY2(entry->property("text").toString().contains(u"planning"_s), qPrintable(item));
+        }
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!window->property("popupOpen").toBool());
+        QTest::mouseDClick(window, Qt::LeftButton, {}, at);
+        QTest::qWait(100);
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->branch(), branch);
+
+        // Asked for anyway: refused
+        QSignalSpy errors(repo, &Repository::errorOccurred);
+        repo->createBranch(u"planned"_s, {}, true);
+        QCOMPARE(errors.size(), 1);
+        QVERIFY(!repo->branches().contains(u"planned"_s));
     }
 
     void blocksThePointerBehindModalDialogs()
@@ -1980,6 +2044,24 @@ private:
         QTest::qWait(50);
         screenshot(window, u"dragging"_s);
         QTest::mouseRelease(window, Qt::LeftButton, {}, to);
+    }
+
+    // The delete dialog is guarded: only the branch's name typed again
+    // lets it delete
+    void confirmDelete(QQuickWindow *window, const QString &branch)
+    {
+        auto *confirm = window->findChild<QQuickItem *>(u"deleteBranchConfirm"_s);
+        auto *button = window->findChild<QQuickItem *>(u"deleteBranchOkButton"_s);
+        QVERIFY(confirm && button);
+        QTRY_VERIFY(confirm->isVisible());
+        QVERIFY(!button->isEnabled());
+        confirm->setProperty("text", branch + u"x"_s);
+        QVERIFY(!button->isEnabled());
+        confirm->setProperty("text", branch);
+        QTRY_VERIFY(button->isEnabled());
+        QCOMPARE(button->property("text").toString(), u"Delete Branch"_s);
+        screenshot(window, u"delete-branch"_s);
+        click(window, u"deleteBranchOkButton"_s);
     }
 
     QQuickItem *historyRow(QQuickWindow *window, int row)

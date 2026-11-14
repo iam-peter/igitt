@@ -446,23 +446,47 @@ ApplicationWindow {
         repo: repo
     }
 
+    // Deleting a branch cannot be undone here, so it is guarded: the
+    // branch's name typed again, before the button deletes it
     ModalDialog {
         id: deleteBranchDialog
 
         property string name
+        readonly property bool confirmed: confirmField.text === name
 
         function ask(branch: string) {
             name = branch
             force.checked = false
+            confirmField.text = ""
             open()
+        }
+        function allowDelete() {
+            const ok = standardButton(Dialog.Ok)
+            if (ok)
+                ok.enabled = confirmed
         }
 
         objectName: "deleteBranchDialog"
         width: Math.min(460, root.width - 40)
         title: qsTr("Delete the branch %1?").arg(name)
         standardButtons: Dialog.Ok | Dialog.Cancel
-        onAccepted: repo.deleteBranch(name, force.checked)
-        Component.onCompleted: standardButton(Dialog.Ok).objectName = "deleteBranchOkButton"
+        onConfirmedChanged: allowDelete()
+        onOpened: {
+            allowDelete()
+            confirmField.forceActiveFocus()
+        }
+        onAccepted: {
+            if (confirmed)
+                repo.deleteBranch(name, force.checked)
+        }
+        Component.onCompleted: {
+            const ok = standardButton(Dialog.Ok)
+            ok.objectName = "deleteBranchOkButton"
+            ok.text = qsTr("Delete Branch")
+            const styled = ok as Styles.Button
+            if (styled)
+                styled.styles = [Styles.ButtonStyle.destructive]
+        }
 
         ColumnLayout {
             width: parent.width
@@ -471,9 +495,25 @@ ApplicationWindow {
             Label {
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
-                text: qsTr("Its commits stay where other branches have them. One not merged anywhere "
-                           + "else is only deleted when that is ticked below, and then can only be found "
-                           + "again in the reflog.")
+                text: qsTr("This cannot be undone here. Its commits stay where other branches have them; "
+                           + "one not merged anywhere else is only deleted when that is ticked below, and "
+                           + "then can only be found again in the reflog.")
+            }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: qsTr("Type %1 to confirm.").arg(deleteBranchDialog.name)
+                font.bold: true
+            }
+            TextField {
+                id: confirmField
+                objectName: "deleteBranchConfirm"
+                Layout.fillWidth: true
+                placeholderText: deleteBranchDialog.name
+                onAccepted: {
+                    if (deleteBranchDialog.confirmed)
+                        deleteBranchDialog.accept()
+                }
             }
             CheckBox {
                 id: force
@@ -760,11 +800,13 @@ ApplicationWindow {
                 implicitWidth: contentItem.implicitWidth + leftPadding + rightPadding
                 Layout.fillWidth: true
                 Layout.maximumWidth: implicitWidth
-                enabled: repo.valid
+                // Branches cannot be planned: off while planning, and says so
+                enabled: repo.valid && !repo.planning
                 onClicked: switcher.opened ? switcher.close() : switcher.open()
                 ToolTip.visible: hovered && !switcher.opened
-                ToolTip.delay: 500
-                ToolTip.text: qsTr("Switch to another branch, or make one")
+                ToolTip.delay: repo.planning ? 0 : 500
+                ToolTip.text: repo.planning ? qsTr("Off while planning: branches cannot be planned")
+                                            : qsTr("Switch to another branch, or make one")
 
                 contentItem: RowLayout {
                     spacing: 6

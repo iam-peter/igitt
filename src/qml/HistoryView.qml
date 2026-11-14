@@ -116,7 +116,8 @@ Pane {
 
         MenuItem {
             objectName: "checkoutMenuItem"
-            text: refMenu.kind === "remote" ? qsTr("Check Out as a Local Branch") : qsTr("Check Out")
+            text: (refMenu.kind === "remote" ? qsTr("Check Out as a Local Branch") : qsTr("Check Out"))
+                  + (view.repo.planning ? qsTr(" (off while planning)") : "")
             enabled: !refMenu.current && !view.repo.planning
             icon.source: Icons.source("git-branch")
             icon.color: palette.windowText
@@ -126,7 +127,7 @@ Pane {
             objectName: "renameBranchMenuItem"
             visible: refMenu.kind === "branch"
             height: visible ? implicitHeight : 0
-            text: qsTr("Rename…")
+            text: view.repo.planning ? qsTr("Rename (off while planning)") : qsTr("Rename…")
             enabled: !view.repo.planning
             icon.source: Icons.source("pencil")
             icon.color: palette.windowText
@@ -136,7 +137,7 @@ Pane {
             objectName: "deleteBranchMenuItem"
             visible: refMenu.kind === "branch"
             height: visible ? implicitHeight : 0
-            text: qsTr("Delete…")
+            text: view.repo.planning ? qsTr("Delete (off while planning)") : qsTr("Delete…")
             enabled: !refMenu.current && !view.repo.planning
             icon.source: Icons.source("trash-2")
             icon.color: palette.windowText
@@ -155,7 +156,7 @@ Pane {
 
         MenuItem {
             objectName: "createBranchMenuItem"
-            text: qsTr("Create Branch Here…")
+            text: view.repo.planning ? qsTr("Create Branch Here (off while planning)") : qsTr("Create Branch Here…")
             enabled: !view.repo.planning
             icon.source: Icons.source("git-branch")
             icon.color: palette.windowText
