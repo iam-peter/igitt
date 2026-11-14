@@ -330,6 +330,21 @@ private slots:
             QTest::mouseClick(lapseWindow, Qt::LeftButton, {}, flow->mapToScene({x, flow->height() / 2}).toPoint());
             QTRY_COMPARE(lapse->revision(), lapse->revisionCount() - 1);
             QTRY_VERIFY(!lapse->busy());
+            // Clicking low on the current node, or on the minimap, scrolls
+            // the code there; the node's marker follows
+            auto *lines = findItem(lapseWindow->contentItem(), u"timelapseLines"_s);
+            QVERIFY(lines);
+            QTRY_VERIFY(flow->property("viewEnd").toReal() > flow->property("viewStart").toReal());
+            QCOMPARE(flow->property("viewStart").toReal(), 0.0);
+            QVERIFY(QQuickTest::qWaitForPolish(lapseWindow));
+            QTest::mouseClick(lapseWindow, Qt::LeftButton, {}, flow->mapToScene({x, flow->height() - 24}).toPoint());
+            QTRY_VERIFY(lines->property("contentY").toReal() > 0);
+            QTRY_VERIFY(flow->property("viewStart").toReal() > 0);
+            auto *minimap = findItem(lapseWindow->contentItem(), u"changeMinimap"_s);
+            QVERIFY(minimap);
+            QCOMPARE(minimap->property("changes").value<QList<int>>().size(), lapse->rowCount());
+            QTest::mouseClick(lapseWindow, Qt::LeftButton, {}, minimap->mapToScene({minimap->width() / 2, 1}).toPoint());
+            QTRY_COMPARE(lines->property("contentY").toReal(), lines->property("originY").toReal());
             screenshot(lapseWindow, u"timelapse-flow"_s);
         }
         // Like dragging the slider and toggling, then closing mid-load.

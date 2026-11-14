@@ -109,6 +109,7 @@ qt_add_qml_module(igitt_ui
         ui/Fonts.h ui/Fonts.cpp
         ui/RevisionTimeline.h ui/RevisionTimeline.cpp
         ui/FileFlowChart.h ui/FileFlowChart.cpp
+        ui/ChangeMinimap.h ui/ChangeMinimap.cpp
     RESOURCES
         icons/arrow-down.svg
         icons/arrow-up.svg

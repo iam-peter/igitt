@@ -287,6 +287,10 @@ ApplicationWindow {
                     currentColor: window.ageColor
                     textColor: Styles.TokenInterface.semantics.text_muted
                     onRevisionRequested: revision => lapse.revision = revision
+                    // The lines in sight in the code, on the current node
+                    viewStart: lines.lineSpan.start
+                    viewEnd: lines.lineSpan.end
+                    onLineRequested: line => lines.center(lapse.rowOf(line))
                     // At first, the newest revisions
                     onStepsChanged: scroll = maxScroll
 
@@ -352,92 +356,130 @@ ApplicationWindow {
             color: Styles.TokenInterface.semantics.danger_default
         }
 
-        ListView {
-            id: lines
-
-            objectName: "timelapseLines"
+        RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            clip: true
-            model: lapse
-            boundsBehavior: Flickable.StopAtBounds
-            boundsMovement: Flickable.StopAtBounds
-            flickableDirection: Flickable.AutoFlickIfNeeded
-            contentWidth: Math.max(width, 1600)
-            ScrollBar.vertical: ScrollBar {}
-            ScrollBar.horizontal: ScrollBar {}
+            spacing: 0
 
-            FontMetrics {
-                id: metrics
-                font: window.monoFont
-            }
+            ListView {
+                id: lines
 
-            delegate: Rectangle {
-                id: line
+                readonly property real rowHeight: metrics.height + 4
+                // The rows in sight, fractional as it scrolls, and the lines of
+                // the file they are, which differ by the deleted lines shown
+                readonly property real firstRow: Math.max(0, (contentY - originY) / rowHeight)
+                readonly property real rowsInSight: Math.min(height / rowHeight, Math.max(0, count - firstRow))
+                // (rows read again with every revision, as the lines change)
+                readonly property var lineSpan: ({rows: lapse.changes.length, start: lapse.lineAt(firstRow),
+                                                  end: lapse.lineAt(firstRow + rowsInSight)})
 
-                required property bool deleted
-                required property string text
-                required property int lineNo
-                required property int revision
-                required property string shortSha
-                required property string author
-                required property real age
-                required property int change // LineChange: kept, removed, added, changed
+                // Scrolls row `row` to the middle, as far as it goes
+                function center(row: real) {
+                    const top = row * rowHeight - height / 2
+                    contentY = originY + Math.max(0, Math.min(contentHeight - height, top))
+                }
 
-                width: lines.contentWidth
-                height: metrics.height + 4
-                color: [Qt.alpha(window.ageColor, 0.06 * line.age),
-                        Styles.TokenInterface.semantics.diff_removed,
-                        Styles.TokenInterface.semantics.diff_added,
-                        Styles.TokenInterface.semantics.diff_changed][line.change]
+                objectName: "timelapseLines"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: lapse
+                boundsBehavior: Flickable.StopAtBounds
+                boundsMovement: Flickable.StopAtBounds
+                flickableDirection: Flickable.AutoFlickIfNeeded
+                contentWidth: Math.max(width, 1600)
+                ScrollBar.vertical: ScrollBar {}
+                ScrollBar.horizontal: ScrollBar {}
 
-                Row {
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: 0
+                FontMetrics {
+                    id: metrics
+                    font: window.monoFont
+                }
 
-                    // Age bar: the newer the revision, the stronger.
-                    Rectangle {
-                        width: 6
-                        height: line.height
-                        color: Qt.alpha(window.ageColor, 0.1 + 0.85 * line.age)
-                    }
-                    // Blame: click to go to that revision.
-                    Label {
-                        width: 210
-                        leftPadding: 6
-                        text: line.deleted ? qsTr("deleted here") : `${line.shortSha}  ${line.author}`
-                        font.family: window.monoFont.family
-                        font.pointSize: window.monoFont.pointSize - 1
-                        elide: Text.ElideRight
-                        opacity: line.revision === lapse.revision ? 1 : 0.65
-                        color: blameHover.hovered && line.revision >= 0 ? Styles.TokenInterface.semantics.text_link : Styles.TokenInterface.semantics.text_default
+                delegate: Rectangle {
+                    id: line
 
-                        HoverHandler {
-                            id: blameHover
-                            cursorShape: line.revision >= 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    required property bool deleted
+                    required property string text
+                    required property int lineNo
+                    required property int revision
+                    required property string shortSha
+                    required property string author
+                    required property real age
+                    required property int change // LineChange: kept, removed, added, changed
+
+                    width: lines.contentWidth
+                    height: metrics.height + 4
+                    color: [Qt.alpha(window.ageColor, 0.06 * line.age),
+                            Styles.TokenInterface.semantics.diff_removed,
+                            Styles.TokenInterface.semantics.diff_added,
+                            Styles.TokenInterface.semantics.diff_changed][line.change]
+
+                    Row {
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 0
+
+                        // Age bar: the newer the revision, the stronger.
+                        Rectangle {
+                            width: 6
+                            height: line.height
+                            color: Qt.alpha(window.ageColor, 0.1 + 0.85 * line.age)
                         }
-                        TapHandler {
-                            enabled: line.revision >= 0
-                            onTapped: lapse.revision = line.revision
+                        // Blame: click to go to that revision.
+                        Label {
+                            width: 210
+                            leftPadding: 6
+                            text: line.deleted ? qsTr("deleted here") : `${line.shortSha}  ${line.author}`
+                            font.family: window.monoFont.family
+                            font.pointSize: window.monoFont.pointSize - 1
+                            elide: Text.ElideRight
+                            opacity: line.revision === lapse.revision ? 1 : 0.65
+                            color: blameHover.hovered && line.revision >= 0 ? Styles.TokenInterface.semantics.text_link : Styles.TokenInterface.semantics.text_default
+
+                            HoverHandler {
+                                id: blameHover
+                                cursorShape: line.revision >= 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            }
+                            TapHandler {
+                                enabled: line.revision >= 0
+                                onTapped: lapse.revision = line.revision
+                            }
                         }
-                    }
-                    Label {
-                        width: 50
-                        rightPadding: 8
-                        horizontalAlignment: Text.AlignRight
-                        text: line.deleted ? "" : line.lineNo
-                        font: window.monoFont
-                        color: Styles.TokenInterface.semantics.text_muted
-                    }
-                    Text {
-                        text: line.text.replace(/\t/g, "    ")
-                        textFormat: Text.PlainText
-                        font.family: window.monoFont.family
-                        font.pointSize: window.monoFont.pointSize
-                        font.strikeout: line.deleted
-                        color: Styles.TokenInterface.semantics.text_default
+                        Label {
+                            width: 50
+                            rightPadding: 8
+                            horizontalAlignment: Text.AlignRight
+                            text: line.deleted ? "" : line.lineNo
+                            font: window.monoFont
+                            color: Styles.TokenInterface.semantics.text_muted
+                        }
+                        Text {
+                            text: line.text.replace(/\t/g, "    ")
+                            textFormat: Text.PlainText
+                            font.family: window.monoFont.family
+                            font.pointSize: window.monoFont.pointSize
+                            font.strikeout: line.deleted
+                            color: Styles.TokenInterface.semantics.text_default
+                        }
                     }
                 }
+            }
+
+            // The whole file beside its lines: what the revision added, changed
+            // and removed, and the rows in sight
+            ChangeMinimap {
+                objectName: "changeMinimap"
+                Layout.fillHeight: true
+                Layout.preferredWidth: 14
+                changes: lapse.changes
+                hiddenRemovals: lapse.hiddenRemovals
+                firstVisible: lines.firstRow
+                visibleCount: lines.rowsInSight
+                addedColor: Styles.TokenInterface.semantics.success_default
+                removedColor: Styles.TokenInterface.semantics.danger_default
+                changedColor: Styles.TokenInterface.semantics.warning_default
+                bandColor: Styles.TokenInterface.semantics.text_muted
+                onRowRequested: row => lines.center(row)
             }
         }
     }

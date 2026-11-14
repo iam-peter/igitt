@@ -2,6 +2,8 @@
 
 #include <QVariantMap>
 
+#include <algorithm>
+
 Timelapse::Timelapse(QObject *parent)
     : QAbstractListModel(parent)
 {
@@ -63,7 +65,7 @@ void Timelapse::setShowDeleted(bool show)
         return;
     m_showDeleted = show;
     emit showDeletedChanged();
-    loadLines();
+    showLines();
 }
 
 void Timelapse::setError(const QString &error)
@@ -93,9 +95,8 @@ void Timelapse::loadRevisions()
         emit revisionsChanged();
         if (revisions.isEmpty()) {
             setError(tr("%1 has no committed history.").arg(m_path));
-            beginResetModel();
-            m_lines.clear();
-            endResetModel();
+            m_allLines.clear();
+            showLines();
             return;
         }
         setError({});
@@ -113,18 +114,72 @@ void Timelapse::loadLines()
         QList<TimelapseLine> lines;
         QString error;
     };
-    run<Lines>([git = GitRunner(m_workDir), revisions = m_revisions, index = m_revision, deleted = m_showDeleted] {
+    // With the deleted lines always, which showLines() leaves out when
+    // hidden, still marking where they were
+    run<Lines>([git = GitRunner(m_workDir), revisions = m_revisions, index = m_revision] {
         Lines result;
-        result.lines = loadTimelapse(git, revisions, index, deleted, &result.error);
+        result.lines = loadTimelapse(git, revisions, index, true, &result.error);
         return result;
     }, [this, generation](const Lines &result) {
         if (generation != m_generation)
             return;
-        beginResetModel();
-        m_lines = result.lines;
-        endResetModel();
+        m_allLines = result.lines;
+        showLines();
         setError(result.error);
     });
+}
+
+void Timelapse::showLines()
+{
+    beginResetModel();
+    m_lines.clear();
+    m_changes.clear();
+    m_hiddenRemovals.clear();
+    m_lineOfRow.clear();
+    int line = 0;
+    for (const TimelapseLine &l : std::as_const(m_allLines)) {
+        const bool removed = l.change == LineChange::Removed;
+        if (removed && !m_showDeleted) {
+            const int row = int(m_lines.size());
+            if (m_hiddenRemovals.isEmpty() || m_hiddenRemovals.last() != row)
+                m_hiddenRemovals.append(row);
+            continue;
+        }
+        m_lines.append(l);
+        m_changes.append(int(l.change));
+        m_lineOfRow.append(line);
+        if (!removed)
+            ++line;
+    }
+    endResetModel();
+    emit changesChanged();
+}
+
+qreal Timelapse::lineAt(qreal row) const
+{
+    if (m_lines.isEmpty() || row <= 0)
+        return 0;
+    const int whole = int(row);
+    if (whole >= m_lines.size())
+        return m_lineOfRow.last() + (m_lines.last().change == LineChange::Removed ? 0 : 1);
+    const bool removed = m_lines[whole].change == LineChange::Removed;
+    return m_lineOfRow[whole] + (removed ? 0 : row - whole);
+}
+
+qreal Timelapse::rowOf(qreal line) const
+{
+    if (m_lines.isEmpty())
+        return 0;
+    line = std::max(0.0, line);
+    const int whole = int(line);
+    // The first row of that line that is not a deleted one
+    const auto it = std::lower_bound(m_lineOfRow.cbegin(), m_lineOfRow.cend(), whole);
+    int row = int(it - m_lineOfRow.cbegin());
+    while (row < m_lines.size() && m_lines[row].change == LineChange::Removed)
+        ++row;
+    if (row >= m_lines.size())
+        return m_lines.size();
+    return row + (line - whole);
 }
 
 void Timelapse::loadFlow()

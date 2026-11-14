@@ -29,6 +29,12 @@ class Timelapse : public QAbstractListModel
     // 1 removed, 2 added, 3 changed.
     // Empty until loadFlow() read it.
     Q_PROPERTY(QVariantList flow READ flow NOTIFY flowChanged)
+    // What the revision on display did to each row, a LineChange, for a
+    // minimap of the changes
+    Q_PROPERTY(QList<int> changes READ changes NOTIFY changesChanged)
+    // The rows before which the revision removed lines that are not shown,
+    // as deleted lines are hidden
+    Q_PROPERTY(QList<int> hiddenRemovals READ hiddenRemovals NOTIFY changesChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(QString error READ error NOTIFY errorChanged)
 
@@ -62,6 +68,14 @@ public:
     // Reads the flow, unless it is read already.
     Q_INVOKABLE void loadFlow();
     QString error() const { return m_error; }
+    QList<int> changes() const { return m_changes; }
+    QList<int> hiddenRemovals() const { return m_hiddenRemovals; }
+
+    // Rows and the lines of the file, which differ by the deleted lines
+    // shown: the line (0-based, fractional as the row) a row is at, a
+    // deleted row at the line it was before; and the row of a line.
+    Q_INVOKABLE qreal lineAt(qreal row) const;
+    Q_INVOKABLE qreal rowOf(qreal line) const;
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -75,6 +89,7 @@ signals:
     void flowChanged();
     void busyChanged();
     void errorChanged();
+    void changesChanged();
 
 private:
     template <typename Result>
@@ -82,6 +97,7 @@ private:
     void loadRevisions();
     void loadLines();
     void setError(const QString &error);
+    void showLines();
 
     QThreadPool m_pool;
     int m_pending = 0;
@@ -94,6 +110,10 @@ private:
     int m_flowGeneration = 0; // drops a flow of revisions no longer shown
     int m_revision = -1;
     bool m_showDeleted = true;
+    QList<TimelapseLine> m_allLines; // deleted ones included, whether shown or not
     QList<TimelapseLine> m_lines;
+    QList<int> m_changes;
+    QList<int> m_hiddenRemovals;
+    QList<int> m_lineOfRow; // the lines before each row
     QString m_error;
 };

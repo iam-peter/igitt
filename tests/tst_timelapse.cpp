@@ -140,6 +140,38 @@ private slots:
         QTRY_COMPARE(lapse.revisionCount(), 3);
         QCOMPARE(lapse.revision(), 2); // the newest
         QTRY_VERIFY(!lapse.busy() && lapse.rowCount() == 6); // alpha deleted, 5 lines
+        // Rows and lines: the deleted row is at the line it was before
+        const int kept = int(LineChange::Kept);
+        const int removed = int(LineChange::Removed);
+        const int added = int(LineChange::Added);
+        const int changed = int(LineChange::Changed);
+        QCOMPARE(lapse.changes(), (QList<int>{removed, kept, kept, kept, kept, kept}));
+        QVERIFY(lapse.hiddenRemovals().isEmpty());
+        QCOMPARE(lapse.lineAt(0.5), 0.0);
+        QCOMPARE(lapse.lineAt(1.5), 0.5);
+        QCOMPARE(lapse.lineAt(6), 5.0);
+        QCOMPARE(lapse.rowOf(0), 1.0);
+        QCOMPARE(lapse.rowOf(2.5), 3.5);
+        // Hidden, the deleted lines are marked where they were, without
+        // reading the file again
+        lapse.setShowDeleted(false);
+        QVERIFY(!lapse.busy());
+        QCOMPARE(lapse.rowCount(), 5);
+        QCOMPARE(lapse.changes(), (QList<int>{kept, kept, kept, kept, kept}));
+        QCOMPARE(lapse.hiddenRemovals(), QList<int>{0});
+        QCOMPARE(lapse.rowOf(2.5), 2.5);
+        lapse.setShowDeleted(true);
+        QCOMPARE(lapse.rowCount(), 6);
+
+        // beta edited, delta replaced by DELTA, zeta added
+        lapse.setRevision(1);
+        QTRY_VERIFY(!lapse.busy() && lapse.rowCount() == 7);
+        QCOMPARE(lapse.changes(), (QList<int>{kept, changed, kept, removed, added, kept, added}));
+        QCOMPARE(lapse.rowOf(3), 4.0);
+        lapse.setShowDeleted(false);
+        QCOMPARE(lapse.changes(), (QList<int>{kept, changed, kept, added, kept, added}));
+        QCOMPARE(lapse.hiddenRemovals(), QList<int>{3});
+        lapse.setShowDeleted(true);
 
         lapse.setRevision(0);
         QTRY_VERIFY(!lapse.busy() && lapse.rowCount() == 5);

@@ -11,6 +11,9 @@
 // removed narrow in red to where they went, the lines added widen in
 // green from where they came. Clicking a node asks for that revision.
 //
+// On the node of the current revision, a marker shows the lines in sight
+// in its code; clicking or dragging along that node asks for a line.
+//
 // Only what is in sight is drawn: the nodes are spaced evenly, and the
 // view shows them from `scroll` on.
 class FileFlowChart : public QQuickPaintedItem
@@ -29,6 +32,10 @@ class FileFlowChart : public QQuickPaintedItem
     Q_PROPERTY(qreal contentWidth READ contentWidth NOTIFY contentWidthChanged)
     // The spacing at which the nodes fill the width
     Q_PROPERTY(qreal fittingSpacing READ fittingSpacing NOTIFY fittingSpacingChanged)
+    // The lines of the current revision in sight, 0-based and fractional;
+    // the marker is hidden while viewEnd is not past viewStart
+    Q_PROPERTY(qreal viewStart MEMBER m_viewStart NOTIFY changed)
+    Q_PROPERTY(qreal viewEnd MEMBER m_viewEnd NOTIFY changed)
     Q_PROPERTY(int hoveredRevision READ hoveredRevision NOTIFY hoveredChanged)
     Q_PROPERTY(QColor keptColor MEMBER m_keptColor NOTIFY changed)
     Q_PROPERTY(QColor addedColor MEMBER m_addedColor NOTIFY changed)
@@ -65,9 +72,13 @@ signals:
     void fittingSpacingChanged();
     void hoveredChanged();
     void revisionRequested(int revision);
+    // A line of the current revision, by the node's marker
+    void lineRequested(qreal line);
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
     void hoverMoveEvent(QHoverEvent *event) override;
     void hoverLeaveEvent(QHoverEvent *event) override;
 
@@ -90,6 +101,8 @@ private:
     };
 
     int nearest(qreal x) const;
+    qreal lineScale() const;
+    void requestLine(qreal y);
     void setHovered(int revision);
 
     QVariantList m_stepList;
@@ -100,6 +113,9 @@ private:
     int m_hovered = -1;
     qreal m_spacing = 72;
     qreal m_scroll = 0;
+    qreal m_viewStart = 0;
+    qreal m_viewEnd = 0;
+    bool m_draggingView = false;
     QColor m_keptColor = Qt::gray;
     QColor m_addedColor = QColor(0x2ca02c);
     QColor m_removedColor = QColor(0xd62728);

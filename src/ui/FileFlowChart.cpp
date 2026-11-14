@@ -2,6 +2,7 @@
 
 #include "core/FileHistory.h"
 
+#include <QCursor>
 #include <QHoverEvent>
 #include <QMouseEvent>
 #include <QPainter>
@@ -116,21 +117,59 @@ void FileFlowChart::setHovered(int revision)
     }
 }
 
+qreal FileFlowChart::lineScale() const
+{
+    return std::max(1.0, height() - TopRoom - BottomRoom) / m_maxLines;
+}
+
+void FileFlowChart::requestLine(qreal y)
+{
+    if (m_current < 0 || m_current >= m_steps.size())
+        return;
+    const qreal line = (y - TopRoom) / lineScale();
+    emit lineRequested(std::clamp(line, 0.0, qreal(m_steps[m_current].lines)));
+}
+
 void FileFlowChart::mousePressEvent(QMouseEvent *event)
 {
-    if (const int revision = nearest(event->position().x()); revision >= 0)
+    const int revision = nearest(event->position().x());
+    // Along the current node, the line there; elsewhere, the revision
+    if (revision >= 0 && revision == m_current) {
+        m_draggingView = true;
+        requestLine(event->position().y());
+    } else if (revision >= 0) {
         emit revisionRequested(revision);
+    }
+    event->accept();
+}
+
+void FileFlowChart::mouseMoveEvent(QMouseEvent *event)
+{
+    if (m_draggingView)
+        requestLine(event->position().y());
+    event->accept();
+}
+
+void FileFlowChart::mouseReleaseEvent(QMouseEvent *event)
+{
+    m_draggingView = false;
     event->accept();
 }
 
 void FileFlowChart::hoverMoveEvent(QHoverEvent *event)
 {
-    setHovered(nearest(event->position().x()));
+    const int revision = nearest(event->position().x());
+    setHovered(revision);
+    if (revision < 0)
+        unsetCursor();
+    else
+        setCursor(QCursor(revision == m_current ? Qt::SizeVerCursor : Qt::PointingHandCursor));
 }
 
 void FileFlowChart::hoverLeaveEvent(QHoverEvent *)
 {
     setHovered(-1);
+    unsetCursor();
 }
 
 void FileFlowChart::paint(QPainter *painter)
@@ -138,8 +177,7 @@ void FileFlowChart::paint(QPainter *painter)
     if (m_steps.isEmpty() || width() < 20)
         return;
     painter->setRenderHint(QPainter::Antialiasing);
-    const qreal plot = std::max(1.0, height() - TopRoom - BottomRoom);
-    const qreal scale = plot / m_maxLines;
+    const qreal scale = lineScale();
     const auto yOf = [&](int line) { return TopRoom + line * scale; };
 
     // Only the nodes in sight, and one more on either side for the flows
@@ -224,6 +262,17 @@ void FileFlowChart::paint(QPainter *painter)
         painter->setPen(Qt::NoPen);
         painter->setBrush(i == m_current ? m_currentColor : m_nodeColor);
         painter->drawRoundedRect(bar, 2, 2);
+        // The lines in sight in the code, as a bracket around the bar
+        if (i == m_current && m_viewEnd > m_viewStart) {
+            qreal top = yOf(m_viewStart);
+            qreal bottom = std::max(top + 3, yOf(m_viewEnd));
+            const QRectF view(x - BarWidth / 2 - 4, top, BarWidth + 8, bottom - top);
+            QColor fill = m_textColor;
+            fill.setAlphaF(0.25);
+            painter->setPen(QPen(m_textColor, 1.5));
+            painter->setBrush(fill);
+            painter->drawRoundedRect(view, 2, 2);
+        }
         if (i == m_hovered) {
             painter->setPen(QPen(m_currentColor, 1.5));
             painter->setBrush(Qt::NoBrush);
