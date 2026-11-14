@@ -147,9 +147,9 @@ to show that revision; on the current one, a marker shows the lines in
 sight in the code, and clicking or dragging along it scrolls there. The
 wheel scrolls through the revisions, Ctrl+wheel zooms.
 
-![The flow of TimelapseWindow.qml through eight commits, above the newest one's lines: added in green, edited in orange, deleted in red](docs/screenshots/flow.png)
+![The History mode with the history of TimelapseWindow.qml below the graph: its flow through eight commits, the third one picked, above that revision's lines, added in green and deleted in red](docs/screenshots/flow.png)
 
-![The time-lapse of Repository.h at the revision that moved git onto a background thread](docs/screenshots/timelapse.png)
+![The time-lapse of Repository.h in a window of its own, at the revision that moved git onto a background thread](docs/screenshots/timelapse.png)
 
 ## Fetch, pull and push
 
