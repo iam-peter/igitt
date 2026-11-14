@@ -45,6 +45,8 @@ class Repository : public QObject
     // The local branches, and the remote-tracking ones the history shows
     Q_PROPERTY(QStringList branches READ branches NOTIFY headChanged)
     Q_PROPERTY(QStringList remoteBranches READ remoteBranches NOTIFY headChanged)
+    // The stashes' messages, the newest first: stash@{0}, stash@{1}, ...
+    Q_PROPERTY(QStringList stashes READ stashes NOTIFY headChanged)
     Q_PROPERTY(QString headSha READ headSha NOTIFY headChanged)
     Q_PROPERTY(QString headMessage READ headMessage NOTIFY headChanged)
     Q_PROPERTY(QString upstream READ upstream NOTIFY headChanged)
@@ -149,6 +151,7 @@ public:
     QString branch() const { return m_status.branch; }
     QStringList branches() const { return m_branches; }
     QStringList remoteBranches() const { return m_remoteBranches; }
+    QStringList stashes() const { return m_status.stashes; }
     QString headSha() const { return m_status.headSha; }
     QString headMessage() const { return m_headMessage; }
     QString upstream() const { return m_status.upstream; }
@@ -271,6 +274,20 @@ public:
     Q_INVOKABLE void rebaseOnto(const QString &name);
     Q_INVOKABLE void continueOperation();
     Q_INVOKABLE void abortOperation();
+
+    // Changes thrown away, which nothing brings back: a file's unstaged
+    // changes, an untracked file deleted; the lines selected in the
+    // unstaged diff. Off while planning.
+    Q_INVOKABLE void discardFile(const QString &path);
+    Q_INVOKABLE void discardSelection();
+
+    // Stashes: the uncommitted changes put away, untracked files with
+    // them if asked, under a message; one applied again, and dropped with
+    // it if `pop` (not when it stops at conflicts); one dropped. `index`
+    // is the n of stash@{n}. Off while planning.
+    Q_INVOKABLE void stash(const QString &message, bool includeUntracked);
+    Q_INVOKABLE void applyStash(int index, bool pop);
+    Q_INVOKABLE void dropStash(int index);
     // Pushes as pushDescription says. A rejected push emits pushRejected()
     // so the UI can offer `force`, which uses --force-with-lease.
     // `review` holds options for the review host: {topic, state ("wip",

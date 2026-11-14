@@ -363,6 +363,15 @@ RepositoryState loadState(const StateSource &source, const DiffRequest &diff, co
             return state;
         }
         state.status = parseStatus(result.out);
+        // The stashes, by their messages, newest first
+        const GitResult stashes = source.git.run({QStringLiteral("stash"), QStringLiteral("list"),
+                                                  QStringLiteral("--format=%gs")});
+        if (stashes.ok()) {
+            for (const QByteArray &line : stashes.out.split('\n')) {
+                if (!line.isEmpty())
+                    state.status->stashes.append(QString::fromUtf8(line));
+            }
+        }
     }
     if (history.force || state.status->headSha != history.knownHead
         || state.status->entries.isEmpty() == history.knownWip)

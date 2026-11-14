@@ -33,6 +33,8 @@ Pane {
     property bool canDropFold: true
     signal foldRequested(string sha)
     signal timelapseRequested(string path)
+    // The selected unstaged lines to throw away, after asking
+    signal discardLinesRequested()
 
     readonly property bool hasSelection: canStage && repo.diff.selectedCount > 0
 
@@ -278,6 +280,17 @@ Pane {
                     text: view.repo.foldSuggestionText
                     elide: Text.ElideRight
                     opacity: 0.6
+                }
+                IconButton {
+                    objectName: "discardLinesButton"
+                    iconName: "trash-2"
+                    visible: view.workingDiff && !view.stagedDiff
+                    enabled: view.canStage && view.repo.diff.selectedCount > 0 && !view.repo.writing && !view.repo.planning
+                    text: qsTr("Discard %n line(s)…", "", view.repo.diff.selectedCount)
+                    onClicked: view.discardLinesRequested()
+                    ToolTip.visible: hovered
+                    ToolTip.text: view.repo.planning ? qsTr("Off while planning")
+                                                     : qsTr("Throw the selected lines away from the working tree")
                 }
                 IconButton {
                     iconName: view.stagedDiff ? "undo-2" : "plus"

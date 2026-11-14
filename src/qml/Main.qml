@@ -291,6 +291,10 @@ ApplicationWindow {
     function showChanges() {
         setMode(Main.Mode.Changes)
     }
+    // A stash to drop, after asking
+    function askDropStash(index: int) {
+        dropStashDialog.ask(index)
+    }
     function showFiles() {
         setMode(Main.Mode.History)
     }
@@ -438,6 +442,119 @@ ApplicationWindow {
                          + "every commit after it, so you will have to force push.")
                   : qsTr("This rewrites commits that are already on a remote branch, so you will have "
                          + "to force push.")
+        }
+    }
+
+    // Throwing changes away cannot be undone: asked first, with a red
+    // button. A file's unstaged changes, or the lines selected.
+    ModalDialog {
+        id: discardChangesDialog
+
+        property string path
+        property int lines
+
+        function askFile(file: string) {
+            path = file
+            lines = 0
+            open()
+        }
+        function askLines(count: int) {
+            path = ""
+            lines = count
+            open()
+        }
+
+        objectName: "discardChangesDialog"
+        width: Math.min(460, root.width - 40)
+        title: path !== "" ? qsTr("Discard the changes to %1?").arg(path)
+                           : qsTr("Discard %n line(s)?", "", lines)
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: path !== "" ? repo.discardFile(path) : repo.discardSelection()
+        Component.onCompleted: {
+            const ok = standardButton(Dialog.Ok)
+            ok.objectName = "discardOkButton"
+            ok.text = qsTr("Discard")
+            const styled = ok as Styles.Button
+            if (styled)
+                styled.styles = [Styles.ButtonStyle.destructive]
+        }
+
+        Label {
+            width: parent.width
+            wrapMode: Text.Wrap
+            text: qsTr("This cannot be undone: the changes are gone from the working tree, and not kept "
+                       + "anywhere. Staged changes stay; an untracked file is deleted.")
+        }
+    }
+
+    // Stashing the changes: a message, and whether untracked files go too
+    ModalDialog {
+        id: stashDialog
+
+        objectName: "stashDialog"
+        width: Math.min(460, root.width - 40)
+        title: qsTr("Stash the changes")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onOpened: {
+            stashMessage.text = ""
+            stashMessage.forceActiveFocus()
+        }
+        onAccepted: repo.stash(stashMessage.text, stashUntracked.checked)
+        Component.onCompleted: {
+            standardButton(Dialog.Ok).objectName = "stashOkButton"
+            standardButton(Dialog.Ok).text = qsTr("Stash")
+        }
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 8
+
+            TextField {
+                id: stashMessage
+                objectName: "stashMessage"
+                Layout.fillWidth: true
+                placeholderText: qsTr("What they are, for later (optional)")
+                onAccepted: stashDialog.accept()
+            }
+            CheckBox {
+                id: stashUntracked
+                objectName: "stashUntracked"
+                text: qsTr("Untracked files too")
+                checked: true
+            }
+        }
+    }
+
+    // Dropping a stash cannot be undone either
+    ModalDialog {
+        id: dropStashDialog
+
+        property int index
+
+        function ask(at: int) {
+            index = at
+            open()
+        }
+
+        objectName: "dropStashDialog"
+        width: Math.min(460, root.width - 40)
+        title: qsTr("Drop stash@{%1}?").arg(index)
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: repo.dropStash(index)
+        Component.onCompleted: {
+            const ok = standardButton(Dialog.Ok)
+            ok.objectName = "dropStashOkButton"
+            ok.text = qsTr("Drop Stash")
+            const styled = ok as Styles.Button
+            if (styled)
+                styled.styles = [Styles.ButtonStyle.destructive]
+        }
+
+        Label {
+            width: parent.width
+            wrapMode: Text.Wrap
+            text: qsTr("“%1” is thrown away, and cannot be brought back here.")
+                  .arg(repo.stashes[dropStashDialog.index] ?? "")
         }
     }
 
@@ -748,6 +865,70 @@ ApplicationWindow {
                 ToolTip.delay: 500
                 ToolTip.text: qsTr("Collect actions in a plan, review the commands, and execute them together")
             }
+            // The stashes: the changes put away, and those put away before
+            IconButton {
+                id: stashButton
+                styles: [Styles.ButtonStyle.medium]
+                objectName: "stashButton"
+                iconName: "archive"
+                text: repo.stashes.length > 0 ? `${repo.stashes.length}` : ""
+                Accessible.name: qsTr("Stashes")
+                enabled: repo.valid
+                onClicked: stashMenu.popup(stashButton, 0, stashButton.height)
+                ToolTip.visible: hovered && !stashMenu.visible
+                ToolTip.delay: 300
+                ToolTip.text: qsTr("Stash the changes, or apply one stashed before (%n stashed)", "", repo.stashes.length)
+
+                Menu {
+                    id: stashMenu
+
+                    MenuItem {
+                        objectName: "stashChangesItem"
+                        text: repo.planning ? qsTr("Stash Changes (off while planning)") : qsTr("Stash Changes…")
+                        enabled: repo.hasWip && !repo.planning && !repo.writing
+                        icon.source: Icons.source("archive")
+                        icon.color: palette.windowText
+                        onTriggered: stashDialog.open()
+                    }
+                    MenuSeparator {
+                        visible: repo.stashes.length > 0
+                    }
+                    Instantiator {
+                        model: repo.stashes
+                        delegate: Menu {
+                            id: entry
+
+                            required property string modelData
+                            required property int index
+
+                            title: `stash@{${index}}  ${modelData}`
+
+                            MenuItem {
+                                objectName: "applyStashItem"
+                                text: qsTr("Apply, and keep it")
+                                enabled: !repo.planning && !repo.writing
+                                onTriggered: repo.applyStash(entry.index, false)
+                            }
+                            MenuItem {
+                                objectName: "popStashItem"
+                                text: qsTr("Pop: apply, and drop it")
+                                enabled: !repo.planning && !repo.writing
+                                onTriggered: repo.applyStash(entry.index, true)
+                            }
+                            MenuItem {
+                                objectName: "dropStashItem"
+                                text: qsTr("Drop…")
+                                enabled: !repo.planning && !repo.writing
+                                icon.source: Icons.source("trash-2")
+                                icon.color: palette.windowText
+                                onTriggered: dropStashDialog.ask(entry.index)
+                            }
+                        }
+                        onObjectAdded: (index, object) => stashMenu.insertMenu(index + 2, object)
+                        onObjectRemoved: (index, object) => stashMenu.removeMenu(object)
+                    }
+                }
+            }
             ToolSeparator {}
             IconButton {
                 styles: [Styles.ButtonStyle.medium]
@@ -1042,6 +1223,7 @@ ApplicationWindow {
                         ChangesPane {
                             repo: repo
                             monoFont: root.monoFont
+                            onDiscardRequested: path => discardChangesDialog.askFile(path)
                             foldInto: recent.dropSubject
                             foldRefused: recent.dropBlocker
                             onFileDragMoved: (path, staged, pos) => recent.updateDrop(pos, true)
@@ -1104,6 +1286,7 @@ ApplicationWindow {
                     root.requestFold(sha)
             }
             onFoldRequested: sha => root.requestFold(sha)
+            onDiscardLinesRequested: discardChangesDialog.askLines(repo.diff.selectedCount)
             onTimelapseRequested: path => root.showFileHistory(path)
         }
     }

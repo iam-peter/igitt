@@ -1207,6 +1207,91 @@ private slots:
         QTRY_VERIFY(!banner->isVisible());
     }
 
+    // Changes thrown away after a guard, from a file's menu or the diff's
+    // selection; stashed from the tool bar, and a stash dropped after one.
+    void discardsAndStashes()
+    {
+        QTemporaryDir dir;
+        GitRunner git(dir.path());
+        const auto write = [&](const QString &name, const QByteArray &content) {
+            QFile file(dir.filePath(name));
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            file.write(content);
+        };
+        const auto read = [&](const QString &name) {
+            QFile file(dir.filePath(name));
+            return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+        };
+        git.run({u"init"_s, u"-q"_s, u"-b"_s, u"main"_s});
+        write(u"a.txt"_s, "one\ntwo\nthree\n");
+        write(u"b.txt"_s, "b\n");
+        git.run({u"add"_s, u"."_s});
+        git.run({u"commit"_s, u"-q"_s, u"-m"_s, u"One"_s});
+        write(u"a.txt"_s, "ONE\ntwo\nTHREE\n");
+        write(u"b.txt"_s, "b changed\n");
+
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        QTRY_COMPARE(window->property("mode").toInt(), 1);
+
+        // A file, from its menu
+        QQuickItem *row = nullptr;
+        QTRY_VERIFY((row = fileRow(window, u"unstagedList"_s, u"b.txt"_s)));
+        QTest::mouseClick(window, Qt::RightButton, {}, row->mapToScene({row->width() / 2, row->height() / 2}).toPoint());
+        click(window, u"discardFileMenuItem"_s);
+        QTRY_VERIFY(window->findChild<QQuickItem *>(u"discardOkButton"_s)->isVisible());
+        QCOMPARE(window->findChild<QQuickItem *>(u"discardOkButton"_s)->property("text").toString(), u"Discard"_s);
+        click(window, u"discardOkButton"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(read(u"b.txt"_s), "b\n"_ba);
+
+        // Lines, from the diff's selection
+        repo->showFile(u"a.txt"_s, false);
+        QVERIFY(settle(*repo));
+        for (int r = 0; r < repo->diff()->rowCount(); ++r) {
+            const QString text = repo->diff()->data(repo->diff()->index(r), DiffModel::TextRole).toString();
+            if (text == u"three"_s || text == u"THREE"_s)
+                repo->diff()->toggleLine(r);
+        }
+        QTRY_COMPARE(repo->diff()->selectedCount(), 2);
+        click(window, u"discardLinesButton"_s);
+        click(window, u"discardOkButton"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(read(u"a.txt"_s), "ONE\ntwo\nthree\n"_ba);
+
+        // Stashed from the tool bar
+        click(window, u"stashButton"_s);
+        click(window, u"stashChangesItem"_s);
+        auto *message = window->findChild<QQuickItem *>(u"stashMessage"_s);
+        QTRY_VERIFY(message && message->isVisible());
+        message->setProperty("text", u"The first line"_s);
+        click(window, u"stashOkButton"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(read(u"a.txt"_s), "one\ntwo\nthree\n"_ba);
+        QCOMPARE(repo->stashes().size(), 1);
+        QVERIFY(repo->stashes().first().contains(u"The first line"_s));
+        QTRY_COMPARE(window->findChild<QQuickItem *>(u"stashButton"_s)->property("text").toString(), u"1"_s);
+        // Listed in its menu, with what can be done to it
+        click(window, u"stashButton"_s);
+        QTRY_VERIFY(window->property("popupOpen").toBool());
+        QTest::qWait(200);
+        screenshot(window, u"stash-menu"_s);
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!window->property("popupOpen").toBool());
+
+        // Dropped after the guard
+        QVERIFY(QMetaObject::invokeMethod(window, "askDropStash", Q_ARG(int, 0)));
+        QTRY_VERIFY(window->findChild<QQuickItem *>(u"dropStashOkButton"_s)->isVisible());
+        click(window, u"dropStashOkButton"_s);
+        QVERIFY(settle(*repo));
+        QVERIFY(repo->stashes().isEmpty());
+    }
+
     void blocksThePointerBehindModalDialogs()
     {
         QQmlApplicationEngine engine;

@@ -1654,6 +1654,73 @@ void Repository::abortOperation()
     });
 }
 
+void Repository::discardFile(const QString &path)
+{
+    bool untracked = false;
+    for (const StatusEntry &entry : std::as_const(m_status.entries)) {
+        if (entry.path == path)
+            untracked = entry.untracked;
+    }
+    if (untracked)
+        enqueueGitWrite({QStringLiteral("clean"), QStringLiteral("-f"), QStringLiteral("-q"), QStringLiteral("--"), path},
+                        tr("Deleted %1.").arg(path), tr("Deleting %1 failed").arg(path));
+    else
+        enqueueGitWrite({QStringLiteral("restore"), QStringLiteral("--worktree"), QStringLiteral("--"), path},
+                        tr("Discarded the changes to %1.").arg(path), tr("Discarding the changes to %1 failed").arg(path));
+}
+
+void Repository::discardSelection()
+{
+    if (m_diffSource != UnstagedDiff || m_ignoreWhitespace)
+        return;
+    // The selection taken out of the working tree: built as for unstaging,
+    // with the rest of the working tree's side intact, and applied back
+    const QByteArray patch = selectionPatch(PatchDirection::Reverse);
+    if (patch.isEmpty())
+        return;
+    const int lines = m_diff.selectedCount();
+    if (m_plan) {
+        emit errorOccurred(tr("Discarding is off while planning."));
+        return;
+    }
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(false), patch, lines](const GitRunner &git) {
+        Outcome outcome;
+        const GitResult result = git.run({QStringLiteral("apply"), QStringLiteral("--reverse"),
+                                          QStringLiteral("--whitespace=nowarn")}, patch);
+        if (result.ok())
+            outcome.notice = tr("Discarded %n line(s).", "", lines);
+        else
+            outcome.error = tr("Discarding lines failed: %1").arg(result.errorText().trimmed());
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::stash(const QString &message, bool includeUntracked)
+{
+    QStringList args{QStringLiteral("stash"), QStringLiteral("push")};
+    if (includeUntracked)
+        args.append(QStringLiteral("--include-untracked"));
+    if (!message.trimmed().isEmpty())
+        args += {QStringLiteral("-m"), message.trimmed()};
+    enqueueGitWrite(args, tr("Stashed the changes."), tr("Stashing failed"));
+}
+
+void Repository::applyStash(int index, bool pop)
+{
+    const QString ref = QStringLiteral("stash@{%1}").arg(index);
+    enqueueGitWrite({QStringLiteral("stash"), pop ? QStringLiteral("pop") : QStringLiteral("apply"), ref},
+                    pop ? tr("Applied and dropped %1.").arg(ref) : tr("Applied %1; it is kept.").arg(ref),
+                    tr("Applying %1").arg(ref));
+}
+
+void Repository::dropStash(int index)
+{
+    const QString ref = QStringLiteral("stash@{%1}").arg(index);
+    enqueueGitWrite({QStringLiteral("stash"), QStringLiteral("drop"), ref}, tr("Dropped %1.").arg(ref),
+                    tr("Dropping %1 failed").arg(ref));
+}
+
 void Repository::fetch()
 {
     if (m_plan) {

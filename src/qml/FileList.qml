@@ -28,6 +28,8 @@ Item {
     signal fileDragMoved(string path, point scenePos)
     signal fileDropped(string path, point scenePos)
     signal timelapseRequested(string path)
+    // A file's unstaged changes to throw away, after asking
+    signal discardRequested(string path)
 
     function toggleStage(path: string) {
         if (staged)
@@ -56,6 +58,16 @@ Item {
             text: fileList.staged ? qsTr("Unstage All") : qsTr("Stage All")
             enabled: !fileList.repo.writing
             onTriggered: fileList.staged ? fileList.repo.unstageAll() : fileList.repo.stageAll()
+        }
+        MenuItem {
+            objectName: "discardFileMenuItem"
+            visible: !fileList.staged
+            height: visible ? implicitHeight : 0
+            text: fileList.repo.planning ? qsTr("Discard Changes (off while planning)") : qsTr("Discard Changes…")
+            enabled: !fileList.repo.writing && !fileList.repo.planning
+            icon.source: Icons.source("trash-2")
+            icon.color: palette.windowText
+            onTriggered: fileList.discardRequested(fileMenu.path)
         }
         MenuSeparator {}
         MenuItem {

@@ -10,6 +10,12 @@ using namespace Qt::StringLiterals;
 
 namespace {
 
+QByteArray readFile(const QString &path)
+{
+    QFile f(path);
+    return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+}
+
 void writeFile(const QString &path, const QByteArray &content)
 {
     QFile file(path);
@@ -724,6 +730,68 @@ private slots:
         QCOMPARE(repo().operation(), QString());
         QCOMPARE(git({"rev-parse", "HEAD"}), before);
         QCOMPARE(repo().branch(), u"main"_s);
+        QVERIFY(m_errors->isEmpty());
+    }
+
+    // Changes thrown away: a file's unstaged ones, its staged ones staying;
+    // an untracked file; some lines of a file, the others staying.
+    void discardsChanges()
+    {
+        writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");
+        git({"add", "f.txt"});
+        writeFile(file(), "one\nTWO\nthree\nFOUR\nfive\n");
+        writeFile(m_dir->filePath(u"new.txt"_s), "new\n");
+        open(m_dir->path());
+        repo().discardFile(u"f.txt"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(readFile(file()), "one\nTWO\nthree\nfour\nfive\n"_ba); // the staged change kept
+        repo().discardFile(u"new.txt"_s);
+        QVERIFY(settle(repo()));
+        QVERIFY(!QFile::exists(m_dir->filePath(u"new.txt"_s)));
+
+        // Two lines changed, one of them thrown away
+        writeFile(file(), "ONE\nTWO\nthree\nfour\nFIVE\n");
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        showFile(u"f.txt"_s, false);
+        selectLinesContaining({u"five"_s, u"FIVE"_s});
+        repo().discardSelection();
+        QVERIFY(settle(repo()));
+        QCOMPARE(readFile(file()), "ONE\nTWO\nthree\nfour\nfive\n"_ba);
+        QVERIFY(m_errors->isEmpty());
+    }
+
+    // Stashes made, listed, applied, popped and dropped.
+    void stashesChanges()
+    {
+        writeFile(file(), "one\nTWO\nthree\nfour\nfive\n");
+        writeFile(m_dir->filePath(u"new.txt"_s), "new\n");
+        open(m_dir->path());
+        repo().stash(u"Half a thought"_s, true);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().unstaged()->count(), 0);
+        QVERIFY(!QFile::exists(m_dir->filePath(u"new.txt"_s)));
+        QCOMPARE(repo().stashes().size(), 1);
+        QVERIFY(repo().stashes().first().contains(u"Half a thought"_s));
+
+        writeFile(m_dir->filePath(u"g.txt"_s), "g again\n");
+        repo().stash({}, false);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().stashes().size(), 2); // the newest first
+        QVERIFY(repo().stashes().last().contains(u"Half a thought"_s));
+
+        repo().applyStash(1, false);  // kept
+        QVERIFY(settle(repo()));
+        QCOMPARE(readFile(file()), "one\nTWO\nthree\nfour\nfive\n"_ba);
+        QVERIFY(QFile::exists(m_dir->filePath(u"new.txt"_s)));
+        QCOMPARE(repo().stashes().size(), 2);
+        repo().dropStash(1);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().stashes().size(), 1);
+        repo().applyStash(0, true); // popped
+        QVERIFY(settle(repo()));
+        QCOMPARE(readFile(m_dir->filePath(u"g.txt"_s)), "g again\n"_ba);
+        QVERIFY(repo().stashes().isEmpty());
         QVERIFY(m_errors->isEmpty());
     }
 
