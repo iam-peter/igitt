@@ -26,7 +26,6 @@ struct StatusInfo
     int ahead = 0;
     int behind = 0;
     QList<StatusEntry> entries;
-    QStringList stashes; // their messages, the newest first (stash@{0}); not parsed from status
 };
 
 // Parses `git status --porcelain=v2 -z --branch`.

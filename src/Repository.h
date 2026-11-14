@@ -164,10 +164,10 @@ public:
     QString branch() const { return m_status.branch; }
     QStringList branches() const { return m_branches; }
     QStringList remoteBranches() const { return m_remoteBranches; }
-    QStringList stashes() const { return m_status.stashes; }
+    QStringList stashes() const { return m_stashes; }
     QStringList tags() const { return m_tags; }
-    QVariantList remotes() const;
-    QVariantList worktrees() const;
+    QVariantList remotes() const { return m_remoteList; }
+    QVariantList worktrees() const { return m_worktreeList; }
     bool hasSubmodules() const;
     bool bisecting() const;
     QString headSha() const { return m_status.headSha; }
@@ -501,11 +501,9 @@ private:
     void enqueueCommand(const QString &what, const QStringList &args, const QByteArray &input = {});
     // A write by git, then the state again, the history in full: `done` on
     // success, else `failed` with git's reason. Refused while planning.
+    // A merge, rebase, cherry-pick or revert that stops at conflicts says
+    // so, and waits for them.
     void enqueueGitWrite(const QStringList &args, const QString &done, const QString &failed);
-    void enqueueBranchCommand(const QStringList &args, const QString &done, const QString &failed)
-    {
-        enqueueGitWrite(args, done, failed);
-    }
     void enqueuePlanEntry(const PlanEntry &entry);
     void endPlan();
     void scheduleReviewQuery();
@@ -549,8 +547,10 @@ private:
     QStringList m_branches;
     QStringList m_remoteBranches;
     QStringList m_tags;
-    QList<RemoteInfo> m_remotes;
-    QList<WorktreeInfo> m_worktrees;
+    QStringList m_stashes;
+    // As QML reads them, made once per reading of the history
+    QVariantList m_remoteList;
+    QVariantList m_worktreeList;
     QString m_historyHead;
     bool m_historyWip = false;
     GraphRow m_wipGraph;

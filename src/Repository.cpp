@@ -167,16 +167,23 @@ void Repository::applyState(const RepositoryState &state)
                              history.planned);
         m_branches.clear();
         m_remoteBranches.clear();
-        m_tags.clear();
-        m_remotes = history.remotes;
-        m_worktrees = history.worktrees;
+        m_tags = history.tagNames;
+        m_stashes = history.stashes;
+        m_remoteList.clear();
+        for (const RemoteInfo &remote : history.remotes)
+            m_remoteList.append(QVariantMap{{QStringLiteral("name"), remote.name}, {QStringLiteral("url"), remote.url}});
+        m_worktreeList.clear();
+        for (const WorktreeInfo &worktree : history.worktrees) {
+            if (!worktree.bare)
+                m_worktreeList.append(QVariantMap{{QStringLiteral("path"), worktree.path},
+                                                  {QStringLiteral("branch"), worktree.branch},
+                                                  {QStringLiteral("current"), worktree.current}});
+        }
         for (const RefInfo &ref : history.refs) {
             if (ref.kind == RefInfo::LocalBranch)
                 m_branches.append(ref.name);
             else if (ref.kind == RefInfo::RemoteBranch && !ref.name.endsWith(QLatin1String("/HEAD")))
                 m_remoteBranches.append(ref.name);
-            else if (ref.kind == RefInfo::Tag)
-                m_tags.append(ref.name);
         }
         m_branches.sort(Qt::CaseInsensitive);
         m_remoteBranches.sort(Qt::CaseInsensitive);
@@ -1512,28 +1519,6 @@ void Repository::pushTag(const QString &name)
     });
 }
 
-QVariantList Repository::remotes() const
-{
-    QVariantList list;
-    for (const RemoteInfo &remote : m_remotes)
-        list.append(QVariantMap{{QStringLiteral("name"), remote.name}, {QStringLiteral("url"), remote.url}});
-    return list;
-}
-
-QVariantList Repository::worktrees() const
-{
-    QVariantList list;
-    const QString here = QDir(path()).canonicalPath();
-    for (const WorktreeInfo &worktree : m_worktrees) {
-        if (worktree.bare)
-            continue;
-        list.append(QVariantMap{{QStringLiteral("path"), worktree.path},
-                                {QStringLiteral("branch"), worktree.branch},
-                                {QStringLiteral("current"), QDir(worktree.path).canonicalPath() == here}});
-    }
-    return list;
-}
-
 bool Repository::hasSubmodules() const
 {
     return valid() && QFile::exists(QDir(path()).filePath(QStringLiteral(".gitmodules")));
@@ -1546,7 +1531,8 @@ bool Repository::bisecting() const
 
 QString Repository::cloneFolderName(const QString &url) const
 {
-    QString name = url.trimmed();
+    // Windows paths too, with backslashes
+    QString name = url.trimmed().replace(QLatin1Char('\\'), QLatin1Char('/'));
     while (name.endsWith(QLatin1Char('/')))
         name.chop(1);
     name = name.section(QLatin1Char('/'), -1).section(QLatin1Char(':'), -1);
@@ -1705,6 +1691,13 @@ void Repository::applyPatch(const QString &file)
         // A commit as format-patch writes it starts with "From <sha>"
         const bool mail = in.peek(5) == "From ";
         in.close();
+        // Not into an am already going on, which the abort below would undo
+        const QString applying = QString::fromUtf8(git.run({QStringLiteral("rev-parse"), QStringLiteral("--git-path"),
+                                                             QStringLiteral("rebase-apply")}).out).trimmed();
+        if (mail && QDir(QDir(git.workDir()).filePath(applying)).exists()) {
+            outcome.error = tr("A git am is going on already; finish or abort it first.");
+            return outcome;
+        }
         const GitResult result = mail ? git.run({QStringLiteral("am"), QStringLiteral("--3way"), path})
                                       : git.run({QStringLiteral("apply"), QStringLiteral("--whitespace=nowarn"), path});
         if (result.ok()) {
@@ -1814,68 +1807,6 @@ QString Repository::branchNameError(const QString &name) const
     return {};
 }
 
-void Repository::enqueueGitWrite(const QStringList &args, const QString &done, const QString &failed)
-{
-    if (m_plan) {
-        emit errorOccurred(tr("That cannot be planned; end planning first."));
-        return;
-    }
-    // The history again whatever HEAD does: a branch made elsewhere, or
-    // renamed or deleted, shows only in its refs
-    enqueue(JobKind::Write, [=, request = diffRequest(), history = historyRequest(true)](const GitRunner &git) {
-        Outcome outcome;
-        const GitResult result = git.run(args);
-        if (result.ok())
-            outcome.notice = done;
-        else
-            outcome.error = tr("%1: %2").arg(failed, result.errorText().trimmed());
-        outcome.state = loadState(sourceFor(git, nullptr), request, history);
-        return outcome;
-    });
-}
-
-void Repository::createBranch(const QString &name, const QString &start, bool checkout)
-{
-    const QString at = start.isEmpty() ? QStringLiteral("HEAD") : start;
-    if (checkout)
-        enqueueBranchCommand({QStringLiteral("switch"), QStringLiteral("-c"), name, at},
-                             tr("Switched to the new branch %1.").arg(name), tr("Making the branch %1 failed").arg(name));
-    else
-        enqueueBranchCommand({QStringLiteral("branch"), name, at}, tr("Made the branch %1.").arg(name),
-                             tr("Making the branch %1 failed").arg(name));
-}
-
-void Repository::checkoutBranch(const QString &name)
-{
-    // A remote-tracking branch: a local one of its name, tracking it
-    if (m_remoteBranches.contains(name) && !m_branches.contains(name)) {
-        const QString local = name.section(QLatin1Char('/'), 1);
-        if (m_branches.contains(local)) {
-            enqueueBranchCommand({QStringLiteral("switch"), local}, tr("Switched to %1.").arg(local),
-                                 tr("Switching to %1 failed").arg(local));
-            return;
-        }
-        enqueueBranchCommand({QStringLiteral("switch"), QStringLiteral("-c"), local, QStringLiteral("--track"), name},
-                             tr("Switched to the new branch %1, which tracks %2.").arg(local, name),
-                             tr("Switching to %1 failed").arg(name));
-        return;
-    }
-    enqueueBranchCommand({QStringLiteral("switch"), name}, tr("Switched to %1.").arg(name),
-                         tr("Switching to %1 failed").arg(name));
-}
-
-void Repository::renameBranch(const QString &from, const QString &to)
-{
-    enqueueBranchCommand({QStringLiteral("branch"), QStringLiteral("-m"), from, to},
-                         tr("Renamed %1 to %2.").arg(from, to), tr("Renaming %1 failed").arg(from));
-}
-
-void Repository::deleteBranch(const QString &name, bool force)
-{
-    enqueueBranchCommand({QStringLiteral("branch"), force ? QStringLiteral("-D") : QStringLiteral("-d"), name},
-                         tr("Deleted the branch %1.").arg(name), tr("Deleting %1 failed").arg(name));
-}
-
 namespace {
 
 // Continuing never stops at an editor: the message git prepared stands
@@ -1897,6 +1828,69 @@ QString stoppedAt(const GitRunner &git, const GitResult &result)
 
 } // namespace
 
+void Repository::enqueueGitWrite(const QStringList &args, const QString &done, const QString &failed)
+{
+    if (m_plan) {
+        emit errorOccurred(tr("That cannot be planned; end planning first."));
+        return;
+    }
+    // The history again whatever HEAD does: a branch made elsewhere, or
+    // renamed or deleted, shows only in its refs
+    enqueue(JobKind::Write, [=, request = diffRequest(), history = historyRequest(true)](const GitRunner &git) {
+        Outcome outcome;
+        const GitResult result = git.run(args);
+        if (result.ok())
+            outcome.notice = done;
+        else
+            outcome.error = tr("%1: %2").arg(failed, stoppedAt(git, result));
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::createBranch(const QString &name, const QString &start, bool checkout)
+{
+    const QString at = start.isEmpty() ? QStringLiteral("HEAD") : start;
+    if (checkout)
+        enqueueGitWrite({QStringLiteral("switch"), QStringLiteral("-c"), name, at},
+                             tr("Switched to the new branch %1.").arg(name), tr("Making the branch %1 failed").arg(name));
+    else
+        enqueueGitWrite({QStringLiteral("branch"), name, at}, tr("Made the branch %1.").arg(name),
+                             tr("Making the branch %1 failed").arg(name));
+}
+
+void Repository::checkoutBranch(const QString &name)
+{
+    // A remote-tracking branch: a local one of its name, tracking it
+    if (m_remoteBranches.contains(name) && !m_branches.contains(name)) {
+        const QString local = name.section(QLatin1Char('/'), 1);
+        if (m_branches.contains(local)) {
+            enqueueGitWrite({QStringLiteral("switch"), local}, tr("Switched to %1.").arg(local),
+                                 tr("Switching to %1 failed").arg(local));
+            return;
+        }
+        enqueueGitWrite({QStringLiteral("switch"), QStringLiteral("-c"), local, QStringLiteral("--track"), name},
+                             tr("Switched to the new branch %1, which tracks %2.").arg(local, name),
+                             tr("Switching to %1 failed").arg(name));
+        return;
+    }
+    enqueueGitWrite({QStringLiteral("switch"), name}, tr("Switched to %1.").arg(name),
+                         tr("Switching to %1 failed").arg(name));
+}
+
+void Repository::renameBranch(const QString &from, const QString &to)
+{
+    enqueueGitWrite({QStringLiteral("branch"), QStringLiteral("-m"), from, to},
+                         tr("Renamed %1 to %2.").arg(from, to), tr("Renaming %1 failed").arg(from));
+}
+
+void Repository::deleteBranch(const QString &name, bool force)
+{
+    enqueueGitWrite({QStringLiteral("branch"), force ? QStringLiteral("-D") : QStringLiteral("-d"), name},
+                         tr("Deleted the branch %1.").arg(name), tr("Deleting %1 failed").arg(name));
+}
+
+
 void Repository::pull()
 {
     if (m_plan) {
@@ -1910,22 +1904,15 @@ void Repository::pull()
     const QString upstream = m_status.upstream;
     enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true), upstream](const GitRunner &git) {
         Outcome outcome;
-        const QString remote = upstreamRemote(git);
-        const NetworkResult fetched = fetchFrom(git, remote);
-        if (!fetched.ok) {
-            outcome.error = tr("Pulling failed: %1").arg(fetched.message);
-        } else {
-            const QString mode = QString::fromUtf8(git.run({QStringLiteral("config"), QStringLiteral("--get"),
-                                                            QStringLiteral("pull.rebase")}).out).trimmed();
-            const bool rebase = !mode.isEmpty() && mode != QLatin1String("false");
-            const GitResult result = rebase ? git.run({QStringLiteral("rebase"), upstream})
-                                            : git.run({QStringLiteral("merge"), QStringLiteral("--no-edit"), upstream});
-            if (result.ok())
-                outcome.notice = rebase ? tr("Pulled %1 and rebased onto it.").arg(upstream)
-                                        : tr("Pulled %1.").arg(upstream);
-            else
-                outcome.error = tr("Pulling %1: %2").arg(upstream, stoppedAt(git, result));
-        }
+        const NetworkResult pulled = pullUpstream(git);
+        if (pulled.ok)
+            outcome.notice = tr("Pulled %1.").arg(upstream);
+        else if (!operationInProgress(git).isEmpty())
+            outcome.error = tr("Pulling %1: %2").arg(upstream, tr("%1 stopped at conflicts: resolve them in the changes, "
+                                                                  "then continue, or abort.\n%2")
+                                                                   .arg(operationInProgress(git), pulled.message));
+        else
+            outcome.error = tr("Pulling %1 failed: %2").arg(upstream, pulled.message);
         outcome.state = loadState(sourceFor(git, nullptr), request, history);
         return outcome;
     });
@@ -1933,38 +1920,13 @@ void Repository::pull()
 
 void Repository::mergeBranch(const QString &name)
 {
-    if (m_plan) {
-        emit errorOccurred(tr("Merging is off while planning."));
-        return;
-    }
-    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true), name](const GitRunner &git) {
-        Outcome outcome;
-        const GitResult result = git.run({QStringLiteral("merge"), QStringLiteral("--no-edit"), name});
-        if (result.ok())
-            outcome.notice = tr("Merged %1.").arg(name);
-        else
-            outcome.error = tr("Merging %1: %2").arg(name, stoppedAt(git, result));
-        outcome.state = loadState(sourceFor(git, nullptr), request, history);
-        return outcome;
-    });
+    enqueueGitWrite({QStringLiteral("merge"), QStringLiteral("--no-edit"), name}, tr("Merged %1.").arg(name),
+                    tr("Merging %1").arg(name));
 }
 
 void Repository::rebaseOnto(const QString &name)
 {
-    if (m_plan) {
-        emit errorOccurred(tr("Rebasing is off while planning."));
-        return;
-    }
-    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true), name](const GitRunner &git) {
-        Outcome outcome;
-        const GitResult result = git.run({QStringLiteral("rebase"), name});
-        if (result.ok())
-            outcome.notice = tr("Rebased onto %1.").arg(name);
-        else
-            outcome.error = tr("Rebasing onto %1: %2").arg(name, stoppedAt(git, result));
-        outcome.state = loadState(sourceFor(git, nullptr), request, history);
-        return outcome;
-    });
+    enqueueGitWrite({QStringLiteral("rebase"), name}, tr("Rebased onto %1.").arg(name), tr("Rebasing onto %1").arg(name));
 }
 
 void Repository::continueOperation()
@@ -2033,16 +1995,66 @@ void Repository::discardSelection()
 {
     if (m_diffSource != UnstagedDiff || m_ignoreWhitespace)
         return;
-    // The selection taken out of the working tree: built as for unstaging,
-    // with the rest of the working tree's side intact, and applied back
-    const QByteArray patch = selectionPatch(PatchDirection::Reverse);
-    if (patch.isEmpty())
-        return;
     const int lines = m_diff.selectedCount();
     if (m_plan) {
         emit errorOccurred(tr("Discarding is off while planning."));
         return;
     }
+    // An untracked file has no other side to apply a patch back to: its
+    // selected lines are taken out of it
+    bool untracked = false;
+    for (const StatusEntry &entry : std::as_const(m_status.entries)) {
+        if (entry.path == m_diffPath)
+            untracked = entry.untracked;
+    }
+    if (untracked && m_diff.files().size() == 1) {
+        QSet<int> drop; // 1-based line numbers of the file
+        const FileDiff &file = m_diff.files().first();
+        const LineSelection selection = m_diff.selection(0);
+        for (int h = 0; h < file.hunks.size() && h < selection.size(); ++h) {
+            const DiffHunk &hunk = file.hunks[h];
+            for (int i = 0; i < hunk.lines.size() && i < selection[h].size(); ++i) {
+                if (selection[h][i] && hunk.lines[i].kind == DiffLine::Added)
+                    drop.insert(hunk.lines[i].newLine);
+            }
+        }
+        if (drop.isEmpty())
+            return;
+        const QString path = QDir(this->path()).filePath(m_diffPath);
+        enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(false), path, drop, lines](const GitRunner &git) {
+            Outcome outcome;
+            QFile file(path);
+            if (!file.open(QIODevice::ReadOnly)) {
+                outcome.error = tr("Reading %1 failed: %2").arg(path, file.errorString());
+                return outcome;
+            }
+            const QByteArray content = file.readAll();
+            file.close();
+            QList<QByteArray> kept;
+            const QList<QByteArray> all = content.split('\n');
+            // The last part after a final newline is not a line
+            const qsizetype count = content.endsWith('\n') ? all.size() - 1 : all.size();
+            for (qsizetype i = 0; i < count; ++i) {
+                if (!drop.contains(int(i) + 1))
+                    kept.append(all[i]);
+            }
+            QByteArray out = kept.join('\n');
+            if (!kept.isEmpty() && content.endsWith('\n'))
+                out += '\n';
+            if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(out) != out.size())
+                outcome.error = tr("Writing %1 failed: %2").arg(path, file.errorString());
+            else
+                outcome.notice = tr("Discarded %n line(s).", "", lines);
+            outcome.state = loadState(sourceFor(git, nullptr), request, history);
+            return outcome;
+        });
+        return;
+    }
+    // The selection taken out of the working tree: built as for unstaging,
+    // with the rest of the working tree's side intact, and applied back
+    const QByteArray patch = selectionPatch(PatchDirection::Reverse);
+    if (patch.isEmpty())
+        return;
     enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(false), patch, lines](const GitRunner &git) {
         Outcome outcome;
         const GitResult result = git.run({QStringLiteral("apply"), QStringLiteral("--reverse"),
@@ -2101,11 +2113,22 @@ void Repository::cherryPick(const QString &sha)
     }
     enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true), sha](const GitRunner &git) {
         Outcome outcome;
+        // A commit the branch has already: nothing to pick
+        if (git.run({QStringLiteral("merge-base"), QStringLiteral("--is-ancestor"), sha, QStringLiteral("HEAD")}).ok()) {
+            outcome.error = tr("The branch has %1 already.").arg(sha.left(10));
+            return outcome;
+        }
         const GitResult result = git.run(QStringList{QStringLiteral("cherry-pick")} + mainline(git, sha) + QStringList{sha});
-        if (result.ok())
+        const QString said = QString::fromUtf8(result.out) + result.errorText();
+        if (result.ok()) {
             outcome.notice = tr("Picked %1.").arg(sha.left(10));
-        else
+        } else if (said.contains(QLatin1String("is now empty"))) {
+            // Its change is in the branch by another commit: not left open
+            git.run({QStringLiteral("cherry-pick"), QStringLiteral("--skip")});
+            outcome.error = tr("The branch has what %1 changes already; nothing was picked.").arg(sha.left(10));
+        } else {
             outcome.error = tr("Cherry-picking %1: %2").arg(sha.left(10), stoppedAt(git, result));
+        }
         outcome.state = loadState(sourceFor(git, nullptr), request, history);
         return outcome;
     });

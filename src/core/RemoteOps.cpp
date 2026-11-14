@@ -173,6 +173,20 @@ NetworkResult fetchFrom(const GitRunner &git, const QString &remote)
     return result;
 }
 
+NetworkResult pullUpstream(const GitRunner &git)
+{
+    NetworkResult result;
+    const GitResult r = git.run({QStringLiteral("pull"), QStringLiteral("--no-edit")}, {}, networkEnvironment(git));
+    result.ok = r.ok();
+    if (!result.ok) {
+        QString text = r.errorText().trimmed();
+        if (text.isEmpty())
+            text = QString::fromUtf8(r.out).trimmed();
+        result.message = explainNetworkFailure(text);
+    }
+    return result;
+}
+
 NetworkResult fetchObjects(const GitRunner &git, const QString &remote, const QString &ref)
 {
     NetworkResult result;

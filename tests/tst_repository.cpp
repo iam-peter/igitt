@@ -682,7 +682,7 @@ private slots:
         them.run({u"add"_s, u"later.txt"_s});
         them.run({u"commit"_s, u"-q"_s, u"-m"_s, u"Later"_s});
         them.run({u"push"_s, u"-q"_s});
-        git({"config", "pull.rebase", "true"});
+        git({"config", "branch.main.rebase", "true"}); // as git pull: the branch's setting counts
         repo().refresh();
         QVERIFY(settle(repo()));
         repo().pull();
@@ -758,6 +758,16 @@ private slots:
         repo().discardSelection();
         QVERIFY(settle(repo()));
         QCOMPARE(readFile(file()), "ONE\nTWO\nthree\nfour\nfive\n"_ba);
+
+        // Some lines of an untracked file, the others staying
+        writeFile(m_dir->filePath(u"notes.txt"_s), "keep\ndrop\nkeep too\n");
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        showFile(u"notes.txt"_s, false);
+        selectLinesContaining({u"drop"_s});
+        repo().discardSelection();
+        QVERIFY(settle(repo()));
+        QCOMPARE(readFile(m_dir->filePath(u"notes.txt"_s)), "keep\nkeep too\n"_ba);
         QVERIFY(m_errors->isEmpty());
     }
 
@@ -811,6 +821,18 @@ private slots:
         QVERIFY(settle(repo()));
         QCOMPARE(git({"log", "-1", "--format=%s"}), "Picked\n"_ba);
         QVERIFY(QFile::exists(m_dir->filePath(u"picked.txt"_s)));
+        // Picked again, from other, whose change main has now: refused,
+        // nothing left open; and one that is main's own
+        repo().cherryPick(picked);
+        QVERIFY(settle(repo()));
+        QCOMPARE(m_errors->size(), 1);
+        QCOMPARE(repo().operation(), QString());
+        repo().cherryPick(QString::fromUtf8(git({"rev-parse", "HEAD~1"}).trimmed()));
+        QVERIFY(settle(repo()));
+        QCOMPARE(m_errors->size(), 2);
+        QCOMPARE(repo().operation(), QString());
+        QCOMPARE(git({"log", "-1", "--format=%s"}), "Picked\n"_ba);
+        m_errors->clear();
 
         repo().revertCommit(QString::fromUtf8(git({"rev-parse", "HEAD"}).trimmed()));
         QVERIFY(settle(repo()));
@@ -888,6 +910,11 @@ private slots:
         QCOMPARE(git({"cat-file", "-t", "v1.1"}).trimmed(), "tag"_ba);    // annotated
         QVERIFY(repo().tags().contains(u"v1.1"_s));
         QVERIFY(!repo().tagNameError(u"v1.1"_s).isEmpty()); // taken
+        repo().setShowTags(false);
+        QVERIFY(settle(repo()));
+        QVERIFY(!repo().tagNameError(u"v1.1"_s).isEmpty()); // also when tags are not shown
+        repo().setShowTags(true);
+        QVERIFY(settle(repo()));
 
         repo().pushTag(u"v1.1"_s);
         QVERIFY(settle(repo()));
@@ -908,6 +935,7 @@ private slots:
         QCOMPARE(repo().cloneFolderName(remote.filePath(u"widget.git"_s)), u"widget"_s);
         QCOMPARE(repo().cloneFolderName(u"git@github.com:acme/widget.git"_s), u"widget"_s);
         QCOMPARE(repo().cloneFolderName(u"https://example.org/x/tool/"_s), u"tool"_s);
+        QCOMPARE(repo().cloneFolderName(u"C:\\repos\\widget.git"_s), u"widget"_s);
         repo().cloneRepository(remote.filePath(u"widget.git"_s), parent.path());
         QVERIFY(settle(repo()));
         QCOMPARE(repo().path(), QDir(parent.filePath(u"widget"_s)).canonicalPath());
@@ -926,13 +954,15 @@ private slots:
     // branch made the upstream.
     void managesRemotes()
     {
-        QTemporaryDir remote;
-        GitRunner(remote.path()).run({u"init"_s, u"-q"_s, u"--bare"_s, u"-b"_s, u"main"_s, remote.path()});
+        QTemporaryDir place;
+        // A path with a space, which git remote -v prints as it is
+        const QString remotePath = place.filePath(u"my remote.git"_s);
+        GitRunner(place.path()).run({u"init"_s, u"-q"_s, u"--bare"_s, u"-b"_s, u"main"_s, remotePath});
         open(m_dir->path());
-        repo().addRemote(u"origin"_s, remote.path());
+        repo().addRemote(u"origin"_s, remotePath);
         QVERIFY(settle(repo()));
         QCOMPARE(repo().remotes().size(), 1);
-        QCOMPARE(repo().remotes().first().toMap().value(u"url"_s).toString(), remote.path());
+        QCOMPARE(repo().remotes().first().toMap().value(u"url"_s).toString(), remotePath);
         git({"push", "-q", "origin", "main"});
         repo().renameRemote(u"origin"_s, u"upstream"_s);
         QVERIFY(settle(repo()));
@@ -1017,6 +1047,27 @@ private slots:
         QCOMPARE(readFile(file()), "one\nTWO\nthree\nfour\nfive\n"_ba);
         QCOMPARE(git({"log", "-1", "--format=%s"}), "Second\n"_ba); // no commit
         QVERIFY(m_errors->isEmpty());
+
+        // An am stopped in a terminal stays as it is
+        git({"checkout", "--", "f.txt"});
+        writeFile(file(), "one\ntwo\nTHREE\nfour\nfive\n");
+        git({"commit", "-qam", "Three"});
+        const QByteArray three = git({"format-patch", "-1", "--stdout", "HEAD"});
+        git({"reset", "-q", "--hard", "HEAD~1"});
+        writeFile(file(), "one\ntwo\nthree, other\nfour\nfive\n");
+        git({"commit", "-qam", "Other three"});
+        writeFile(out.filePath(u"three.patch"_s), three);
+        QVERIFY(!m_git.run({u"am"_s, out.filePath(u"three.patch"_s)}).ok()); // stopped
+        const QByteArray head = git({"rev-parse", "HEAD"});
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        repo().applyPatch(patch);
+        QVERIFY(settle(repo()));
+        QCOMPARE(m_errors->size(), 1);
+        QVERIFY(m_errors->takeFirst().first().toString().contains(u"am is going on"_s));
+        QVERIFY(QDir(m_dir->filePath(u".git/rebase-apply"_s)).exists());
+        QCOMPARE(git({"rev-parse", "HEAD"}), head);
+        git({"am", "--abort"});
     }
 
     // A bisection from a good and a bad commit to the first bad one, and

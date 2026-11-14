@@ -95,12 +95,15 @@ struct WorktreeInfo
     QString path;
     QString branch; // empty when detached
     bool bare = false;
+    bool current = false; // the one the history was read in
 };
 
 struct HistoryState
 {
     QList<RemoteInfo> remotes;
     QList<WorktreeInfo> worktrees;
+    QStringList tagNames;  // every tag, also when the refs leave tags out
+    QStringList stashes;   // their messages, the newest first (stash@{0})
     QString head;
     bool wip = false; // uncommitted changes, shown as a row on top
     GraphRow wipGraph;

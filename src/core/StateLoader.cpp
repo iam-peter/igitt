@@ -132,14 +132,30 @@ HistoryState loadHistory(const StateSource &source, const StatusInfo &status, co
     history.head = status.headSha;
     history.wip = !status.entries.isEmpty();
     history.refs = parseRefs(git.run(QStringList{QStringLiteral("for-each-ref")} + refFormatArgs()).out);
+    bool hasStash = false;
+    for (const RefInfo &ref : std::as_const(history.refs)) {
+        if (ref.kind == RefInfo::Tag)
+            history.tagNames.append(ref.name);
+        hasStash = hasStash || ref.kind == RefInfo::Stash;
+    }
+    // The stashes, by their messages, newest first; only if there is one
+    if (hasStash) {
+        const GitResult stashes = git.run({QStringLiteral("stash"), QStringLiteral("list"), QStringLiteral("--format=%gs")});
+        for (const QByteArray &line : stashes.out.split('\n')) {
+            if (!line.isEmpty())
+                history.stashes.append(QString::fromUtf8(line));
+        }
+    }
     history.refs.removeIf([&filter](const RefInfo &ref) {
         return (ref.kind == RefInfo::RemoteBranch && !filter.remotes) || (ref.kind == RefInfo::Tag && !filter.tags);
     });
     // The remotes, by where they fetch from
+    // ("<name>\t<url> (fetch)": the URL may have spaces)
     for (const QByteArray &line : git.run({QStringLiteral("remote"), QStringLiteral("-v")}).out.split('\n')) {
-        const QList<QByteArray> parts = line.simplified().split(' ');
-        if (parts.size() >= 3 && parts[2] == "(fetch)")
-            history.remotes.append({QString::fromUtf8(parts[0]), QString::fromUtf8(parts[1])});
+        const qsizetype tab = line.indexOf('\t');
+        if (tab > 0 && line.endsWith(" (fetch)"))
+            history.remotes.append({QString::fromUtf8(line.left(tab)),
+                                    QString::fromUtf8(line.mid(tab + 1, line.size() - tab - 1 - 8))});
     }
     // The worktrees: "worktree <path>", then "branch refs/heads/<name>",
     // "detached" or "bare", a block each
@@ -157,6 +173,9 @@ HistoryState loadHistory(const StateSource &source, const StatusInfo &status, co
             worktree = {};
         }
     }
+    const QString here = QDir(git.workDir()).canonicalPath();
+    for (WorktreeInfo &each : history.worktrees)
+        each.current = QDir(each.path).canonicalPath() == here;
 
     // In a simulation the checked out branch points at the simulated HEAD,
     // and its real commits must not show up as a second line of history.
@@ -391,15 +410,6 @@ RepositoryState loadState(const StateSource &source, const DiffRequest &diff, co
             return state;
         }
         state.status = parseStatus(result.out);
-        // The stashes, by their messages, newest first
-        const GitResult stashes = source.git.run({QStringLiteral("stash"), QStringLiteral("list"),
-                                                  QStringLiteral("--format=%gs")});
-        if (stashes.ok()) {
-            for (const QByteArray &line : stashes.out.split('\n')) {
-                if (!line.isEmpty())
-                    state.status->stashes.append(QString::fromUtf8(line));
-            }
-        }
     }
     if (history.force || state.status->headSha != history.knownHead
         || state.status->entries.isEmpty() == history.knownWip)
