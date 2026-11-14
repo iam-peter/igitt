@@ -269,6 +269,9 @@ public:
     // Why the selected lines cannot be folded into `sha`, or an empty
     // string if they can.
     Q_INVOKABLE QString foldBlocker(const QString &sha) const;
+    // What keeps anything from folding into `sha`, whatever is selected:
+    // for a whole file, whose lines are selected once it is shown.
+    Q_INVOKABLE QString foldTargetBlocker(const QString &sha) const;
     // Whether a remote-tracking branch contains `sha` already, so folding
     // into it means force pushing.
     Q_INVOKABLE bool isPublished(const QString &sha) const;

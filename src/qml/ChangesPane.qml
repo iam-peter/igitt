@@ -12,6 +12,10 @@ Pane {
     required property font monoFont
 
     signal timelapseRequested(string path)
+    // A file dragged out of a list, and where it was let go, to fold it
+    // into a commit
+    signal fileDragMoved(string path, bool staged, point scenePos)
+    signal fileDropped(string path, bool staged, point scenePos)
 
     padding: 0
 
@@ -30,11 +34,15 @@ Pane {
             staged: false
             title: qsTr("Unstaged Changes")
             onTimelapseRequested: path => pane.timelapseRequested(path)
-            onFileDragMoved: (path, pos) => stagedFiles.dropTarget = stagedFiles.containsScenePoint(pos)
+            onFileDragMoved: (path, pos) => {
+                stagedFiles.dropTarget = stagedFiles.containsScenePoint(pos)
+                pane.fileDragMoved(path, false, pos)
+            }
             onFileDropped: (path, pos) => {
                 stagedFiles.dropTarget = false
                 if (stagedFiles.containsScenePoint(pos))
                     pane.repo.stageFile(path)
+                pane.fileDropped(path, false, pos)
             }
         }
 
@@ -46,11 +54,15 @@ Pane {
             staged: true
             title: qsTr("Staged Changes")
             onTimelapseRequested: path => pane.timelapseRequested(path)
-            onFileDragMoved: (path, pos) => unstagedFiles.dropTarget = unstagedFiles.containsScenePoint(pos)
+            onFileDragMoved: (path, pos) => {
+                unstagedFiles.dropTarget = unstagedFiles.containsScenePoint(pos)
+                pane.fileDragMoved(path, true, pos)
+            }
             onFileDropped: (path, pos) => {
                 unstagedFiles.dropTarget = false
                 if (unstagedFiles.containsScenePoint(pos))
                     pane.repo.unstageFile(path)
+                pane.fileDropped(path, true, pos)
             }
         }
 

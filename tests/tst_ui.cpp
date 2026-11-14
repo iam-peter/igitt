@@ -115,9 +115,8 @@ private slots:
         screenshot(window, u"line-menu"_s);
         QTest::keyClick(window, Qt::Key_Escape);
 
-        // Changes has no graph to drag onto; its diff folds by a button,
-        // as the window does here
-        QVERIFY(QMetaObject::invokeMethod(window, "requestFold", Q_ARG(QString, repo->commits()->shaAt(2))));
+        // Dragged onto a commit of the strip above the changes
+        dragSelectionOntoCommit(window, u"recentCommits"_s, 2);
         QVERIFY(settle(*repo));
         QVERIFY(repo->canUndoFold());
         QCOMPARE(repo->commits()->rowCount(), 9);
@@ -789,8 +788,12 @@ private slots:
     // rework the commits not pushed yet; each shows its own diff.
     void switchesModes()
     {
-        // A change of its own, whatever the tests before left
-        write(u"modes.txt"_s, "a change\n");
+        // A commit not pushed yet and a change of its own, whatever the
+        // tests before left
+        write(u"modes.txt"_s, "one\n");
+        git({"add", "modes.txt"});
+        git({"commit", "-q", "-m", "Try the modes"});
+        write(u"modes.txt"_s, "one\ntwo\n");
         QQmlApplicationEngine engine;
         engine.setInitialProperties({{u"initialPath"_s, m_dir.path()}});
         engine.loadFromModule("Igitt", "Main");
@@ -808,11 +811,34 @@ private slots:
         QVERIFY(!window->findChild<QQuickItem *>(u"historyList"_s)->isVisible());
 
         // Above the changes, every commit not pushed yet and the one they
-        // stand on; one is shown in History
+        // stand on
         auto *recent = window->findChild<QQuickItem *>(u"recentCommits"_s);
-        QVERIFY(recent && recent->isVisible());
+        QTRY_VERIFY(recent && recent->isVisible());
         const int unpushed = gitOut({"rev-list", "--count", "HEAD", "--not", "--remotes"}).trimmed().toInt();
-        QTRY_COMPARE(recent->property("count").toInt(), unpushed + 1);
+        QVERIFY(unpushed >= 1);
+        const int commits = gitOut({"rev-list", "--count", "HEAD"}).trimmed().toInt();
+        QTRY_COMPARE(recent->property("count").toInt(), std::min(unpushed + 1, commits));
+
+        // A file dropped onto one folds into it, all its lines
+        {
+            QQuickItem *file = nullptr;
+            QTRY_VERIFY((file = fileRow(window, u"unstagedList"_s, u"modes.txt"_s)));
+            QQuickItem *head = nullptr;
+            QTRY_VERIFY(QMetaObject::invokeMethod(recent, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, head), Q_ARG(int, 0))
+                        && head);
+            QVERIFY(QQuickTest::qWaitForPolish(window));
+            dragFromTo(window, file->mapToScene({file->width() / 2, file->height() / 2}).toPoint(),
+                       head->mapToScene({head->width() / 3, head->height() / 2}).toPoint());
+            QVERIFY(settle(*repo));
+            QTRY_COMPARE(gitOut({"show", "HEAD:modes.txt"}), "one\ntwo\n"_ba);
+            QCOMPARE(gitOut({"log", "-1", "--format=%s"}), "Try the modes\n"_ba);
+            QCOMPARE(gitOut({"show", "--name-only", "--format=", "HEAD"}), "modes.txt\n"_ba); // that file only
+            QVERIFY(!gitOut({"status", "--porcelain"}).contains("modes.txt"));
+            repo->undoFold();
+            QVERIFY(settle(*repo));
+            QCOMPARE(gitOut({"show", "HEAD:modes.txt"}), "one\n"_ba);
+        }
+        // A commit of the strip is shown in History
         QQuickItem *first = nullptr;
         QTRY_VERIFY(QMetaObject::invokeMethod(recent, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, first), Q_ARG(int, 0))
                     && first);
@@ -851,6 +877,7 @@ private slots:
         QTRY_VERIFY(clusters->pieceCount() > 0);
         QVERIFY(window->findChild<QQuickItem *>(u"groupsView"_s)->isVisible());
         QVERIFY(!window->findChild<QQuickItem *>(u"composePlanButton"_s)->isVisible());
+        git({"reset", "-q", "HEAD~1"});
         QFile::remove(m_dir.filePath(u"modes.txt"_s));
     }
 
@@ -1662,10 +1689,10 @@ private slots:
 
 private:
     // Drags the fold handle of the diff view onto a row of the history.
-    void dragSelectionOntoCommit(QQuickWindow *window, int row)
+    void dragSelectionOntoCommit(QQuickWindow *window, const QString &listName, int row)
     {
         auto *handle = window->findChild<QQuickItem *>(u"foldHandle"_s);
-        auto *list = window->findChild<QQuickItem *>(u"historyList"_s);
+        auto *list = window->findChild<QQuickItem *>(listName);
         QVERIFY(handle && list);
         QTRY_VERIFY(handle->isVisible());
         QQuickItem *rowItem = nullptr;
@@ -1675,6 +1702,11 @@ private:
 
         const QPoint from = handle->mapToScene({handle->width() / 2, handle->height() / 2}).toPoint();
         const QPoint to = rowItem->mapToScene({rowItem->width() / 3, rowItem->height() / 2}).toPoint();
+        dragFromTo(window, from, to);
+    }
+
+    void dragFromTo(QQuickWindow *window, QPoint from, QPoint to)
+    {
         QTest::mousePress(window, Qt::LeftButton, {}, from);
         constexpr int steps = 12;
         for (int i = 1; i <= steps; ++i)

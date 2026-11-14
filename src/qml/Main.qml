@@ -40,6 +40,30 @@ ApplicationWindow {
         onNotice: (message, links) => messageBar.show(message, false, links)
     }
 
+    // A whole file folded into a commit: shown, all its lines selected,
+    // then folded as selected lines are
+    property var pendingFold: null
+    function foldFile(path: string, staged: bool, sha: string) {
+        const source = staged ? Repository.StagedDiff : Repository.UnstagedDiff
+        const shown = repo.diffPath === path && repo.diffSource === source
+        // Asking for the file says the diff changed at once, with the lines
+        // of the one before: the fold waits for the next time, its own
+        if (!shown)
+            repo.showFile(path, staged)
+        pendingFold = {path: path, source: source, sha: sha}
+        if (shown)
+            foldPending()
+    }
+    function foldPending() {
+        const fold = pendingFold
+        if (!fold || repo.diffPath !== fold.path || repo.diffSource !== fold.source)
+            return
+        pendingFold = null
+        repo.diff.clearSelection()
+        repo.diff.selectRange(0, repo.diff.rowCount() - 1)
+        requestFold(fold.sha)
+    }
+
     function requestFold(sha: string) {
         if (!repo.isPublished(sha)) {
             repo.foldSelection(sha)
@@ -166,6 +190,7 @@ ApplicationWindow {
     Connections {
         target: repo
         function onDiffChanged() {
+            root.foldPending()
             if (repo.diffSource === Repository.CommitDiff)
                 root.historySha = repo.diffCommit
             // The uncommitted changes, picked in History, are Changes' to show
@@ -720,6 +745,7 @@ ApplicationWindow {
                     spacing: 0
 
                     RecentCommits {
+                        id: recent
                         Layout.fillWidth: true
                         repo: repo
                         onCommitClicked: sha => root.showCommitInHistory(sha)
@@ -733,6 +759,12 @@ ApplicationWindow {
                         ChangesPane {
                             repo: repo
                             monoFont: root.monoFont
+                            onFileDragMoved: (path, staged, pos) => recent.updateDrop(pos, true)
+                            onFileDropped: (path, staged, pos) => {
+                                const sha = recent.finishDrop(pos, true)
+                                if (sha !== "")
+                                    root.foldFile(path, staged, sha)
+                            }
                             SplitView.preferredWidth: 360
                             SplitView.minimumWidth: 220
                             onTimelapseRequested: path => root.openTimelapse(path)
@@ -776,6 +808,14 @@ ApplicationWindow {
             anchors.fill: parent
             repo: repo
             monoFont: root.monoFont
+            // The selected lines fold into a commit of the strip above
+            canDropFold: root.mode === Main.Mode.Changes && recent.visible
+            onFoldDragMoved: pos => recent.updateDrop(pos, false)
+            onFoldDragFinished: pos => {
+                const sha = recent.finishDrop(pos, false)
+                if (sha !== "")
+                    root.requestFold(sha)
+            }
             onFoldRequested: sha => root.requestFold(sha)
             onTimelapseRequested: path => root.openTimelapse(path)
         }

@@ -677,10 +677,15 @@ QString Repository::foldBlocker(const QString &sha) const
 {
     if (m_diffSource != UnstagedDiff && m_diffSource != StagedDiff)
         return tr("Show a working tree file and select the lines to fold.");
+    if (m_diff.selectedCount() == 0 && !m_ignoreWhitespace)
+        return tr("Select the lines to fold first.");
+    return foldTargetBlocker(sha);
+}
+
+QString Repository::foldTargetBlocker(const QString &sha) const
+{
     if (m_ignoreWhitespace)
         return tr("Lines cannot be folded while white space is ignored.");
-    if (m_diff.selectedCount() == 0)
-        return tr("Select the lines to fold first.");
     if (!m_foldTargets.contains(sha))
         return tr("Only commits of the current branch, from HEAD down to its last merge, "
                   "can be folded into.");

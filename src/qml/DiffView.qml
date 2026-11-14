@@ -29,6 +29,8 @@ Pane {
     // towards the history, and once when they are dropped.
     signal foldDragMoved(point scenePos)
     signal foldDragFinished(point scenePos)
+    // Somewhere to drop the selected lines on, for the fold handle
+    property bool canDropFold: true
     signal foldRequested(string sha)
     signal timelapseRequested(string path)
 
@@ -139,7 +141,7 @@ Pane {
                     property point lastScenePos
 
                     objectName: "foldHandle"
-                    visible: view.hasSelection
+                    visible: view.hasSelection && view.canDropFold
                     implicitWidth: handleLabel.implicitWidth + 16
                     implicitHeight: handleLabel.implicitHeight + 8
                     radius: 4
@@ -166,8 +168,7 @@ Pane {
                     }
                     ToolTip.visible: handleHover.hovered && !foldDrag.active
                     ToolTip.delay: 500
-                    ToolTip.text: qsTr("Drop on a commit in the history to fold the selected lines into it. "
-                                       + "Right-clicking a commit works too.")
+                    ToolTip.text: qsTr("Drop on a commit not pushed yet, above the changes, to fold the selected lines into it")
 
                     DragHandler {
                         id: foldDrag
