@@ -8,7 +8,9 @@ import Igitt.Core
 import IgittStyle as Styles
 
 // The repository's tracked files: click one to see its content, double-click
-// (or right-click) for its time-lapse view.
+// (or right-click) for its time-lapse view. Files changed against HEAD are
+// colored and lettered as in the Changes tab, and a dot on a directory
+// sums up what changed in it.
 Pane {
     id: pane
 
@@ -18,6 +20,36 @@ Pane {
     readonly property string filter: filterField.text.trim()
 
     signal timelapseRequested(string path)
+
+    // At the end of a row: a file's status letter, or a dot for a
+    // directory with changes in it, in the status's color
+    component StatusMark: Item {
+        id: mark
+
+        required property string status
+        property bool isDir: false
+
+        visible: status !== ""
+        implicitWidth: 16
+        implicitHeight: 16
+
+        Label {
+            anchors.centerIn: parent
+            visible: !mark.isDir
+            text: mark.status
+            font.bold: true
+            font.pixelSize: 11
+            color: Styles.TokenInterface.semantics.fileStatus(mark.status)
+        }
+        Rectangle {
+            anchors.centerIn: parent
+            visible: mark.isDir
+            width: 6
+            height: 6
+            radius: 3
+            color: Styles.TokenInterface.semantics.fileStatus(mark.status)
+        }
+    }
 
     function reload() {
         loadedHead = repo.headSha
@@ -106,6 +138,7 @@ Pane {
                 required property string path
                 required property bool isDir
                 required property string fileName
+                required property string status
 
                 implicitWidth: tree.width
                 implicitHeight: 26
@@ -123,6 +156,13 @@ Pane {
                         text: entry.fileName
                         textFormat: Text.PlainText
                         elide: Text.ElideRight
+                        color: entry.status !== "" ? Styles.TokenInterface.semantics.fileStatus(entry.status)
+                                                   : entry.palette.text
+                        font.strikeout: entry.status === "D" && !entry.isDir
+                    }
+                    StatusMark {
+                        status: entry.status
+                        isDir: entry.isDir
                     }
                 }
 
@@ -164,6 +204,7 @@ Pane {
                 id: match
 
                 required property string modelData
+                readonly property string status: pane.repo.files.statuses[modelData] ?? ""
 
                 width: ListView.view.width
                 height: 26
@@ -180,6 +221,9 @@ Pane {
                     Label {
                         text: match.modelData.split("/").pop()
                         textFormat: Text.PlainText
+                        color: match.status !== "" ? Styles.TokenInterface.semantics.fileStatus(match.status)
+                                                   : match.palette.text
+                        font.strikeout: match.status === "D"
                     }
                     Label {
                         Layout.fillWidth: true
@@ -187,6 +231,9 @@ Pane {
                         textFormat: Text.PlainText
                         elide: Text.ElideMiddle
                         opacity: 0.6
+                    }
+                    StatusMark {
+                        status: match.status
                     }
                 }
 

@@ -173,15 +173,7 @@ Item {
                         implicitWidth: 18
                         implicitHeight: 18
                         radius: 3
-                        color: {
-                            switch (item.status) {
-                            case "A": case "?": return Styles.TokenInterface.semantics.success_default
-                            case "D": return Styles.TokenInterface.semantics.danger_default
-                            case "R": case "C": return Styles.TokenInterface.semantics.info_default
-                            case "U": return Styles.TokenInterface.semantics.danger_default
-                            default: return Styles.TokenInterface.semantics.warning_default
-                            }
-                        }
+                        color: Styles.TokenInterface.semantics.fileStatus(item.status)
                         Label {
                             anchors.centerIn: parent
                             text: item.status === "?" ? "+" : item.status

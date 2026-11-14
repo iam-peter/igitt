@@ -148,6 +148,7 @@ void Repository::applyState(const RepositoryState &state)
             forgetFold();
         m_unstaged.setEntries(m_status.entries);
         m_staged.setEntries(m_status.entries);
+        m_files.setStatus(m_status.entries);
     }
     if (state.history) {
         const HistoryState &history = *state.history;

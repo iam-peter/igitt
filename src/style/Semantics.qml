@@ -88,4 +88,16 @@ QtObject {
     readonly property color dim: Themes.roles.dim
     readonly property color dim_subtle: Themes.roles.dim_subtle
     readonly property real shadow_strength: Themes.roles.shadow_strength
+
+    // A file's status, as a letter of git status: added (A, and ? for not
+    // tracked) in success, deleted (D) and unmerged (U) in danger, renamed
+    // and copied (R, C) in info, modified and the rest in warning
+    function fileStatus(code: string): color {
+        switch (code) {
+        case "A": case "?": return success_default
+        case "D": case "U": return danger_default
+        case "R": case "C": return info_default
+        default: return warning_default
+        }
+    }
 }

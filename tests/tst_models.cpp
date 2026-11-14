@@ -72,6 +72,95 @@ private slots:
         model.setFiles(paths, buildFileTree(paths));
         QCOMPARE(reset.size(), 0);
     }
+
+    void readsAFilesStatusAgainstHead()
+    {
+        const auto entry = [](QChar index, QChar worktree) {
+            StatusEntry e;
+            e.index = index;
+            e.worktree = worktree;
+            return e;
+        };
+        QCOMPARE(fileStatus(entry('.', 'M')), u"M"_s);
+        QCOMPARE(fileStatus(entry('M', 'M')), u"M"_s);
+        QCOMPARE(fileStatus(entry('A', 'M')), u"A"_s);
+        QCOMPARE(fileStatus(entry('A', 'D')), QString()); // never was in HEAD
+        QCOMPARE(fileStatus(entry('M', 'D')), u"D"_s);
+        QCOMPARE(fileStatus(entry('D', '.')), u"D"_s);
+        QCOMPARE(fileStatus(entry('R', 'M')), u"R"_s);
+        StatusEntry untracked;
+        untracked.untracked = true;
+        QCOMPARE(fileStatus(untracked), u"A"_s);
+        StatusEntry conflicted = entry('U', 'U');
+        conflicted.conflicted = true;
+        QCOMPARE(fileStatus(conflicted), u"U"_s);
+
+        QCOMPARE(directoryStatus({}), QString());
+        QCOMPARE(directoryStatus({u"A"_s}), u"A"_s);
+        QCOMPARE(directoryStatus({u"D"_s}), u"D"_s);
+        QCOMPARE(directoryStatus({u"A"_s, u"D"_s}), u"M"_s);
+        QCOMPARE(directoryStatus({u"R"_s}), u"M"_s);
+        QCOMPARE(directoryStatus({u"A"_s, u"U"_s}), u"U"_s);
+    }
+
+    // Changes mark the files and sum up in their directories; files not
+    // tracked come and go as rows, without a reset that would collapse
+    // the view.
+    void marksTheTreeWithItsChanges()
+    {
+        const QStringList paths{u"src/main.cpp"_s, u"src/core/a.cpp"_s, u"src/core/b.cpp"_s, u"README.md"_s};
+        FileTreeModel model;
+        QAbstractItemModelTester tester(&model);
+        model.setFiles(paths, buildFileTree(paths));
+        QSignalSpy reset(&model, &QAbstractItemModel::modelReset);
+
+        const auto change = [](const QString &path, QChar index, QChar worktree, bool untracked = false) {
+            StatusEntry e;
+            e.path = path;
+            e.index = index;
+            e.worktree = worktree;
+            e.untracked = untracked;
+            return e;
+        };
+        const auto status = [&model](const QModelIndex &index) { return index.data(FileTreeModel::StatusRole).toString(); };
+
+        model.setStatus({change(u"src/core/a.cpp"_s, '.', 'D'), change(u"src/core/b.cpp"_s, 'D', '.'),
+                         change(u"src/main.cpp"_s, '.', 'M'), change(u"docs/new.md"_s, '.', '.', true)});
+        QCOMPARE(reset.size(), 0);
+        // docs, src, README.md
+        QCOMPARE(model.rowCount(), 3);
+        const QModelIndex docs = model.index(0, 0);
+        const QModelIndex src = model.index(1, 0);
+        QCOMPARE(docs.data().toString(), u"docs"_s);
+        QCOMPARE(status(docs), u"A"_s);
+        QCOMPARE(status(model.index(0, 0, docs)), u"A"_s);
+        const QModelIndex core = model.index(0, 0, src);
+        QCOMPARE(status(core), u"D"_s); // both of its files deleted
+        QCOMPARE(status(src), u"M"_s);
+        QCOMPARE(status(model.index(1, 0, src)), u"M"_s);
+        QCOMPARE(status(model.index(2, 0)), QString()); // README.md
+        QCOMPARE(model.statuses().value(u"docs/new.md"_s).toString(), u"A"_s);
+        QCOMPARE(model.match(u"new"_s), QStringList{u"docs/new.md"_s});
+
+        // Committed or dropped, a file not tracked leaves, its directory
+        // with it
+        QSignalSpy statusChanged(&model, &FileTreeModel::statusChanged);
+        model.setStatus({change(u"src/main.cpp"_s, '.', 'M')});
+        QCOMPARE(reset.size(), 0);
+        QCOMPARE(statusChanged.size(), 1);
+        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(model.index(0, 0).data().toString(), u"src"_s);
+        QCOMPARE(status(model.index(0, 0)), u"M"_s);
+        QCOMPARE(status(model.index(0, 0, model.index(0, 0))), QString()); // core
+
+        // New files that HEAD's tree does not know of yet stay through a
+        // reload of the tracked files
+        model.setStatus({change(u"src/new.h"_s, 'A', '.')});
+        QCOMPARE(model.rowCount(model.index(0, 0)), 3);
+        model.setFiles(paths + QStringList{u"x.txt"_s}, buildFileTree(paths + QStringList{u"x.txt"_s}));
+        QCOMPARE(model.rowCount(model.index(0, 0)), 3);
+        QCOMPARE(model.match(u"new.h"_s), QStringList{u"src/new.h"_s});
+    }
 };
 
 QTEST_MAIN(TestModels)
