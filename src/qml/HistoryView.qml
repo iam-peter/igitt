@@ -25,6 +25,11 @@ Pane {
     signal rewordRequested(string sha)
     // The commit, not pushed yet, to rework in the Compose mode
     signal composeRequested(string sha)
+    // Branches: one to make at a commit, to switch to, to rename, to delete
+    signal branchRequested(string sha, string subject)
+    signal checkoutRequested(string name)
+    signal renameBranchRequested(string name)
+    signal deleteBranchRequested(string name)
 
     // Selects the commit and shows it, as if clicked
     function select(sha: string) {
@@ -100,6 +105,47 @@ Pane {
 
     padding: 0
 
+    // A branch label's: switch to it, rename or delete it; a
+    // remote-tracking one makes a local branch to switch to
+    Menu {
+        id: refMenu
+
+        property string name
+        property string kind
+        property bool current
+
+        MenuItem {
+            objectName: "checkoutMenuItem"
+            text: refMenu.kind === "remote" ? qsTr("Check Out as a Local Branch") : qsTr("Check Out")
+            enabled: !refMenu.current && !view.repo.planning
+            icon.source: Icons.source("git-branch")
+            icon.color: palette.windowText
+            onTriggered: view.checkoutRequested(refMenu.name)
+        }
+        MenuItem {
+            objectName: "renameBranchMenuItem"
+            visible: refMenu.kind === "branch"
+            height: visible ? implicitHeight : 0
+            text: qsTr("Rename…")
+            enabled: !view.repo.planning
+            icon.source: Icons.source("pencil")
+            icon.color: palette.windowText
+            onTriggered: view.renameBranchRequested(refMenu.name)
+        }
+        MenuItem {
+            objectName: "deleteBranchMenuItem"
+            visible: refMenu.kind === "branch"
+            height: visible ? implicitHeight : 0
+            text: qsTr("Delete…")
+            enabled: !refMenu.current && !view.repo.planning
+            icon.source: Icons.source("trash-2")
+            icon.color: palette.windowText
+            onTriggered: view.deleteBranchRequested(refMenu.name)
+            ToolTip.visible: hovered && refMenu.current
+            ToolTip.text: qsTr("Switch to another branch first")
+        }
+    }
+
     Menu {
         id: commitMenu
 
@@ -107,6 +153,14 @@ Pane {
         property string subject
         property string blocker
 
+        MenuItem {
+            objectName: "createBranchMenuItem"
+            text: qsTr("Create Branch Here…")
+            enabled: !view.repo.planning
+            icon.source: Icons.source("git-branch")
+            icon.color: palette.windowText
+            onTriggered: view.branchRequested(commitMenu.sha, commitMenu.subject)
+        }
         MenuItem {
             objectName: "composeMenuItem"
             text: qsTr("Edit in Compose")
@@ -454,6 +508,16 @@ Pane {
                 }
                 // History edits are Compose's
                 movable: false
+                onRefMenuRequested: (name, kind, current, position) => {
+                    refMenu.name = name
+                    refMenu.kind = kind
+                    refMenu.current = current
+                    refMenu.popup(this, position.x, position.y)
+                }
+                onRefActivated: (name, kind, current) => {
+                    if (!current && !view.repo.planning)
+                        view.checkoutRequested(name)
+                }
                 onClicked: {
                     list.currentIndex = index
                     list.forceActiveFocus()

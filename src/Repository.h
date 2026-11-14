@@ -42,6 +42,9 @@ class Repository : public QObject
     // what is on screen should wait for it.
     Q_PROPERTY(bool writing READ writing NOTIFY busyChanged)
     Q_PROPERTY(QString branch READ branch NOTIFY headChanged)
+    // The local branches, and the remote-tracking ones the history shows
+    Q_PROPERTY(QStringList branches READ branches NOTIFY headChanged)
+    Q_PROPERTY(QStringList remoteBranches READ remoteBranches NOTIFY headChanged)
     Q_PROPERTY(QString headSha READ headSha NOTIFY headChanged)
     Q_PROPERTY(QString headMessage READ headMessage NOTIFY headChanged)
     Q_PROPERTY(QString upstream READ upstream NOTIFY headChanged)
@@ -144,6 +147,8 @@ public:
     bool busy() const { return m_pendingJobs > 0; }
     bool writing() const { return m_pendingWrites > 0; }
     QString branch() const { return m_status.branch; }
+    QStringList branches() const { return m_branches; }
+    QStringList remoteBranches() const { return m_remoteBranches; }
     QString headSha() const { return m_status.headSha; }
     QString headMessage() const { return m_headMessage; }
     QString upstream() const { return m_status.upstream; }
@@ -242,6 +247,19 @@ public:
 
     // Fetches the upstream's remote, or all remotes.
     Q_INVOKABLE void fetch();
+
+    // Branches: what is wrong with a name for a new one, as git's
+    // check-ref-format sees it or because a branch has it already; "" if
+    // nothing is. Making one at `start` (a commit or ref), and switching to
+    // it; switching to a branch, a remote-tracking one making a local branch
+    // that tracks it; renaming and deleting one, `force` deleting one not
+    // merged. Off while planning. Switching keeps uncommitted changes where
+    // git can, and else says which files are in the way.
+    Q_INVOKABLE QString branchNameError(const QString &name) const;
+    Q_INVOKABLE void createBranch(const QString &name, const QString &start, bool checkout);
+    Q_INVOKABLE void checkoutBranch(const QString &name);
+    Q_INVOKABLE void renameBranch(const QString &from, const QString &to);
+    Q_INVOKABLE void deleteBranch(const QString &name, bool force);
     // Pushes as pushDescription says. A rejected push emits pushRejected()
     // so the UI can offer `force`, which uses --force-with-lease.
     // `review` holds options for the review host: {topic, state ("wip",
@@ -373,6 +391,9 @@ private:
     void applyState(const RepositoryState &state);
     // Runs `args`, then reloads the state.
     void enqueueCommand(const QString &what, const QStringList &args, const QByteArray &input = {});
+    // A branch command, then the state again: `done` on success, else
+    // `failed` with git's reason
+    void enqueueBranchCommand(const QStringList &args, const QString &done, const QString &failed);
     void enqueuePlanEntry(const PlanEntry &entry);
     void endPlan();
     void scheduleReviewQuery();
@@ -413,6 +434,8 @@ private:
     std::shared_ptr<std::atomic_int> m_diffGeneration = std::make_shared<std::atomic_int>(0);
 
     StatusInfo m_status;
+    QStringList m_branches;
+    QStringList m_remoteBranches;
     QString m_historyHead;
     bool m_historyWip = false;
     GraphRow m_wipGraph;

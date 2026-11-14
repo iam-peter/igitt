@@ -441,6 +441,48 @@ ApplicationWindow {
         }
     }
 
+    BranchDialog {
+        id: branchDialog
+        repo: repo
+    }
+
+    ModalDialog {
+        id: deleteBranchDialog
+
+        property string name
+
+        function ask(branch: string) {
+            name = branch
+            force.checked = false
+            open()
+        }
+
+        objectName: "deleteBranchDialog"
+        width: Math.min(460, root.width - 40)
+        title: qsTr("Delete the branch %1?").arg(name)
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: repo.deleteBranch(name, force.checked)
+        Component.onCompleted: standardButton(Dialog.Ok).objectName = "deleteBranchOkButton"
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 10
+
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: qsTr("Its commits stay where other branches have them. One not merged anywhere "
+                           + "else is only deleted when that is ticked below, and then can only be found "
+                           + "again in the reflog.")
+            }
+            CheckBox {
+                id: force
+                objectName: "deleteBranchForce"
+                text: qsTr("Even if it is not merged")
+            }
+        }
+    }
+
     ModalDialog {
         id: dropDialog
 
@@ -709,27 +751,62 @@ ApplicationWindow {
                 running: root.showBusy
                 visible: running
             }
-            Icon {
-                name: "git-branch"
-                visible: repo.valid
-            }
-            Label {
+            // The current branch, and the branches to switch to
+            ToolButton {
+                id: branchButton
+                objectName: "branchButton"
+                // As wide as the branch and its upstream: without text, the
+                // style takes a button for one with an icon only, square
+                implicitWidth: contentItem.implicitWidth + leftPadding + rightPadding
                 Layout.fillWidth: true
-                elide: Text.ElideRight
-                text: {
-                    if (!repo.valid)
-                        return qsTr("No repository")
-                    let s = repo.branch.length > 0 ? repo.branch
-                                                   : qsTr("detached at %1").arg(repo.headSha.substring(0, 10))
-                    if (repo.upstream.length > 0) {
-                        s += `  ⇄ ${repo.upstream}`
-                        if (repo.ahead > 0)
-                            s += `  ↑${repo.ahead}`
-                        if (repo.behind > 0)
-                            s += `  ↓${repo.behind}`
+                Layout.maximumWidth: implicitWidth
+                enabled: repo.valid
+                onClicked: switcher.opened ? switcher.close() : switcher.open()
+                ToolTip.visible: hovered && !switcher.opened
+                ToolTip.delay: 500
+                ToolTip.text: qsTr("Switch to another branch, or make one")
+
+                contentItem: RowLayout {
+                    spacing: 6
+
+                    Icon {
+                        name: "git-branch"
+                        visible: repo.valid
                     }
-                    return s
+                Label {
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                    text: {
+                        if (!repo.valid)
+                            return qsTr("No repository")
+                        let s = repo.branch.length > 0 ? repo.branch
+                                                       : qsTr("detached at %1").arg(repo.headSha.substring(0, 10))
+                        if (repo.upstream.length > 0) {
+                            s += `  ⇄ ${repo.upstream}`
+                            if (repo.ahead > 0)
+                                s += `  ↑${repo.ahead}`
+                            if (repo.behind > 0)
+                                s += `  ↓${repo.behind}`
+                        }
+                        return s
+                    }
                 }
+                    Icon {
+                        name: "chevron-down"
+                        visible: repo.valid
+                        opacity: 0.6
+                    }
+                }
+
+                BranchSwitcher {
+                    id: switcher
+                    repo: repo
+                    y: branchButton.height
+                    onNewBranchRequested: branchDialog.create(repo.headSha, repo.headMessage)
+                }
+            }
+            Item {
+                Layout.fillWidth: true
             }
         }
     }
@@ -778,6 +855,10 @@ ApplicationWindow {
                         repo: repo
                         onFoldRequested: sha => root.requestFold(sha)
                         onComposeRequested: sha => root.editInCompose(sha)
+                        onBranchRequested: (sha, subject) => branchDialog.create(sha, subject)
+                        onCheckoutRequested: name => repo.checkoutBranch(name)
+                        onRenameBranchRequested: name => branchDialog.rename(name)
+                        onDeleteBranchRequested: name => deleteBranchDialog.ask(name)
                         SplitView.preferredHeight: root.height * 0.45
                         SplitView.minimumHeight: 100
                     }

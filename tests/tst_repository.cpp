@@ -554,6 +554,96 @@ private slots:
         QVERIFY(!repo().canUndoFold());
     }
 
+    // A branch name as git's check-ref-format takes it, and not one taken.
+    void checksBranchNames()
+    {
+        open(m_dir->path());
+        git({"branch", "topic/one"});
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().branches(), (QStringList{u"main"_s, u"topic/one"_s}));
+        for (const QString &good : {u"feature"_s, u"fix/login-form"_s, u"v2.1"_s})
+            QVERIFY2(repo().branchNameError(good).isEmpty(), qPrintable(good));
+        for (const QString &bad : {u""_s, u"has space"_s, u"a..b"_s, u"x~1"_s, u"q?"_s, u"-flag"_s, u"HEAD"_s,
+                                   u"ends/"_s, u"ends."_s, u".hidden"_s, u"a/.b"_s, u"x.lock"_s, u"at@{1}"_s,
+                                   u"a//b"_s, u"main"_s, u"topic"_s, u"topic/one/two"_s})
+            QVERIFY2(!repo().branchNameError(bad).isEmpty(), qPrintable(bad));
+    }
+
+    // Branches made, switched to, renamed and deleted; switching keeps the
+    // uncommitted changes it can, and says which files are in the way.
+    void makesAndSwitchesBranches()
+    {
+        open(m_dir->path());
+        const QString first = QString::fromUtf8(git({"rev-parse", "HEAD~1"}).trimmed());
+        repo().createBranch(u"old"_s, first, false);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().branch(), u"main"_s);
+        QCOMPARE(git({"rev-parse", "old"}).trimmed(), first.toUtf8());
+        QVERIFY(repo().branches().contains(u"old"_s));
+
+        repo().createBranch(u"work"_s, {}, true);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().branch(), u"work"_s);
+
+        // An uncommitted change git can carry over comes along
+        writeFile(m_dir->filePath("g.txt"), "g changed\n");
+        repo().checkoutBranch(u"main"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().branch(), u"main"_s);
+        QCOMPARE(repo().unstaged()->count(), 1);
+
+        // One the other branch would overwrite keeps it where it is
+        repo().checkoutBranch(u"old"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().branch(), u"main"_s);
+        QCOMPARE(m_errors->size(), 1);
+        QVERIFY(m_errors->takeFirst().first().toString().contains(u"g.txt"_s));
+        git({"checkout", "--", "g.txt"});
+
+        repo().renameBranch(u"work"_s, u"done"_s);
+        QVERIFY(settle(repo()));
+        QVERIFY(repo().branches().contains(u"done"_s));
+        QVERIFY(!repo().branches().contains(u"work"_s));
+
+        // Not merged: kept until forced
+        repo().checkoutBranch(u"done"_s);
+        QVERIFY(settle(repo()));
+        writeFile(m_dir->filePath("h.txt"), "h\n");
+        git({"add", "h.txt"});
+        git({"commit", "-q", "-m", "Third"});
+        repo().checkoutBranch(u"main"_s);
+        QVERIFY(settle(repo()));
+        repo().deleteBranch(u"done"_s, false);
+        QVERIFY(settle(repo()));
+        QCOMPARE(m_errors->size(), 1);
+        m_errors->clear();
+        QVERIFY(repo().branches().contains(u"done"_s));
+        repo().deleteBranch(u"done"_s, true);
+        QVERIFY(settle(repo()));
+        QVERIFY(!repo().branches().contains(u"done"_s));
+        repo().deleteBranch(u"old"_s, false);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().branches(), QStringList{u"main"_s});
+    }
+
+    // A remote-tracking branch checked out makes a local one tracking it.
+    void checksOutRemoteBranches()
+    {
+        QTemporaryDir remote;
+        GitRunner(remote.path()).run({u"init"_s, u"-q"_s, u"--bare"_s, remote.path()});
+        git({"remote", "add", "origin", remote.path()});
+        git({"push", "-q", "origin", "main", "main:topic"});
+        git({"fetch", "-q", "origin"});
+        repo().setShowRemotes(true);
+        open(m_dir->path());
+        QVERIFY(repo().remoteBranches().contains(u"origin/topic"_s));
+        repo().checkoutBranch(u"origin/topic"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().branch(), u"topic"_s);
+        QCOMPARE(git({"rev-parse", "--abbrev-ref", "topic@{upstream}"}).trimmed(), "origin/topic"_ba);
+    }
+
 private:
     Repository &repo() { return *m_repo; }
     QString file() const { return m_dir->filePath("f.txt"); }

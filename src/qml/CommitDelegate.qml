@@ -48,6 +48,16 @@ Control {
 
     signal clicked()
     signal contextMenuRequested(point position)
+    // A branch label right-clicked, or double-clicked to switch to it
+    signal refMenuRequested(string name, string kind, bool current, point position)
+    signal refActivated(string name, string kind, bool current)
+
+    // The branch label at a point of the row, or null
+    function branchLabelAt(position: point): var {
+        const at = labels.mapFromItem(delegate, position.x, position.y)
+        const label = labels.childAt(at.x, at.y) as RefLabel
+        return label && (label.kind === "branch" || label.kind === "remote") ? label : null
+    }
     // The row is dragged to move the commit.
     signal moveDragMoved(point scenePos)
     signal moveDragFinished(point scenePos)
@@ -100,6 +110,7 @@ Control {
                     model: delegate.refs.slice(0, delegate.shownRefs)
                     delegate: RefLabel {
                         required property var modelData
+                        objectName: "refLabel"
                         name: modelData.name
                         kind: modelData.kind
                         laneColor: delegate.laneColor
@@ -294,6 +305,11 @@ Control {
 
     TapHandler {
         onTapped: delegate.clicked()
+        onDoubleTapped: eventPoint => {
+            const label = delegate.branchLabelAt(eventPoint.position)
+            if (label)
+                delegate.refActivated(label.name, label.kind, label.current)
+        }
     }
     DragHandler {
         id: moveDrag
@@ -335,6 +351,12 @@ Control {
     }
     TapHandler {
         acceptedButtons: Qt.RightButton
-        onTapped: eventPoint => delegate.contextMenuRequested(eventPoint.position)
+        onTapped: eventPoint => {
+            const label = delegate.branchLabelAt(eventPoint.position)
+            if (label)
+                delegate.refMenuRequested(label.name, label.kind, label.current, eventPoint.position)
+            else
+                delegate.contextMenuRequested(eventPoint.position)
+        }
     }
 }

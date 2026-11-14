@@ -163,6 +163,16 @@ void Repository::applyState(const RepositoryState &state)
         m_unpublished = history.unpublished;
         m_commits.setCommits(history.commits, history.graph, history.refs, history.head, m_status.branch,
                              history.planned);
+        m_branches.clear();
+        m_remoteBranches.clear();
+        for (const RefInfo &ref : history.refs) {
+            if (ref.kind == RefInfo::LocalBranch)
+                m_branches.append(ref.name);
+            else if (ref.kind == RefInfo::RemoteBranch && !ref.name.endsWith(QLatin1String("/HEAD")))
+                m_remoteBranches.append(ref.name);
+        }
+        m_branches.sort(Qt::CaseInsensitive);
+        m_remoteBranches.sort(Qt::CaseInsensitive);
         if (!history.error.isEmpty())
             emit errorOccurred(history.error);
     }
@@ -1411,6 +1421,98 @@ QString Repository::operation() const
     if (dir.exists(QStringLiteral("REVERT_HEAD")))
         return tr("Reverting");
     return {};
+}
+
+QString Repository::branchNameError(const QString &name) const
+{
+    // git check-ref-format --branch, without running git on this thread
+    if (name.isEmpty())
+        return tr("Give the branch a name.");
+    if (name == QLatin1String("HEAD") || name == QLatin1String("@") || name.startsWith(QLatin1Char('-')))
+        return tr("“%1” cannot be a branch name.").arg(name);
+    static const QRegularExpression bad(QStringLiteral("[\\x00-\\x20\\x7f~^:?*\\[\\\\]"));
+    if (const QRegularExpressionMatch m = bad.match(name); m.hasMatch()) {
+        const QString what = m.captured(0) == QLatin1String(" ") ? tr("spaces") : QStringLiteral("“%1”").arg(m.captured(0));
+        return tr("A branch name cannot have %1 in it.").arg(what);
+    }
+    if (name.contains(QLatin1String("..")) || name.contains(QLatin1String("@{")) || name.contains(QLatin1String("//")))
+        return tr("A branch name cannot have “..”, “@{” or “//” in it.");
+    if (name.endsWith(QLatin1Char('/')) || name.endsWith(QLatin1Char('.')))
+        return tr("A branch name cannot end with “/” or “.”.");
+    for (const QString &part : name.split(QLatin1Char('/'))) {
+        if (part.startsWith(QLatin1Char('.')) || part.endsWith(QLatin1String(".lock")))
+            return tr("No part of a branch name can start with “.” or end with “.lock”.");
+    }
+    if (m_branches.contains(name))
+        return tr("There is a branch %1 already.").arg(name);
+    // refs/heads/a cannot be both a branch and a folder of branches
+    for (const QString &branch : m_branches) {
+        if (branch.startsWith(name + QLatin1Char('/')) || name.startsWith(branch + QLatin1Char('/')))
+            return tr("The branch %1 is in the way of that name.").arg(branch);
+    }
+    return {};
+}
+
+void Repository::enqueueBranchCommand(const QStringList &args, const QString &done, const QString &failed)
+{
+    if (m_plan) {
+        emit errorOccurred(tr("Branches cannot be changed while planning."));
+        return;
+    }
+    // The history again whatever HEAD does: a branch made elsewhere, or
+    // renamed or deleted, shows only in its refs
+    enqueue(JobKind::Write, [=, request = diffRequest(), history = historyRequest(true)](const GitRunner &git) {
+        Outcome outcome;
+        const GitResult result = git.run(args);
+        if (result.ok())
+            outcome.notice = done;
+        else
+            outcome.error = tr("%1: %2").arg(failed, result.errorText().trimmed());
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::createBranch(const QString &name, const QString &start, bool checkout)
+{
+    const QString at = start.isEmpty() ? QStringLiteral("HEAD") : start;
+    if (checkout)
+        enqueueBranchCommand({QStringLiteral("switch"), QStringLiteral("-c"), name, at},
+                             tr("Switched to the new branch %1.").arg(name), tr("Making the branch %1 failed").arg(name));
+    else
+        enqueueBranchCommand({QStringLiteral("branch"), name, at}, tr("Made the branch %1.").arg(name),
+                             tr("Making the branch %1 failed").arg(name));
+}
+
+void Repository::checkoutBranch(const QString &name)
+{
+    // A remote-tracking branch: a local one of its name, tracking it
+    if (m_remoteBranches.contains(name) && !m_branches.contains(name)) {
+        const QString local = name.section(QLatin1Char('/'), 1);
+        if (m_branches.contains(local)) {
+            enqueueBranchCommand({QStringLiteral("switch"), local}, tr("Switched to %1.").arg(local),
+                                 tr("Switching to %1 failed").arg(local));
+            return;
+        }
+        enqueueBranchCommand({QStringLiteral("switch"), QStringLiteral("-c"), local, QStringLiteral("--track"), name},
+                             tr("Switched to the new branch %1, which tracks %2.").arg(local, name),
+                             tr("Switching to %1 failed").arg(name));
+        return;
+    }
+    enqueueBranchCommand({QStringLiteral("switch"), name}, tr("Switched to %1.").arg(name),
+                         tr("Switching to %1 failed").arg(name));
+}
+
+void Repository::renameBranch(const QString &from, const QString &to)
+{
+    enqueueBranchCommand({QStringLiteral("branch"), QStringLiteral("-m"), from, to},
+                         tr("Renamed %1 to %2.").arg(from, to), tr("Renaming %1 failed").arg(from));
+}
+
+void Repository::deleteBranch(const QString &name, bool force)
+{
+    enqueueBranchCommand({QStringLiteral("branch"), force ? QStringLiteral("-D") : QStringLiteral("-d"), name},
+                         tr("Deleted the branch %1.").arg(name), tr("Deleting %1 failed").arg(name));
 }
 
 void Repository::fetch()

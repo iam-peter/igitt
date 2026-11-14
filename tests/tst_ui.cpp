@@ -1009,6 +1009,84 @@ private slots:
         QCOMPARE(repo->diffCommit(), repo->commits()->shaAt(other));
     }
 
+    // Branches from the window: one made at a commit from its menu, one at
+    // HEAD from the switcher in the tool bar and switched to, the switcher
+    // going back, both deleted from their labels' menus. The uncommitted
+    // changes stay, so the branches go where git can carry them.
+    void makesAndSwitchesBranches()
+    {
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, m_dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        const QString original = repo->branch();
+        const QString head = repo->headSha();
+        QVERIFY(!original.isEmpty());
+        QVERIFY(QMetaObject::invokeMethod(window, "showHistory"));
+        const QString older = repo->commits()->shaAt(1);
+
+        // At an older commit, staying where it is
+        rightClickCommit(window, 1);
+        click(window, u"createBranchMenuItem"_s);
+        auto *name = window->findChild<QQuickItem *>(u"branchName"_s);
+        QTRY_VERIFY(name && name->isVisible());
+        name->setProperty("text", u"bad name"_s);
+        QTRY_VERIFY(!window->findChild<QQuickItem *>(u"branchOkButton"_s)->isEnabled());
+        name->setProperty("text", u"try/older"_s);
+        QTRY_VERIFY(window->findChild<QQuickItem *>(u"branchOkButton"_s)->isEnabled());
+        click(window, u"branchCheckout"_s);
+        click(window, u"branchOkButton"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->branch(), original);
+        QCOMPARE(gitOut({"rev-parse", "try/older"}).trimmed(), older.toUtf8());
+
+        // At HEAD from the switcher, and switched to
+        click(window, u"branchButton"_s);
+        click(window, u"newBranchButton"_s);
+        QTRY_VERIFY(name->isVisible());
+        name->setProperty("text", u"try/here"_s);
+        click(window, u"branchOkButton"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->branch(), u"try/here"_s);
+        QCOMPARE(repo->headSha(), head);
+
+        // Back by the switcher: typed, then Enter
+        click(window, u"branchButton"_s);
+        auto *filter = window->findChild<QQuickItem *>(u"branchFilter"_s);
+        QTRY_VERIFY(filter && filter->hasActiveFocus());
+        filter->setProperty("text", original);
+        QTest::keyClick(window, Qt::Key_Return);
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->branch(), original);
+
+        // Deleted from its label's menu, merged as it is; the one at HEAD,
+        // behind "+1" in a narrow column, directly
+        for (const QString &branch : {u"try/older"_s}) {
+            QQuickItem *label = nullptr;
+            QTRY_VERIFY((label = [&]() -> QQuickItem * {
+                for (QQuickItem *item : findItems(window->contentItem(), u"refLabel"_s)) {
+                    if (item->property("name").toString() == branch)
+                        return item;
+                }
+                return nullptr;
+            }()));
+            QVERIFY(QQuickTest::qWaitForPolish(window));
+            QTest::mouseClick(window, Qt::RightButton, {},
+                              label->mapToScene({label->width() / 2, label->height() / 2}).toPoint());
+            click(window, u"deleteBranchMenuItem"_s);
+            click(window, u"deleteBranchOkButton"_s);
+            QVERIFY(settle(*repo));
+            QVERIFY2(!repo->branches().contains(branch), qPrintable(branch));
+        }
+        repo->deleteBranch(u"try/here"_s, false);
+        QVERIFY(settle(*repo));
+        QVERIFY(!repo->branches().contains(u"try/here"_s));
+        QCOMPARE(repo->branch(), original);
+    }
+
     void blocksThePointerBehindModalDialogs()
     {
         QQmlApplicationEngine engine;
