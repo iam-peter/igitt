@@ -160,6 +160,7 @@ Each role is a color, except `graph_lanes` (a list of colors) and
 | --------------------- | ---------------------------------------- |
 | `diff_added`          | Behind added lines                       |
 | `diff_removed`        | Behind removed lines                     |
+| `diff_changed`        | Behind changed lines, where a line edited shows once (the time-lapse view) |
 | `diff_hunk`           | Behind hunk headers                      |
 | `diff_added_word`     | Behind the words that changed in an added line   |
 | `diff_removed_word`   | Behind the words that changed in a removed line  |

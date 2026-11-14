@@ -67,6 +67,7 @@
         "scroll_thumb": "overlay0@0.6",
         "diff_added": "green@0.18",
         "diff_removed": "red@0.16",
+        "diff_changed": "peach@0.16",
         "diff_hunk": "blue@0.12",
         "diff_added_word": "green@0.35",
         "diff_removed_word": "red@0.35",

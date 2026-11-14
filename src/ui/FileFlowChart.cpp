@@ -1,5 +1,7 @@
 #include "FileFlowChart.h"
 
+#include "core/FileHistory.h"
+
 #include <QHoverEvent>
 #include <QMouseEvent>
 #include <QPainter>
@@ -39,6 +41,7 @@ void FileFlowChart::setSteps(const QVariantList &steps)
         Step step;
         step.lines = map.value(QStringLiteral("lines")).toInt();
         step.added = map.value(QStringLiteral("added")).toInt();
+        step.changed = map.value(QStringLiteral("changed")).toInt();
         step.removed = map.value(QStringLiteral("removed")).toInt();
         for (const QVariant &runValue : map.value(QStringLiteral("runs")).toList()) {
             const QVariantMap r = runValue.toMap();
@@ -150,6 +153,8 @@ void FileFlowChart::paint(QPainter *painter)
     added.setAlphaF(0.8);
     QColor removed = m_removedColor;
     removed.setAlphaF(0.8);
+    QColor changed = m_changedColor;
+    changed.setAlphaF(0.8);
 
     // A band from a range on the left to one on the right, curved like a
     // Sankey diagram's; a range of no lines is a point
@@ -180,14 +185,23 @@ void FileFlowChart::paint(QPainter *painter)
             qreal bottom0 = yOf(run.oldStart + run.oldCount);
             qreal top1 = yOf(run.newStart);
             qreal bottom1 = yOf(run.newStart + run.newCount);
-            if (run.kind == 0) {
+            switch (LineChange(run.kind)) {
+            case LineChange::Kept:
                 painter->setBrush(kept);
-            } else if (run.kind == 1) {
+                break;
+            case LineChange::Removed:
                 widen(top0, bottom0);
                 painter->setBrush(removed);
-            } else {
+                break;
+            case LineChange::Added:
                 widen(top1, bottom1);
                 painter->setBrush(added);
+                break;
+            case LineChange::Changed:
+                widen(top0, bottom0);
+                widen(top1, bottom1);
+                painter->setBrush(changed);
+                break;
             }
             painter->drawPath(band(x0, top0, bottom0, x1, top1, bottom1));
         }
@@ -216,19 +230,28 @@ void FileFlowChart::paint(QPainter *painter)
             painter->drawRoundedRect(bar.adjusted(-2, -2, 2, 2), 3, 3);
         }
 
-        // What it added and removed, above; its label beneath
+        // What it changed, added and removed, above, as the commit row
+        // counts files; its label beneath
         if (m_spacing >= 40) {
             const QRectF above(x - m_spacing / 2, 0, m_spacing, TopRoom - 2);
-            const QString plus = step.added > 0 ? QStringLiteral("+%1").arg(step.added) : QString();
-            const QString minus = step.removed > 0 ? QStringLiteral("−%1").arg(step.removed) : QString();
+            const QList<std::pair<QString, QColor>> counts = {
+                {step.changed > 0 ? QStringLiteral("✎%1").arg(step.changed) : QString(), m_changedColor},
+                {step.added > 0 ? QStringLiteral("+%1").arg(step.added) : QString(), m_addedColor},
+                {step.removed > 0 ? QStringLiteral("−%1").arg(step.removed) : QString(), m_removedColor},
+            };
             const QFontMetricsF metrics(font);
-            const qreal gap = !plus.isEmpty() && !minus.isEmpty() ? 4 : 0;
-            qreal left = x - (metrics.horizontalAdvance(plus) + gap + metrics.horizontalAdvance(minus)) / 2;
-            painter->setPen(m_addedColor);
-            painter->drawText(QRectF(left, above.top(), m_spacing, above.height()), Qt::AlignLeft | Qt::AlignBottom, plus);
-            left += metrics.horizontalAdvance(plus) + gap;
-            painter->setPen(m_removedColor);
-            painter->drawText(QRectF(left, above.top(), m_spacing, above.height()), Qt::AlignLeft | Qt::AlignBottom, minus);
+            constexpr qreal Gap = 4;
+            qreal total = 0;
+            for (const auto &[text, color] : counts)
+                total += text.isEmpty() ? 0 : metrics.horizontalAdvance(text) + (total > 0 ? Gap : 0);
+            qreal left = x - total / 2;
+            for (const auto &[text, color] : counts) {
+                if (text.isEmpty())
+                    continue;
+                painter->setPen(color);
+                painter->drawText(QRectF(left, above.top(), m_spacing, above.height()), Qt::AlignLeft | Qt::AlignBottom, text);
+                left += metrics.horizontalAdvance(text) + Gap;
+            }
             if (i < m_labels.size()) {
                 painter->setPen(i == m_current ? m_currentColor : m_textColor);
                 painter->drawText(QRectF(x - m_spacing / 2, height() - BottomRoom + 2, m_spacing, BottomRoom - 2),

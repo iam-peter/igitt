@@ -61,9 +61,12 @@ QtObject {
     readonly property color switch_thumb_checked: Themes.roles.switch_thumb_checked
     readonly property color scroll_thumb: Themes.roles.scroll_thumb
 
-    // Behind the lines of a diff, and behind the words that changed in them
+    // Behind the lines of a diff, and behind the words that changed in
+    // them; changed is for lines shown once, edited rather than removed
+    // and added, as in the time-lapse view
     readonly property color diff_added: Themes.roles.diff_added
     readonly property color diff_removed: Themes.roles.diff_removed
+    readonly property color diff_changed: Themes.roles.diff_changed
     readonly property color diff_hunk: Themes.roles.diff_hunk
     readonly property color diff_added_word: Themes.roles.diff_added_word
     readonly property color diff_removed_word: Themes.roles.diff_removed_word

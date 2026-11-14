@@ -8,8 +8,9 @@
 
 // A file through its history, like Perforce's Time-lapse View: pick a
 // revision and see the file as it was, each line marked with the revision
-// that last changed it, the lines this revision changed highlighted and,
-// optionally, the ones it deleted. git runs off the UI thread.
+// that last changed it, the lines this revision added and changed
+// highlighted and, optionally, the ones it deleted. git runs off the UI
+// thread.
 class Timelapse : public QAbstractListModel
 {
     Q_OBJECT
@@ -23,8 +24,9 @@ class Timelapse : public QAbstractListModel
     Q_PROPERTY(int revision READ revision WRITE setRevision NOTIFY revisionChanged)
     Q_PROPERTY(bool showDeleted READ showDeleted WRITE setShowDeleted NOTIFY showDeletedChanged)
     // How the lines go from revision to revision, one step for each:
-    // [{lines, added, removed, binary, runs: [{kind, oldStart, oldCount,
-    // newStart, newCount}]}], kind 0 kept, 1 removed, 2 added (FlowRun).
+    // [{lines, added, changed, removed, binary, runs: [{kind, oldStart,
+    // oldCount, newStart, newCount}]}], kind a LineChange: 0 kept,
+    // 1 removed, 2 added, 3 changed.
     // Empty until loadFlow() read it.
     Q_PROPERTY(QVariantList flow READ flow NOTIFY flowChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
@@ -39,7 +41,7 @@ public:
         ShortShaRole,
         AuthorRole,
         AgeRole, // 0 for the oldest revision, 1 for the newest
-        ChangedHereRole,
+        ChangeRole, // what the revision on display did to the line, a LineChange
     };
 
     explicit Timelapse(QObject *parent = nullptr);

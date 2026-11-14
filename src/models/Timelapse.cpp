@@ -149,6 +149,7 @@ void Timelapse::loadFlow()
             }
             m_flow.append(QVariantMap{{QStringLiteral("lines"), step.lines},
                                       {QStringLiteral("added"), step.added},
+                                      {QStringLiteral("changed"), step.changed},
                                       {QStringLiteral("removed"), step.removed},
                                       {QStringLiteral("binary"), step.binary},
                                       {QStringLiteral("runs"), runs}});
@@ -185,7 +186,7 @@ QVariant Timelapse::data(const QModelIndex &index, int role) const
         return {};
     const TimelapseLine &line = m_lines[index.row()];
     switch (role) {
-    case DeletedRole: return line.kind == TimelapseLine::Deleted;
+    case DeletedRole: return line.change == LineChange::Removed;
     case TextRole: return line.text;
     case LineNoRole: return line.lineNo;
     case RevisionRole: return line.revision;
@@ -195,7 +196,7 @@ QVariant Timelapse::data(const QModelIndex &index, int role) const
         if (line.revision < 0 || m_revisions.size() < 2)
             return line.revision < 0 ? 0.0 : 1.0;
         return qreal(line.revision) / qreal(m_revisions.size() - 1);
-    case ChangedHereRole: return line.changedHere;
+    case ChangeRole: return int(line.change);
     }
     return {};
 }
@@ -210,6 +211,6 @@ QHash<int, QByteArray> Timelapse::roleNames() const
         {ShortShaRole, "shortSha"},
         {AuthorRole, "author"},
         {AgeRole, "age"},
-        {ChangedHereRole, "changedHere"},
+        {ChangeRole, "change"},
     };
 }

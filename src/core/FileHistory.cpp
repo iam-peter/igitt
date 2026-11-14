@@ -2,6 +2,7 @@
 
 #include "DiffParser.h"
 #include "StateLoader.h"
+#include "WordDiff.h"
 
 #include <QHash>
 #include <QMap>
@@ -31,6 +32,28 @@ QList<FileRevision> loadFileRevisions(const GitRunner &git, const QString &path,
     return revisions;
 }
 
+namespace {
+
+// For each pair of a hunk without context, its k-th removed line and its
+// k-th added line, whether they are one line edited
+QList<bool> editedPairs(const DiffHunk &hunk)
+{
+    QList<int> removed;
+    for (int i = 0; i < hunk.lines.size(); ++i) {
+        if (hunk.lines[i].kind == DiffLine::Removed)
+            removed.append(i);
+    }
+    QList<bool> edited(std::min(hunk.oldCount, hunk.newCount), false);
+    for (const auto &[from, to] : editedLines(hunk.lines)) {
+        const qsizetype k = removed.indexOf(from);
+        if (k >= 0 && k < edited.size())
+            edited[k] = true;
+    }
+    return edited;
+}
+
+} // namespace
+
 QList<FlowRun> flowRuns(const QList<DiffHunk> &hunks, int oldLines)
 {
     QList<FlowRun> runs;
@@ -38,7 +61,7 @@ QList<FlowRun> flowRuns(const QList<DiffHunk> &hunks, int oldLines)
     int newPos = 0;
     const auto keep = [&](int until) {
         if (until > oldPos) {
-            runs.append({FlowRun::Kept, oldPos, until - oldPos, newPos, until - oldPos});
+            runs.append({LineChange::Kept, oldPos, until - oldPos, newPos, until - oldPos});
             newPos += until - oldPos;
             oldPos = until;
         }
@@ -47,10 +70,27 @@ QList<FlowRun> flowRuns(const QList<DiffHunk> &hunks, int oldLines)
         // Without context, an empty side's start is the line before it
         const int oldBegin = hunk.oldCount > 0 ? hunk.oldStart - 1 : hunk.oldStart;
         keep(oldBegin);
-        if (hunk.oldCount > 0)
-            runs.append({FlowRun::Removed, oldPos, hunk.oldCount, newPos, 0});
-        if (hunk.newCount > 0)
-            runs.append({FlowRun::Added, oldPos + hunk.oldCount, 0, newPos, hunk.newCount});
+        // The lines edited flow on as changed; the others are removed and
+        // added, each run of them where the edits leave off
+        const QList<bool> edited = editedPairs(hunk);
+        const int paired = int(edited.size());
+        for (int k = 0; k < paired;) {
+            int end = k;
+            while (end < paired && edited[end] == edited[k])
+                ++end;
+            const int count = end - k;
+            if (edited[k]) {
+                runs.append({LineChange::Changed, oldPos + k, count, newPos + k, count});
+            } else {
+                runs.append({LineChange::Removed, oldPos + k, count, newPos + k, 0});
+                runs.append({LineChange::Added, oldPos + end, 0, newPos + k, count});
+            }
+            k = end;
+        }
+        if (hunk.oldCount > paired)
+            runs.append({LineChange::Removed, oldPos + paired, hunk.oldCount - paired, newPos + paired, 0});
+        if (hunk.newCount > paired)
+            runs.append({LineChange::Added, oldPos + hunk.oldCount, 0, newPos + paired, hunk.newCount - paired});
         oldPos += hunk.oldCount;
         newPos += hunk.newCount;
     }
@@ -86,7 +126,7 @@ QList<FlowStep> loadFileFlow(const GitRunner &git, const QList<FileRevision> &re
             step.added = lines;
             step.binary = binary;
             if (lines > 0)
-                step.runs.append({FlowRun::Added, 0, 0, 0, lines});
+                step.runs.append({LineChange::Added, 0, 0, 0, lines});
             steps.append(step);
             continue;
         }
@@ -103,19 +143,23 @@ QList<FlowStep> loadFileFlow(const GitRunner &git, const QList<FileRevision> &re
             step.removed = before;
             step.added = lines;
             if (before > 0)
-                step.runs.append({FlowRun::Removed, 0, before, 0, 0});
+                step.runs.append({LineChange::Removed, 0, before, 0, 0});
             if (lines > 0)
-                step.runs.append({FlowRun::Added, before, 0, 0, lines});
+                step.runs.append({LineChange::Added, before, 0, 0, lines});
             steps.append(step);
             continue;
         }
         const QList<DiffHunk> hunks = files.isEmpty() ? QList<DiffHunk>() : files.first().hunks;
-        for (const DiffHunk &hunk : hunks) {
-            step.added += hunk.newCount;
-            step.removed += hunk.oldCount;
+        step.runs = flowRuns(hunks, before);
+        for (const FlowRun &run : std::as_const(step.runs)) {
+            switch (run.kind) {
+            case LineChange::Kept: break;
+            case LineChange::Removed: step.removed += run.oldCount; break;
+            case LineChange::Added: step.added += run.newCount; break;
+            case LineChange::Changed: step.changed += run.newCount; break;
+            }
         }
         step.lines = before + step.added - step.removed;
-        step.runs = flowRuns(hunks, before);
         steps.append(step);
     }
     return steps;
@@ -155,7 +199,6 @@ QList<TimelapseLine> loadTimelapse(const GitRunner &git, const QList<FileRevisio
             line.sha = sha;
             line.revision = indexBySha.value(sha, -1);
             line.author = authors.value(sha);
-            line.changedHere = sha == revision.sha;
             lines.append(line);
             continue;
         }
@@ -170,25 +213,44 @@ QList<TimelapseLine> loadTimelapse(const GitRunner &git, const QList<FileRevisio
         }
     }
 
-    if (!withDeleted || index == 0)
+    // The first revision adds the whole file
+    if (index == 0) {
+        for (TimelapseLine &line : lines)
+            line.change = LineChange::Added;
         return lines;
+    }
 
-    // What this revision removed, placed before the line that now follows.
+    // What this revision did, against the one before it, as in the flow:
+    // the lines it added and changed by their line number, the ones it
+    // removed by the line they were before.
     const FileRevision &previous = revisions[index - 1];
     const GitResult diff = git.run(QStringList{QStringLiteral("diff"), QStringLiteral("-U0")} + diffFormatArgs()
                                    + QStringList{previous.sha + QLatin1Char(':') + previous.path,
                                                  revision.sha + QLatin1Char(':') + revision.path});
+    QHash<int, LineChange> changes;
     QMap<int, QStringList> deletedBefore;
     for (const FileDiff &file : parseDiff(diff.out)) {
         for (const DiffHunk &hunk : file.hunks) {
-            const int position = hunk.newCount == 0 ? hunk.newStart + 1 : hunk.newStart;
+            const QList<bool> edited = editedPairs(hunk);
+            const int paired = int(edited.size());
+            const int first = hunk.newCount == 0 ? hunk.newStart + 1 : hunk.newStart;
+            int removed = 0;
+            int added = 0;
             for (const DiffLine &line : hunk.lines) {
-                if (line.kind == DiffLine::Removed)
-                    deletedBefore[position].append(QString::fromUtf8(line.content));
+                if (line.kind == DiffLine::Added) {
+                    changes.insert(line.newLine, added < paired && edited[added] ? LineChange::Changed : LineChange::Added);
+                    ++added;
+                } else if (line.kind == DiffLine::Removed) {
+                    if (!(removed < paired && edited[removed]))
+                        deletedBefore[first + std::min(removed, paired)].append(QString::fromUtf8(line.content));
+                    ++removed;
+                }
             }
         }
     }
-    if (deletedBefore.isEmpty())
+    for (TimelapseLine &line : lines)
+        line.change = changes.value(line.lineNo, LineChange::Kept);
+    if (!withDeleted || deletedBefore.isEmpty())
         return lines;
 
     QList<TimelapseLine> merged;
@@ -196,12 +258,11 @@ QList<TimelapseLine> loadTimelapse(const GitRunner &git, const QList<FileRevisio
     const auto addDeleted = [&](int position) {
         for (const QString &text : deletedBefore.value(position)) {
             TimelapseLine line;
-            line.kind = TimelapseLine::Deleted;
+            line.change = LineChange::Removed;
             line.text = text;
             line.revision = index;
             line.sha = revision.sha;
             line.author = revision.author;
-            line.changedHere = true;
             merged.append(line);
         }
     };

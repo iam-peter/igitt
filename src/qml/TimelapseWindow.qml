@@ -8,7 +8,8 @@ import IgittStyle as Styles
 
 // A file through its history, like Perforce's Time-lapse View: pick a
 // revision on the timeline; each line shows the revision that last
-// changed it, shaded by age, with this revision's changes highlighted.
+// changed it, shaded by age, with the lines this revision added, changed
+// and removed in green, orange and red, as in its flow.
 ApplicationWindow {
     id: window
 
@@ -281,6 +282,7 @@ ApplicationWindow {
                     keptColor: Styles.TokenInterface.semantics.text_muted
                     addedColor: Styles.TokenInterface.semantics.success_default
                     removedColor: Styles.TokenInterface.semantics.danger_default
+                    changedColor: Styles.TokenInterface.semantics.warning_default
                     nodeColor: Styles.TokenInterface.semantics.text_muted
                     currentColor: window.ageColor
                     textColor: Styles.TokenInterface.semantics.text_muted
@@ -380,13 +382,14 @@ ApplicationWindow {
                 required property string shortSha
                 required property string author
                 required property real age
-                required property bool changedHere
+                required property int change // LineChange: kept, removed, added, changed
 
                 width: lines.contentWidth
                 height: metrics.height + 4
-                color: line.deleted ? Styles.TokenInterface.semantics.diff_removed
-                     : line.changedHere ? Qt.alpha(Styles.TokenInterface.semantics.warning_default, 0.28)
-                     : Qt.alpha(window.ageColor, 0.06 * line.age)
+                color: [Qt.alpha(window.ageColor, 0.06 * line.age),
+                        Styles.TokenInterface.semantics.diff_removed,
+                        Styles.TokenInterface.semantics.diff_added,
+                        Styles.TokenInterface.semantics.diff_changed][line.change]
 
                 Row {
                     anchors.verticalCenter: parent.verticalCenter

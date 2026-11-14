@@ -30,3 +30,12 @@ WordChanges diffWords(QStringView before, QStringView after);
 // indices into `lines`: in each run of removed lines followed directly by
 // added lines, the first removed with the first added, and so on.
 QList<std::pair<int, int>> pairChangedLines(const QList<DiffLine> &lines);
+
+// Whether a removed and an added line are one line edited rather than one
+// line replaced by another: the same, or with enough in common for
+// diffWords() to mark the words that differ.
+bool isLineEdit(QStringView before, QStringView after);
+
+// The pairs of pairChangedLines() that are edits (isLineEdit()): the
+// lines igitt counts as changed, not removed and added.
+QList<std::pair<int, int>> editedLines(const QList<DiffLine> &lines);

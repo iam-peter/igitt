@@ -6,10 +6,10 @@
 
 // A file's history as a Sankey diagram, for the time-lapse view: each
 // revision is a node, a bar as long as the file is then, line 1 at the
-// top. Between two revisions, the lines kept flow from their old place to
-// their new one; the lines removed narrow in red to where they went, the
-// lines added widen in green from where they came. Clicking a node asks
-// for that revision.
+// top. Between two revisions, the lines kept flow in gray from their old
+// place to their new one and the lines changed in orange; the lines
+// removed narrow in red to where they went, the lines added widen in
+// green from where they came. Clicking a node asks for that revision.
 //
 // Only what is in sight is drawn: the nodes are spaced evenly, and the
 // view shows them from `scroll` on.
@@ -33,6 +33,7 @@ class FileFlowChart : public QQuickPaintedItem
     Q_PROPERTY(QColor keptColor MEMBER m_keptColor NOTIFY changed)
     Q_PROPERTY(QColor addedColor MEMBER m_addedColor NOTIFY changed)
     Q_PROPERTY(QColor removedColor MEMBER m_removedColor NOTIFY changed)
+    Q_PROPERTY(QColor changedColor MEMBER m_changedColor NOTIFY changed)
     Q_PROPERTY(QColor nodeColor MEMBER m_nodeColor NOTIFY changed)
     Q_PROPERTY(QColor currentColor MEMBER m_currentColor NOTIFY changed)
     Q_PROPERTY(QColor textColor MEMBER m_textColor NOTIFY changed)
@@ -73,7 +74,7 @@ protected:
 private:
     struct Run
     {
-        int kind = 0; // FlowRun::Kind
+        int kind = 0; // LineChange
         int oldStart = 0;
         int oldCount = 0;
         int newStart = 0;
@@ -83,6 +84,7 @@ private:
     {
         int lines = 0;
         int added = 0;
+        int changed = 0;
         int removed = 0;
         QList<Run> runs;
     };
@@ -101,6 +103,7 @@ private:
     QColor m_keptColor = Qt::gray;
     QColor m_addedColor = QColor(0x2ca02c);
     QColor m_removedColor = QColor(0xd62728);
+    QColor m_changedColor = QColor(0xff7f0e);
     QColor m_nodeColor = Qt::darkGray;
     QColor m_currentColor = QColor(0x4e79a7);
     QColor m_textColor = Qt::gray;

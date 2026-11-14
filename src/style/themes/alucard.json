@@ -56,6 +56,7 @@
         "scroll_thumb": "comment@0.5",
         "diff_added": "green@0.15",
         "diff_removed": "red@0.15",
+        "diff_changed": "orange@0.15",
         "diff_hunk": "purple@0.15",
         "diff_added_word": "green@0.35",
         "diff_removed_word": "red@0.35",

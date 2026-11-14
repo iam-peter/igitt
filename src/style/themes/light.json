@@ -77,6 +77,7 @@
         "scroll_thumb": "neutral_831",
         "diff_added": "diff_green@0.18",
         "diff_removed": "diff_red@0.18",
+        "diff_changed": "orange@0.18",
         "diff_hunk": "diff_blue@0.15",
         "diff_added_word": "diff_green@0.4",
         "diff_removed_word": "diff_red@0.4",

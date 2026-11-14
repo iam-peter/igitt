@@ -183,3 +183,21 @@ QList<std::pair<int, int>> pairChangedLines(const QList<DiffLine> &lines)
     }
     return pairs;
 }
+
+bool isLineEdit(QStringView before, QStringView after)
+{
+    if (before == after)
+        return true;
+    const WordChanges changes = diffWords(before, after);
+    return !changes.before.isEmpty() || !changes.after.isEmpty();
+}
+
+QList<std::pair<int, int>> editedLines(const QList<DiffLine> &lines)
+{
+    QList<std::pair<int, int>> edits;
+    for (const auto &[removed, added] : pairChangedLines(lines)) {
+        if (isLineEdit(QString::fromUtf8(lines[removed].content), QString::fromUtf8(lines[added].content)))
+            edits.append({removed, added});
+    }
+    return edits;
+}

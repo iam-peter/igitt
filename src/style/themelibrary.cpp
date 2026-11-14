@@ -139,7 +139,7 @@ const QList<ThemeLibrary::Role> &ThemeLibrary::roles()
             "outline_default", "outline_hover",
             "stroke_subtle", "stroke_field", "stroke_focus", "stroke_outline", "stroke_tab",
             "switch_thumb", "switch_thumb_checked", "scroll_thumb",
-            "diff_added", "diff_removed", "diff_hunk", "diff_added_word", "diff_removed_word",
+            "diff_added", "diff_removed", "diff_changed", "diff_hunk", "diff_added_word", "diff_removed_word",
             "syntax_keyword", "syntax_type", "syntax_function", "syntax_string", "syntax_number",
             "syntax_comment", "syntax_preprocessor", "syntax_heading",
             "dim", "dim_subtle",
