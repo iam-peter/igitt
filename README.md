@@ -99,9 +99,23 @@ of the project tree, or filter it by name first), or right-click a file
 in the change lists or a file header in any diff. It is modelled on Perforce's: a slider through every revision
 of the file (following renames), and the file as it was at that revision
 with each line blamed to the revision that last changed it, shaded by
-age. The lines the revision changed are highlighted, the ones it deleted
-shown struck through; clicking a line's revision jumps there. The arrow
-keys step through the revisions, and Play animates them.
+age. The lines the revision added are green, the ones it edited orange,
+and the ones it deleted red and struck through; clicking a line's
+revision jumps there. The arrow keys step through the revisions, and
+Play animates them. A minimap right of the code shows the whole file
+with the revision's changes in the same colors and the lines in sight;
+click or drag it to scroll.
+
+Switch on **Flow** to see the file's whole history as a Sankey diagram.
+Each revision is a node as long as the file was then, line 1 at the top.
+Between two nodes, kept lines flow in gray from their old place to their
+new one, edited lines in orange; removed lines narrow in red to where
+they went, added lines widen in green from where they came. Click a node
+to show that revision; on the current one, a marker shows the lines in
+sight in the code, and clicking or dragging along it scrolls there. The
+wheel scrolls through the revisions, Ctrl+wheel zooms.
+
+![The flow of TimelapseWindow.qml through eight revisions, above the lines the newest one added, with the minimap beside them](docs/screenshots/flow.png)
 
 ![The time-lapse of Repository.h at the revision that moved git onto a background thread](docs/screenshots/timelapse.png)
 

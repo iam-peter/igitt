@@ -113,7 +113,7 @@
   <h2>What it does</h2>
   <ul class="features">
     <li>Browse the history of every branch as a graph and search it.</li>
-    <li>Step through every revision of a file in the time-lapse view, each line blamed.</li>
+    <li>Step through every revision of a file in the time-lapse view, each line blamed, and see its whole history flow from revision to revision.</li>
     <li>Stage and commit single lines, hunks or files.</li>
     <li>Drag changes onto any earlier commit to fold them in, with a suggestion where they belong.</li>
     <li>Reword, move, squash and drop commits like <code>git rebase -i</code>, without touching the working tree.</li>
@@ -132,6 +132,18 @@
     A timeline above shows where you are. <a href="https://github.com/iam-peter/igitt#composing-commits">More in the README</a>.</p>
   <img class="shot" src="compose.png" width="1400" height="900" loading="lazy"
        alt="The compose window: commits not merged yet beside a group of changes, with the timeline above them">
+
+  <h2>A file's history</h2>
+  <p>The time-lapse view shows a file as it was at any revision, each line blamed to
+    the revision that last changed it, with what that revision added, edited and
+    removed in green, orange and red, and a minimap of those changes beside the code.
+    Switch on Flow to see the whole history at once: each revision is a node as long as
+    the file was then, and the lines flow between them, kept ones in gray, removed ones
+    narrowing in red to where they went, added ones widening in green from where they
+    came. Click a node to show that revision, or drag along the current one to scroll
+    the code. <a href="https://github.com/iam-peter/igitt#time-lapse-view">More in the README</a>.</p>
+  <img class="shot" src="flow.png" width="1400" height="900" loading="lazy"
+       alt="The flow of a file through eight revisions above the lines the newest one added, with the minimap beside them">
 
   <h2>Themes</h2>
   <p>igitt draws its controls in a style of its own and takes every color from a theme,
