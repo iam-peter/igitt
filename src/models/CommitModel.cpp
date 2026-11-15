@@ -181,6 +181,8 @@ QVariant CommitModel::data(const QModelIndex &index, int role) const
             {QStringLiteral("files"), it->files},
             {QStringLiteral("added"), it->added},
             {QStringLiteral("removed"), it->removed},
+            {QStringLiteral("signature"), QString(QLatin1Char(it->signature))},
+            {QStringLiteral("signer"), it->signer},
         };
     }
     }

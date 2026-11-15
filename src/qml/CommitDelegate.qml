@@ -69,8 +69,9 @@ Control {
     hoverEnabled: true
     opacity: (matched ? 1 : 0.35) * (isMerge && columns.dimMerges ? 0.55 : 1)
 
+    // The stats bring the signature too, wanted with or without the column
     Component.onCompleted: {
-        if (columns.showChanges && !stats)
+        if (!stats)
             repo.requestStats(sha)
     }
 
@@ -215,6 +216,45 @@ Control {
                 visible: delegate.suggested
                 text: qsTr("fold here")
                 tint: Styles.TokenInterface.semantics.success_default
+            }
+            // Signed: verified, bad, or one this computer cannot check
+            Item {
+                id: signatureMark
+
+                readonly property string kind: delegate.stats ? delegate.stats.signature : "N"
+                readonly property Styles.Semantics s: Styles.TokenInterface.semantics
+
+                objectName: "signatureMark"
+                visible: kind !== "N" && kind !== ""
+                implicitWidth: 14
+                implicitHeight: 14
+                ToolTip.visible: signatureHover.hovered
+                ToolTip.delay: 400
+                ToolTip.text: {
+                    const signer = delegate.stats && delegate.stats.signer ? delegate.stats.signer : qsTr("unknown")
+                    switch (kind) {
+                    case "G": return qsTr("Signed by %1, verified").arg(signer)
+                    case "U": return qsTr("Signed by %1, verified, but the key is not trusted").arg(signer)
+                    case "B": return qsTr("Bad signature: the commit is not what was signed")
+                    case "X": return qsTr("Signed by %1; the signature has expired").arg(signer)
+                    case "Y": return qsTr("Signed by %1 with a key that has expired").arg(signer)
+                    case "R": return qsTr("Signed by %1 with a revoked key").arg(signer)
+                    default: return qsTr("Signed, but it cannot be checked here: the key, or gpg, is missing")
+                    }
+                }
+
+                Icon {
+                    anchors.centerIn: parent
+                    size: 14
+                    name: signatureMark.kind === "G" ? "shield-check"
+                        : signatureMark.kind === "B" || signatureMark.kind === "R" ? "shield-alert" : "shield"
+                    color: signatureMark.kind === "G" ? signatureMark.s.success_default
+                         : signatureMark.kind === "B" || signatureMark.kind === "R" ? signatureMark.s.danger_default
+                         : delegate.palette.placeholderText
+                }
+                HoverHandler {
+                    id: signatureHover
+                }
             }
             Label {
                 Layout.fillWidth: true

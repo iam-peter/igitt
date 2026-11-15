@@ -104,7 +104,10 @@ In the History mode, the commit graph follows GitKraken's and GitLens': branch a
 column, colored like their lane and linked to the commit; commits drawn
 with the author's initials; uncommitted changes as a "// WIP" row on top,
 connected to HEAD; and a Changes column with the number of files and a
-bar of added and removed lines, loaded for the rows on screen. Columns
+bar of added and removed lines, loaded for the rows on screen. A signed
+commit has a shield before its subject, checked as `git log --show-signature`
+checks it: green when verified, red when bad or revoked, gray when this
+computer cannot tell; the tooltip names the signer. Columns
 can be resized by dragging their header edge and picked from the View
 menu or by right-clicking the header. Above it, an activity minimap shows
 commits over time, the rows on screen and the selection; click it to

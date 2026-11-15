@@ -166,6 +166,9 @@ qt_add_qml_module(igitt_ui
         icons/scissors.svg
         icons/search.svg
         icons/settings.svg
+        icons/shield.svg
+        icons/shield-alert.svg
+        icons/shield-check.svg
         icons/skip-back.svg
         icons/skip-forward.svg
         icons/space.svg

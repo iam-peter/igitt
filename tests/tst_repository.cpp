@@ -236,6 +236,37 @@ private slots:
         m_errors->clear();
     }
 
+    // A signed commit's signature comes with its stats, checked
+    void readsSignatures()
+    {
+#ifdef Q_OS_WIN
+        QSKIP("A shell script as gpg.program");
+#endif
+        const QString gpg = m_dir->filePath(u"fake-gpg.sh"_s);
+        writeFile(gpg, "#!/bin/sh\n"
+                       "case \"$*\" in\n"
+                       "*--verify*) cat >/dev/null\n"
+                       "  printf '[GNUPG:] NEWSIG\\n[GNUPG:] GOODSIG 0123456789ABCDEF Ada <ada@example.org>\\n"
+                       "[GNUPG:] VALIDSIG 0123456789ABCDEF0123456789ABCDEF01234567 2026-01-01 0 4 0 1 10 00 "
+                       "0123456789ABCDEF0123456789ABCDEF01234567\\n[GNUPG:] TRUST_ULTIMATE 0 pgp\\n';;\n"
+                       "*) cat >/dev/null; echo '[GNUPG:] SIG_CREATED ' >&2\n"
+                       "  printf -- '-----BEGIN PGP SIGNATURE-----\\nfake\\n-----END PGP SIGNATURE-----\\n';;\n"
+                       "esac\n");
+        QFile::setPermissions(gpg, QFile::permissions(gpg) | QFile::ExeOwner);
+        git({"config", "gpg.program", gpg});
+        git({"commit", "-q", "-S", "--allow-empty", "-m", "Signed"});
+        open(m_dir->path());
+        CommitModel *commits = repo().commits();
+        repo().requestStats(commits->shaAt(0));
+        repo().requestStats(commits->shaAt(1));
+        QTRY_VERIFY(commits->hasStats(commits->shaAt(0)) && commits->hasStats(commits->shaAt(1)));
+        const QVariantMap signedStats = commits->data(commits->index(0), CommitModel::StatsRole).toMap();
+        QCOMPARE(signedStats.value(u"signature"_s).toString(), u"G"_s);
+        QCOMPARE(signedStats.value(u"signer"_s).toString(), u"Ada <ada@example.org>"_s);
+        QCOMPARE(commits->data(commits->index(1), CommitModel::StatsRole).toMap().value(u"signature"_s).toString(),
+                 u"N"_s);
+    }
+
     // Hooks skipped once; an amend made the user's; commit.template read
     // without its comments
     void commitsWithOptions()

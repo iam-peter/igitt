@@ -486,5 +486,19 @@ QHash<QString, CommitStats> loadCommitStats(const GitRunner &git, const QStringL
     // Commits without file changes print nothing; they still have stats.
     for (const QString &sha : shas)
         stats.try_emplace(sha);
+    // Checking a signature runs gpg or ssh-keygen: only for these rows
+    const GitResult signatures = git.run(QStringList{QStringLiteral("log"), QStringLiteral("--no-walk=unsorted"),
+                                                     QStringLiteral("--format=%H%x1f%G?%x1f%GS")}
+                                         + shas + QStringList{QStringLiteral("--")});
+    for (const QByteArray &line : signatures.out.split('\n')) {
+        const QList<QByteArray> fields = line.split('\x1f');
+        if (fields.size() < 3 || fields[1].isEmpty())
+            continue;
+        const auto it = stats.find(QString::fromLatin1(fields[0]));
+        if (it == stats.end())
+            continue;
+        it->signature = fields[1].at(0);
+        it->signer = QString::fromUtf8(fields[2]);
+    }
     return stats;
 }

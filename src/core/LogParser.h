@@ -32,6 +32,11 @@ struct CommitStats
     int files = 0;
     int added = 0;
     int removed = 0; // binary files count as files only
+    // Its signature as git log's %G? says: N none, G good, B bad, U good
+    // but of unknown validity, X expired, Y expired key, R revoked key,
+    // E cannot be checked (no key, no gpg)
+    char signature = 'N';
+    QString signer; // %GS
 };
 
 // Arguments for `git log` that list the stats of the commits appended to
