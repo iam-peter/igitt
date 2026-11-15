@@ -311,6 +311,18 @@ QString Repository::canonicalPath(const QString &path) const
     return canonical.isEmpty() ? path : canonical;
 }
 
+QString Repository::displayPath(const QString &path) const
+{
+    const QString home = QDir::homePath();
+    if (home.isEmpty() || home == QLatin1String("/"))
+        return path;
+    if (path == home)
+        return QStringLiteral("~");
+    if (path.startsWith(home + QLatin1Char('/')))
+        return QLatin1Char('~') + path.mid(home.size());
+    return path;
+}
+
 void Repository::refresh()
 {
     if (!valid())

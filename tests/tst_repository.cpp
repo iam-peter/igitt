@@ -477,6 +477,15 @@ private slots:
         QVERIFY(git({"stash", "list"}).contains("one file"));
     }
 
+    // Folders in the home folder show from ~
+    void showsPathsFromHome()
+    {
+        const QString home = QDir::homePath();
+        QCOMPARE(repo().displayPath(home + u"/src/igitt"_s), u"~/src/igitt"_s);
+        QCOMPARE(repo().displayPath(home), u"~"_s);
+        QCOMPARE(repo().displayPath(home + u"x/elsewhere"_s), home + u"x/elsewhere"_s);
+    }
+
     // An untracked file ignored, shared or only here
     void ignoresFiles()
     {

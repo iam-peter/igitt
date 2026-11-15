@@ -54,7 +54,7 @@ Item {
     // "name  (where it is)"
     function describe(path: string): string {
         const slash = path.lastIndexOf("/")
-        return slash < 0 ? path : path.substring(slash + 1) + "  —  " + path.substring(0, slash)
+        return slash < 0 ? path : path.substring(slash + 1) + "  —  " + repo.displayPath(path.substring(0, slash))
     }
     function savePatch(sha: string) {
         patchSaveDialog.sha = sha
