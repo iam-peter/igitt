@@ -260,6 +260,11 @@ header for the whole hunk) and stage or unstage the selection, or
 right-click a line for Stage Hunk and Stage Line. Double-click a file, or
 click its status badge, to stage or unstage all of it.
 
+An untracked file's menu ignores it: the file alone, every file with its
+extension, its folder, or its name anywhere, or a pattern written by
+hand; in `.gitignore`, shared with everyone, or only in this clone's
+`.git/info/exclude`.
+
 ## Discarding and stashing
 
 A file's unstaged changes are discarded from its menu in the change

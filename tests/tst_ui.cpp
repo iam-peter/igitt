@@ -1210,6 +1210,44 @@ private slots:
 
     // Changes thrown away after a guard, from a file's menu or the diff's
     // selection; stashed from the tool bar, and a stash dropped after one.
+    // An untracked file, from its menu, into .gitignore
+    void ignoresAnUntrackedFile()
+    {
+        QTemporaryDir dir;
+        GitRunner git(dir.path());
+        git.run({u"init"_s, u"-q"_s, u"-b"_s, u"main"_s});
+        git.run({u"commit"_s, u"-q"_s, u"--allow-empty"_s, u"-m"_s, u"Start"_s});
+        QFile log(dir.filePath(u"debug.log"_s));
+        QVERIFY(log.open(QIODevice::WriteOnly));
+        log.write("noise\n");
+        log.close();
+
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        QTRY_COMPARE(window->property("mode").toInt(), 1);
+        QQuickItem *row = nullptr;
+        QTRY_VERIFY((row = fileRow(window, u"unstagedList"_s, u"debug.log"_s)));
+        QTest::mouseClick(window, Qt::RightButton, {}, row->mapToScene({row->width() / 2, row->height() / 2}).toPoint());
+        click(window, u"ignoreFileMenuItem"_s);
+        QQuickItem *pattern = nullptr;
+        QTRY_VERIFY((pattern = findItem(window->contentItem(), u"ignorePattern"_s)) && pattern->isVisible());
+        QCOMPARE(pattern->property("text").toString(), u"/debug.log"_s);
+        QCOMPARE(window->findChild<QObject *>(u"ignoreDialog"_s)->property("patterns").toStringList(),
+                 (QStringList{u"/debug.log"_s, u"*.log"_s}));
+        pattern->setProperty("text", u"*.log"_s);
+        click(window, u"ignoreOkButton"_s);
+        QVERIFY(settle(*repo));
+        QFile ignore(dir.filePath(u".gitignore"_s));
+        QVERIFY(ignore.open(QIODevice::ReadOnly));
+        QCOMPARE(ignore.readAll(), "*.log\n"_ba);
+        QTRY_VERIFY(!fileRow(window, u"unstagedList"_s, u"debug.log"_s));
+    }
+
     // A branch deleted is in the lost work, and shows from there
     void recoversLostWork()
     {

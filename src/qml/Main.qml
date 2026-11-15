@@ -489,6 +489,74 @@ ApplicationWindow {
         }
     }
 
+    // An untracked file ignored: by a pattern picked or written, for
+    // everyone in .gitignore or only in this clone
+    ModalDialog {
+        id: ignoreDialog
+
+        objectName: "ignoreDialog"
+        property string path
+        property var patterns: []
+
+        // ignorePatterns() gives this file, its extension, its folder, its
+        // name, as far as it has them
+        function describe(index: int, pattern: string): string {
+            if (index === 0)
+                return qsTr("Only this: %1").arg(pattern)
+            if (pattern.startsWith("*."))
+                return qsTr("Every %1 file: %2").arg(pattern.substring(1), pattern)
+            if (pattern.startsWith("/"))
+                return qsTr("Its folder: %1").arg(pattern)
+            return qsTr("By its name, anywhere: %1").arg(pattern)
+        }
+        function ask(file: string) {
+            path = file
+            patterns = repo.ignorePatterns(file)
+            ignorePattern.text = patterns.length > 0 ? patterns[0] : ""
+            ignoreLocal.checked = false
+            open()
+        }
+
+        width: Math.min(480, root.width - 40)
+        title: qsTr("Ignore %1").arg(path)
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onOpened: ignorePattern.forceActiveFocus()
+        onAccepted: repo.ignore(ignorePattern.text.trim(), ignoreLocal.checked)
+        Component.onCompleted: {
+            standardButton(Dialog.Ok).objectName = "ignoreOkButton"
+            standardButton(Dialog.Ok).text = qsTr("Ignore")
+        }
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 8
+
+            Repeater {
+                model: ignoreDialog.patterns
+                delegate: RadioButton {
+                    required property string modelData
+                    required property int index
+                    text: ignoreDialog.describe(index, modelData)
+                    checked: ignorePattern.text === modelData
+                    onClicked: ignorePattern.text = modelData
+                }
+            }
+            TextField {
+                id: ignorePattern
+                objectName: "ignorePattern"
+                Layout.fillWidth: true
+                font: root.monoFont
+                placeholderText: qsTr("A pattern, as in .gitignore")
+                onAccepted: ignoreDialog.accept()
+            }
+            CheckBox {
+                id: ignoreLocal
+                objectName: "ignoreLocal"
+                text: qsTr("Only in this clone (.git/info/exclude), not shared")
+            }
+        }
+    }
+
     // Stashing the changes: a message, and whether untracked files go too
     ModalDialog {
         id: stashDialog
@@ -1638,6 +1706,7 @@ ApplicationWindow {
                             repo: repo
                             monoFont: root.monoFont
                             onDiscardRequested: path => discardChangesDialog.askFile(path)
+                            onIgnoreRequested: path => ignoreDialog.ask(path)
                             foldInto: recent.dropSubject
                             foldRefused: recent.dropBlocker
                             onFileDragMoved: (path, staged, pos) => recent.updateDrop(pos, true)

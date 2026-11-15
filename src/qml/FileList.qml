@@ -30,6 +30,8 @@ Item {
     signal timelapseRequested(string path)
     // A file's unstaged changes to throw away, after asking
     signal discardRequested(string path)
+    // An untracked file to ignore, after asking how
+    signal ignoreRequested(string path)
 
     function toggleStage(path: string) {
         if (staged)
@@ -47,6 +49,7 @@ Item {
         id: fileMenu
 
         property string path
+        property bool untracked
 
         MenuItem {
             objectName: fileList.staged ? "unstageFileMenuItem" : "stageFileMenuItem"
@@ -68,6 +71,16 @@ Item {
             icon.source: Icons.source("trash-2")
             icon.color: palette.windowText
             onTriggered: fileList.discardRequested(fileMenu.path)
+        }
+        MenuItem {
+            objectName: "ignoreFileMenuItem"
+            visible: fileMenu.untracked
+            height: visible ? implicitHeight : 0
+            text: qsTr("Ignore…")
+            enabled: !fileList.repo.writing
+            icon.source: Icons.source("square-dashed")
+            icon.color: palette.windowText
+            onTriggered: fileList.ignoreRequested(fileMenu.path)
         }
         MenuSeparator {}
         MenuItem {
@@ -123,6 +136,7 @@ Item {
                 required property string path
                 required property string origPath
                 required property string status
+                required property bool untracked
 
                 property point dragPos
 
@@ -146,6 +160,7 @@ Item {
                     acceptedButtons: Qt.RightButton
                     onTapped: eventPoint => {
                         fileMenu.path = item.path
+                        fileMenu.untracked = item.untracked
                         fileMenu.popup(item, eventPoint.position.x, eventPoint.position.y)
                     }
                 }

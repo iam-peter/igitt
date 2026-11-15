@@ -300,6 +300,12 @@ public:
     // changes, an untracked file deleted; the lines selected in the
     // unstaged diff. Off while planning.
     Q_INVOKABLE void discardFile(const QString &path);
+    // Patterns that ignore an untracked path, most specific first: it
+    // alone, the files with its extension, its folder, its name anywhere
+    Q_INVOKABLE QStringList ignorePatterns(const QString &path) const;
+    // Adds `pattern` to the top folder's .gitignore, shared with everyone,
+    // or with `local` to this clone's info/exclude
+    Q_INVOKABLE void ignore(const QString &pattern, bool local);
     Q_INVOKABLE void discardSelection();
 
     // Stashes: the uncommitted changes put away, untracked files with

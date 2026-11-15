@@ -2044,6 +2044,81 @@ void Repository::abortOperation()
     });
 }
 
+namespace {
+
+// A path as a literal gitignore pattern: wildcards and a leading # or !
+// escaped, as are trailing spaces, which git would drop
+QString ignoreLiteral(const QString &text)
+{
+    QString escaped;
+    for (const QChar c : text) {
+        if (c == QLatin1Char('*') || c == QLatin1Char('?') || c == QLatin1Char('[') || c == QLatin1Char('\\'))
+            escaped += QLatin1Char('\\');
+        escaped += c;
+    }
+    if (escaped.startsWith(QLatin1Char('#')) || escaped.startsWith(QLatin1Char('!')))
+        escaped.prepend(QLatin1Char('\\'));
+    if (escaped.endsWith(QLatin1Char(' ')))
+        escaped.insert(escaped.size() - 1, QLatin1Char('\\'));
+    return escaped;
+}
+
+} // namespace
+
+QStringList Repository::ignorePatterns(const QString &path) const
+{
+    const bool folder = path.endsWith(QLatin1Char('/'));
+    const QString bare = folder ? path.chopped(1) : path;
+    if (bare.isEmpty())
+        return {};
+    const qsizetype slash = bare.lastIndexOf(QLatin1Char('/'));
+    const QString name = bare.mid(slash + 1);
+    QStringList patterns{QLatin1Char('/') + ignoreLiteral(bare) + (folder ? QStringLiteral("/") : QString())};
+    const qsizetype dot = name.lastIndexOf(QLatin1Char('.'));
+    if (!folder && dot > 0)
+        patterns << QLatin1Char('*') + ignoreLiteral(name.mid(dot));
+    if (slash > 0)
+        patterns << QLatin1Char('/') + ignoreLiteral(bare.left(slash)) + QLatin1Char('/');
+    if (slash > 0)
+        patterns << ignoreLiteral(name) + (folder ? QStringLiteral("/") : QString());
+    return patterns;
+}
+
+void Repository::ignore(const QString &pattern, bool local)
+{
+    if (pattern.trimmed().isEmpty() || !valid())
+        return;
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(false), pattern,
+                             local](const GitRunner &git) {
+        Outcome outcome;
+        QString file = QDir(git.workDir()).filePath(QStringLiteral(".gitignore"));
+        if (local) {
+            const QString exclude = QString::fromUtf8(git.run({QStringLiteral("rev-parse"), QStringLiteral("--git-path"),
+                                                               QStringLiteral("info/exclude")}).out).trimmed();
+            file = QDir(git.workDir()).absoluteFilePath(exclude);
+            QDir().mkpath(QFileInfo(file).absolutePath());
+        }
+        QFile out(file);
+        QByteArray before;
+        if (out.open(QIODevice::ReadOnly)) {
+            before = out.readAll();
+            out.close();
+        }
+        if (!out.open(QIODevice::Append)) {
+            outcome.error = tr("Could not write %1: %2").arg(file, out.errorString());
+            return outcome;
+        }
+        if (!before.isEmpty() && !before.endsWith('\n'))
+            out.write("\n");
+        out.write(pattern.toUtf8() + '\n');
+        out.close();
+        outcome.notice = local ? tr("Ignoring %1 in this clone (info/exclude).").arg(pattern)
+                               : tr("Ignoring %1 (.gitignore).").arg(pattern);
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
 void Repository::discardFile(const QString &path)
 {
     bool untracked = false;

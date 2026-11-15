@@ -416,6 +416,39 @@ private slots:
         QVERIFY(settle(repo()));
     }
 
+    // An untracked file ignored, shared or only here
+    void ignoresFiles()
+    {
+        QCOMPARE(repo().ignorePatterns(u"build/out.log"_s),
+                 (QStringList{u"/build/out.log"_s, u"*.log"_s, u"/build/"_s, u"out.log"_s}));
+        QCOMPARE(repo().ignorePatterns(u"tmp/"_s), QStringList{u"/tmp/"_s});
+        QCOMPARE(repo().ignorePatterns(u"a*b?.txt"_s).first(), u"/a\\*b\\?.txt"_s);
+        QCOMPARE(repo().ignorePatterns(u"!x"_s).first(), u"/\\!x"_s);
+
+        QDir(m_dir->path()).mkpath(u"build"_s);
+        writeFile(m_dir->filePath(u"build/out.log"_s), "log\n");
+        writeFile(m_dir->filePath(u"scratch.txt"_s), "scratch\n");
+        writeFile(m_dir->filePath(u".gitignore"_s), "*.o"); // no newline at the end
+        git({"add", ".gitignore"});
+        git({"commit", "-q", "-m", "Ignore objects"});
+        open(m_dir->path());
+        repo().ignore(u"*.log"_s, false);
+        QVERIFY(settle(repo()));
+        QCOMPARE(readFile(m_dir->filePath(u".gitignore"_s)), "*.o\n*.log\n"_ba);
+        repo().ignore(u"/scratch.txt"_s, true);
+        QVERIFY(settle(repo()));
+        QVERIFY(readFile(m_dir->filePath(u".git/info/exclude"_s)).endsWith("/scratch.txt\n"));
+        const QByteArray status = git({"status", "--porcelain"});
+        QVERIFY(!status.contains("out.log"));
+        QVERIFY(!status.contains("scratch.txt"));
+        QVERIFY(status.contains(".gitignore"));
+        bool listed = false;
+        for (int row = 0; row < repo().unstaged()->rowCount(); ++row)
+            listed |= repo().unstaged()->data(repo().unstaged()->index(row), FileListModel::PathRole).toString()
+                      == u"scratch.txt"_s;
+        QVERIFY(!listed);
+    }
+
     // code: finds the commits that added or removed a text
     void searchesCode()
     {
