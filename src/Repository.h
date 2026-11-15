@@ -317,7 +317,9 @@ public:
     // them if asked, under a message; one applied again, and dropped with
     // it if `pop` (not when it stops at conflicts); one dropped. `index`
     // is the n of stash@{n}. Off while planning.
-    Q_INVOKABLE void stash(const QString &message, bool includeUntracked);
+    // Only the staged changes with `stagedOnly`, or only the `paths`'.
+    Q_INVOKABLE void stash(const QString &message, bool includeUntracked, bool stagedOnly = false,
+                           const QStringList &paths = {});
     Q_INVOKABLE void applyStash(int index, bool pop);
     Q_INVOKABLE void dropStash(int index);
     // Where HEAD was and what nothing refers to any more: lostWorkFound()

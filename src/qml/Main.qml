@@ -617,19 +617,30 @@ ApplicationWindow {
         }
     }
 
-    // Stashing the changes: a message, and whether untracked files go too
+    // Stashing the changes: a message, and whether untracked files go too;
+    // or only the staged ones, or only some files' changes
     ModalDialog {
         id: stashDialog
 
         objectName: "stashDialog"
+        // Only these files' changes, if any
+        property var paths: []
+
+        function ask(files: var) {
+            paths = files
+            stashEverything.checked = true
+            open()
+        }
+
         width: Math.min(460, root.width - 40)
-        title: qsTr("Stash the changes")
+        title: paths.length === 1 ? qsTr("Stash the changes to %1").arg(paths[0]) : qsTr("Stash the changes")
         standardButtons: Dialog.Ok | Dialog.Cancel
         onOpened: {
             stashMessage.text = ""
             stashMessage.forceActiveFocus()
         }
-        onAccepted: repo.stash(stashMessage.text, stashUntracked.checked)
+        onAccepted: repo.stash(stashMessage.text, stashUntracked.checked && !stashStaged.checked,
+                               stashStaged.checked, paths)
         Component.onCompleted: {
             standardButton(Dialog.Ok).objectName = "stashOkButton"
             standardButton(Dialog.Ok).text = qsTr("Stash")
@@ -646,11 +657,27 @@ ApplicationWindow {
                 placeholderText: qsTr("What they are, for later (optional)")
                 onAccepted: stashDialog.accept()
             }
+            RadioButton {
+                id: stashEverything
+                objectName: "stashEverything"
+                text: stashDialog.paths.length > 0 ? qsTr("Their staged and unstaged changes")
+                                                   : qsTr("Staged and unstaged changes")
+                checked: true
+            }
             CheckBox {
                 id: stashUntracked
                 objectName: "stashUntracked"
+                leftPadding: 28
                 text: qsTr("Untracked files too")
+                enabled: stashEverything.checked
                 checked: true
+            }
+            RadioButton {
+                id: stashStaged
+                objectName: "stashStaged"
+                text: stashDialog.paths.length > 0 ? qsTr("Only what is staged of them")
+                                                   : qsTr("Only what is staged, the rest stays (--staged)")
+                enabled: repo.staged.count > 0
             }
         }
     }
@@ -1287,7 +1314,7 @@ ApplicationWindow {
                         enabled: repo.hasWip && !repo.planning && !repo.writing
                         icon.source: Icons.source("archive")
                         icon.color: palette.windowText
-                        onTriggered: stashDialog.open()
+                        onTriggered: stashDialog.ask([])
                     }
                     MenuSeparator {
                         visible: repo.stashes.length > 0
@@ -1808,6 +1835,7 @@ ApplicationWindow {
                             monoFont: root.monoFont
                             onDiscardRequested: path => discardChangesDialog.askFile(path)
                             onIgnoreRequested: path => ignoreDialog.ask(path)
+                            onStashRequested: path => stashDialog.ask([path])
                             foldInto: recent.dropSubject
                             foldRefused: recent.dropBlocker
                             onFileDragMoved: (path, staged, pos) => recent.updateDrop(pos, true)

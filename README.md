@@ -278,9 +278,10 @@ diff from the diff's tool bar. Nothing keeps what is discarded, so it
 asks first; staged changes stay.
 
 The stash button in the tool bar, with how many there are, stashes the
-changes under a message, untracked files too if ticked, and lists the
-stashes: each applied again and kept, popped, or dropped, which asks
-first.
+changes under a message, untracked files too if ticked, or only what is
+staged (`--staged`), which is how to stash some lines: stage them first.
+A file's menu stashes only its changes. The button lists the stashes:
+each applied again and kept, popped, or dropped, which asks first.
 
 ## Plan mode
 

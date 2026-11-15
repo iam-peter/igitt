@@ -2221,14 +2221,23 @@ void Repository::discardSelection()
     });
 }
 
-void Repository::stash(const QString &message, bool includeUntracked)
+void Repository::stash(const QString &message, bool includeUntracked, bool stagedOnly, const QStringList &paths)
 {
     QStringList args{QStringLiteral("stash"), QStringLiteral("push")};
-    if (includeUntracked)
+    // git takes untracked files or only the staged changes, not both
+    if (stagedOnly)
+        args.append(QStringLiteral("--staged"));
+    else if (includeUntracked)
         args.append(QStringLiteral("--include-untracked"));
     if (!message.trimmed().isEmpty())
         args += {QStringLiteral("-m"), message.trimmed()};
-    enqueueGitWrite(args, tr("Stashed the changes."), tr("Stashing failed"));
+    QString done = stagedOnly ? tr("Stashed the staged changes.") : tr("Stashed the changes.");
+    if (!paths.isEmpty()) {
+        args += QStringList{QStringLiteral("--")} + paths;
+        done = paths.size() == 1 ? tr("Stashed the changes to %1.").arg(paths.first())
+                                 : tr("Stashed the changes to %n file(s).", "", int(paths.size()));
+    }
+    enqueueGitWrite(args, done, tr("Stashing failed"));
 }
 
 void Repository::applyStash(int index, bool pop)

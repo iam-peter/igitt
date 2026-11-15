@@ -1210,6 +1210,46 @@ private slots:
 
     // Changes thrown away after a guard, from a file's menu or the diff's
     // selection; stashed from the tool bar, and a stash dropped after one.
+    // A file's changes stashed from its menu, the rest left
+    void stashesAFile()
+    {
+        QTemporaryDir dir;
+        GitRunner git(dir.path());
+        const auto write = [&](const QString &name, const QByteArray &content) {
+            QFile file(dir.filePath(name));
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            file.write(content);
+        };
+        git.run({u"init"_s, u"-q"_s, u"-b"_s, u"main"_s});
+        write(u"a.txt"_s, "a\n");
+        write(u"b.txt"_s, "b\n");
+        git.run({u"add"_s, u"."_s});
+        git.run({u"commit"_s, u"-q"_s, u"-m"_s, u"One"_s});
+        write(u"a.txt"_s, "a changed\n");
+        write(u"b.txt"_s, "b changed\n");
+
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        QTRY_COMPARE(window->property("mode").toInt(), 1);
+        QQuickItem *row = nullptr;
+        QTRY_VERIFY((row = fileRow(window, u"unstagedList"_s, u"a.txt"_s)));
+        QTest::mouseClick(window, Qt::RightButton, {}, row->mapToScene({row->width() / 2, row->height() / 2}).toPoint());
+        click(window, u"stashFileMenuItem"_s);
+        auto *dialog = window->findChild<QObject *>(u"stashDialog"_s);
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QCOMPARE(dialog->property("paths").toStringList(), QStringList{u"a.txt"_s});
+        QVERIFY(!window->findChild<QQuickItem *>(u"stashStaged"_s)->isEnabled()); // nothing staged
+        click(window, u"stashOkButton"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(git.run({u"status"_s, u"--porcelain"_s}).out, " M b.txt\n"_ba);
+        QVERIFY(git.run({u"stash"_s, u"show"_s, u"--name-only"_s}).out.contains("a.txt"));
+    }
+
     // A merge asks how, and remembers it
     void mergesAsChosen()
     {

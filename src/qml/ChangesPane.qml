@@ -16,6 +16,7 @@ Pane {
     // into a commit
     signal discardRequested(string path)
     signal ignoreRequested(string path)
+    signal stashRequested(string path)
     signal fileDragMoved(string path, bool staged, point scenePos)
     // The commit a dragged file would fold into, or why not (FileList)
     property string foldInto
@@ -41,6 +42,7 @@ Pane {
             staged: false
             onDiscardRequested: path => pane.discardRequested(path)
             onIgnoreRequested: path => pane.ignoreRequested(path)
+            onStashRequested: path => pane.stashRequested(path)
             title: qsTr("Unstaged Changes")
             onTimelapseRequested: path => pane.timelapseRequested(path)
             onFileDragMoved: (path, pos) => {
@@ -63,6 +65,7 @@ Pane {
             SplitView.minimumHeight: 56
             repo: pane.repo
             staged: true
+            onStashRequested: path => pane.stashRequested(path)
             title: qsTr("Staged Changes")
             onTimelapseRequested: path => pane.timelapseRequested(path)
             onFileDragMoved: (path, pos) => {

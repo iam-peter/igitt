@@ -32,6 +32,8 @@ Item {
     signal discardRequested(string path)
     // An untracked file to ignore, after asking how
     signal ignoreRequested(string path)
+    // A file's changes to stash, after asking which
+    signal stashRequested(string path)
 
     function toggleStage(path: string) {
         if (staged)
@@ -71,6 +73,14 @@ Item {
             icon.source: Icons.source("trash-2")
             icon.color: palette.windowText
             onTriggered: fileList.discardRequested(fileMenu.path)
+        }
+        MenuItem {
+            objectName: "stashFileMenuItem"
+            text: fileList.repo.planning ? qsTr("Stash (off while planning)") : qsTr("Stash…")
+            enabled: !fileList.repo.writing && !fileList.repo.planning
+            icon.source: Icons.source("archive")
+            icon.color: palette.windowText
+            onTriggered: fileList.stashRequested(fileMenu.path)
         }
         MenuItem {
             objectName: "ignoreFileMenuItem"

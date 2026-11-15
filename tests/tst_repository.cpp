@@ -416,6 +416,33 @@ private slots:
         QVERIFY(settle(repo()));
     }
 
+    // Only the staged changes, or only a file's
+    void stashesPartly()
+    {
+        writeFile(file(), "one\ntwo\nthree\nfour\nfive, staged\n");
+        git({"add", "f.txt"});
+        writeFile(m_dir->filePath(u"g.txt"_s), "g, unstaged\n");
+        writeFile(m_dir->filePath(u"new.txt"_s), "new\n");
+        open(m_dir->path());
+
+        repo().stash(u"staged part"_s, true, true);
+        QVERIFY(settle(repo()));
+        QVERIFY(m_errors->isEmpty());
+        QVERIFY(git({"diff", "--cached"}).isEmpty());
+        QCOMPARE(readFile(file()), "one\ntwo\nthree\nfour\nfive\n"_ba);
+        QCOMPARE(readFile(m_dir->filePath(u"g.txt"_s)), "g, unstaged\n"_ba); // stays
+        QVERIFY(QFile::exists(m_dir->filePath(u"new.txt"_s)));                 // untracked stays too
+        QVERIFY(git({"stash", "show", "--name-only", "stash@{0}"}).contains("f.txt"));
+        QVERIFY(!git({"stash", "show", "--name-only", "stash@{0}"}).contains("g.txt"));
+
+        repo().stash(u"one file"_s, true, false, {u"new.txt"_s});
+        QVERIFY(settle(repo()));
+        QVERIFY(m_errors->isEmpty());
+        QVERIFY(!QFile::exists(m_dir->filePath(u"new.txt"_s)));
+        QCOMPARE(readFile(m_dir->filePath(u"g.txt"_s)), "g, unstaged\n"_ba);
+        QVERIFY(git({"stash", "list"}).contains("one file"));
+    }
+
     // An untracked file ignored, shared or only here
     void ignoresFiles()
     {
