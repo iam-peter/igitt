@@ -1,6 +1,26 @@
 #include "GitRunner.h"
 
+#include <QMutex>
 #include <QProcess>
+
+namespace {
+
+QMutex sharedMutex;
+QProcessEnvironment shared;
+
+} // namespace
+
+void GitRunner::setSharedEnvironment(const QProcessEnvironment &env)
+{
+    const QMutexLocker locker(&sharedMutex);
+    shared = env;
+}
+
+QProcessEnvironment GitRunner::sharedEnvironment()
+{
+    const QMutexLocker locker(&sharedMutex);
+    return shared;
+}
 
 QString GitResult::errorText() const
 {
@@ -23,7 +43,7 @@ GitResult GitRunner::run(const QStringList &args, const QByteArray &input,
     // with whatever the user is doing in a terminal at the same time.
     env.insert(QStringLiteral("GIT_OPTIONAL_LOCKS"), QStringLiteral("0"));
     env.insert(QStringLiteral("GIT_TERMINAL_PROMPT"), QStringLiteral("0"));
-    for (const QProcessEnvironment &add : {m_env, extraEnv}) {
+    for (const QProcessEnvironment &add : {sharedEnvironment(), m_env, extraEnv}) {
         const QStringList keys = add.keys();
         for (const QString &key : keys)
             env.insert(key, add.value(key));

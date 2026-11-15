@@ -34,6 +34,11 @@ public:
     GitResult run(const QStringList &args, const QByteArray &input = {},
                   const QProcessEnvironment &extraEnv = {}) const;
 
+    // Added to the environment of every command any runner starts, before
+    // its own: how to ask the user for a password, say (see AskPass).
+    static void setSharedEnvironment(const QProcessEnvironment &env);
+    static QProcessEnvironment sharedEnvironment();
+
 private:
     QString m_workDir;
     QProcessEnvironment m_env;

@@ -177,10 +177,12 @@ it takes; it keeps no tokens. The arrow next to Push sends GitLab's
 merge request push options, or opens a pull request with `gh pr create`
 after pushing to GitHub.
 
-igitt cannot answer password prompts: SSH runs in batch mode, so keys
-need to be in ssh-agent, and HTTPS needs a credential helper. The
-buttons are off while planning, and Pull and Push during a merge or
-rebase.
+When the remote wants a user name, a password or a key's passphrase, or
+SSH asks whether to trust a new host, igitt asks in a dialog: it is git's
+and ssh's askpass program (`GIT_ASKPASS`, `SSH_ASKPASS`). git remembers
+the answers only with a credential helper set up (`credential.helper`),
+ssh with an agent. The buttons are off while planning, and Pull and Push
+during a merge or rebase.
 
 ## Branches and tags
 

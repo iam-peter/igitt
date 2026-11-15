@@ -28,16 +28,18 @@ QString currentBranch(const GitRunner &git)
                               QStringLiteral("HEAD")}).out);
 }
 
-// Without a terminal, prompts would hang or fail obscurely; make SSH fail
-// fast instead, unless the user configured their own SSH command.
+// An unreachable host fails after a while rather than never, unless the
+// user configured their own SSH command. With no one to ask (see
+// AskPass), prompts would hang or fail obscurely: SSH fails fast then.
 QProcessEnvironment networkEnvironment(const GitRunner &git)
 {
     QProcessEnvironment env;
     const QProcessEnvironment system = QProcessEnvironment::systemEnvironment();
     if (!system.contains(QStringLiteral("GIT_SSH_COMMAND")) && !system.contains(QStringLiteral("GIT_SSH"))
         && config(git, QStringLiteral("core.sshCommand")).isEmpty()) {
-        env.insert(QStringLiteral("GIT_SSH_COMMAND"),
-                   QStringLiteral("ssh -o BatchMode=yes -o ConnectTimeout=20"));
+        const bool canAsk = GitRunner::sharedEnvironment().contains(QStringLiteral("SSH_ASKPASS"));
+        env.insert(QStringLiteral("GIT_SSH_COMMAND"), canAsk ? QStringLiteral("ssh -o ConnectTimeout=20")
+                                                             : QStringLiteral("ssh -o BatchMode=yes -o ConnectTimeout=20"));
     }
     return env;
 }
@@ -215,12 +217,13 @@ QString explainNetworkFailure(const QString &stderrText)
     if (text.contains(QLatin1StringView("terminal prompts disabled"))
         || text.contains(QLatin1StringView("could not read Username"))
         || text.contains(QLatin1StringView("could not read Password"))) {
-        return tr("The remote asks for a user name and password, which igitt cannot prompt for. "
-                  "Set up a credential helper (git config credential.helper) or use SSH.");
+        return tr("The remote asked for a user name and password and got none. "
+                  "A credential helper (git config credential.helper) can remember them.");
     }
     if (text.contains(QLatin1StringView("Host key verification failed")))
-        return tr("The remote's SSH host key is not known yet. Connect once from a terminal to accept it.");
+        return tr("The remote's SSH host key was not accepted, so igitt did not connect.");
     if (text.contains(QLatin1StringView("Permission denied (publickey")))
-        return tr("SSH authentication failed. Add your key to ssh-agent; igitt cannot ask for its passphrase.");
+        return tr("SSH authentication failed: the remote took none of your keys, or a key's passphrase "
+                  "was not given.");
     return text;
 }

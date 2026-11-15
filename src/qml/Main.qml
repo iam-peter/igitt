@@ -525,6 +525,95 @@ ApplicationWindow {
         }
     }
 
+    // What git or ssh asks for while fetching, pushing or cloning: a user
+    // name, a password or a key's passphrase. One prompt at a time, in the
+    // order they come.
+    ModalDialog {
+        id: credentialDialog
+
+        objectName: "credentialDialog"
+        property var queue: []
+        property int promptId: -1
+        property string prompt
+        property bool secret
+        property bool answered
+
+        function next() {
+            if (visible || queue.length === 0)
+                return
+            const ask = queue.shift()
+            promptId = ask.id
+            prompt = ask.prompt
+            secret = ask.secret
+            answered = false
+            open()
+        }
+
+        width: Math.min(480, root.width - 40)
+        title: qsTr("git asks")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onOpened: {
+            credentialAnswer.text = ""
+            credentialAnswer.forceActiveFocus()
+        }
+        onAccepted: {
+            answered = true
+            AskPass.answer(promptId, credentialAnswer.text)
+        }
+        onRejected: {
+            if (!answered)
+                AskPass.cancel(promptId)
+        }
+        onClosed: {
+            credentialAnswer.text = ""
+            promptId = -1
+            Qt.callLater(next)
+        }
+        Component.onCompleted: standardButton(Dialog.Ok).objectName = "credentialOkButton"
+
+        Connections {
+            target: AskPass
+            function onPromptRequested(id: int, prompt: string, secret: bool) {
+                credentialDialog.queue.push({id: id, prompt: prompt, secret: secret})
+                credentialDialog.next()
+            }
+            function onPromptCanceled(id: int) {
+                credentialDialog.queue = credentialDialog.queue.filter(ask => ask.id !== id)
+                if (credentialDialog.promptId === id) {
+                    credentialDialog.answered = true
+                    credentialDialog.close()
+                }
+            }
+        }
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 8
+
+            Label {
+                objectName: "credentialPrompt"
+                Layout.fillWidth: true
+                text: credentialDialog.prompt.trim()
+                wrapMode: Text.Wrap
+            }
+            TextField {
+                id: credentialAnswer
+                objectName: "credentialAnswer"
+                Layout.fillWidth: true
+                echoMode: credentialDialog.secret ? TextInput.Password : TextInput.Normal
+                onAccepted: credentialDialog.accept()
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: credentialDialog.secret
+                text: qsTr("git keeps it only with a credential helper set up (credential.helper), ssh with an agent.")
+                wrapMode: Text.Wrap
+                opacity: 0.7
+                font.pixelSize: root.font.pixelSize - 1
+            }
+        }
+    }
+
     // The current branch reset to a commit: what lies between kept staged,
     // unstaged, or with every uncommitted change thrown away, which is
     // red and says so

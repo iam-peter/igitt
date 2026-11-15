@@ -6,6 +6,7 @@ qt_add_qml_module(igitt_core
     VERSION 1.0
     SOURCES
         core/GitRunner.h core/GitRunner.cpp
+        core/AskPass.h core/AskPass.cpp
         core/LogParser.h core/LogParser.cpp
         core/GraphLayout.h core/GraphLayout.cpp
         core/LaneColors.h core/LaneColors.cpp
@@ -46,7 +47,7 @@ target_include_directories(igitt_core
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/models ${CMAKE_CURRENT_SOURCE_DIR}/core
 )
-target_link_libraries(igitt_core PUBLIC Qt6::Core Qt6::Qml)
+target_link_libraries(igitt_core PUBLIC Qt6::Core Qt6::Network Qt6::Qml)
 
 # KDE's highlighter knows hundreds of languages; without it a built-in one
 # covers the few igitt's own sources are written in.

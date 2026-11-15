@@ -953,7 +953,7 @@ private slots:
     {
         QVERIFY(explainNetworkFailure(u"fatal: could not read Username for 'https://x': terminal prompts disabled"_s)
                     .contains("credential helper"_L1));
-        QVERIFY(explainNetworkFailure(u"Host key verification failed."_s).contains("terminal"_L1));
+        QVERIFY(explainNetworkFailure(u"Host key verification failed."_s).contains("host key"_L1));
         QCOMPARE(remoteLinks(u"remote: Processing changes: new: 1\nremote:   https://review.example/c/1 [NEW]\n"_s),
                  QStringList{u"https://review.example/c/1"_s});
     }

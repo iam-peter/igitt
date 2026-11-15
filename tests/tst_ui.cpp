@@ -4,6 +4,7 @@
 // (dracula, catppuccin-mocha, ...).
 
 #include "Repository.h"
+#include "core/AskPass.h"
 #include "core/ChangeClusters.h"
 #include "core/GitRunner.h"
 #include "core/LaneColors.h"
@@ -1209,6 +1210,37 @@ private slots:
 
     // Changes thrown away after a guard, from a file's menu or the diff's
     // selection; stashed from the tool bar, and a stash dropped after one.
+    // What git asks shows in a dialog, a password hidden, one at a time
+    void asksForCredentials()
+    {
+        QTemporaryDir dir;
+        GitRunner(dir.path()).run({u"init"_s, u"-q"_s});
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QVERIFY(settle(*window->findChild<Repository *>()));
+
+        AskPass *askPass = AskPass::instance();
+        emit askPass->promptRequested(901, u"Username for 'https://example.com': "_s, false);
+        emit askPass->promptRequested(902, u"Password for 'https://alice@example.com': "_s, true);
+        QQuickItem *answer = nullptr;
+        QTRY_VERIFY((answer = findItem(window->contentItem(), u"credentialAnswer"_s)) && answer->isVisible());
+        auto *dialog = window->findChild<QObject *>(u"credentialDialog"_s);
+        QCOMPARE(dialog->property("promptId").toInt(), 901);
+        QCOMPARE(answer->property("echoMode").toInt(), 0); // Normal
+        answer->setProperty("text", u"alice"_s);
+        QTest::keyClick(window, Qt::Key_Return);
+        QTRY_COMPARE(dialog->property("promptId").toInt(), 902);
+        QTRY_VERIFY(answer->isVisible());
+        QCOMPARE(answer->property("echoMode").toInt(), 2); // Password
+        QCOMPARE(answer->property("text").toString(), QString());
+        // The helper going away closes it
+        emit askPass->promptCanceled(902);
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+    }
+
     void discardsAndStashes()
     {
         QTemporaryDir dir;
