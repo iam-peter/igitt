@@ -370,7 +370,9 @@ away with every uncommitted change, which turns the button red. A
 commit the branch has already is not picked again.
 
 The same menu compares the commit with the one on display, and saves it
-as a patch, as `git format-patch` writes it.
+as a patch, as `git format-patch` writes it. It also checks the commit
+out on no branch (detached HEAD), to look at or build an old version, as
+a tag's label does for its tag; switching to a branch goes back.
 
 ## Editing the history
 

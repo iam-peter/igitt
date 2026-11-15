@@ -293,6 +293,9 @@ public:
     Q_INVOKABLE QString branchNameError(const QString &name) const;
     Q_INVOKABLE void createBranch(const QString &name, const QString &start, bool checkout);
     Q_INVOKABLE void checkoutBranch(const QString &name);
+    // A commit or tag checked out on no branch (detached HEAD), to look at
+    // or build an old version
+    Q_INVOKABLE void checkoutDetached(const QString &rev);
     Q_INVOKABLE void renameBranch(const QString &from, const QString &to);
     Q_INVOKABLE void deleteBranch(const QString &name, bool force);
 

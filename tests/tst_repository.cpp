@@ -477,6 +477,26 @@ private slots:
         QVERIFY(git({"stash", "list"}).contains("one file"));
     }
 
+    // A tag or commit checked out on no branch, and back
+    void checksOutOnNoBranch()
+    {
+        git({"tag", "v1", "HEAD~1"});
+        open(m_dir->path());
+        const QString first = QString::fromUtf8(git({"rev-parse", "HEAD~1"}).trimmed());
+        repo().checkoutDetached(u"v1"_s);
+        QVERIFY(settle(repo()));
+        QVERIFY(m_errors->isEmpty());
+        QCOMPARE(repo().branch(), QString());
+        QCOMPARE(repo().headSha(), first);
+        repo().checkoutBranch(u"main"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().branch(), u"main"_s);
+        repo().checkoutDetached(first);
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().headSha(), first);
+        QCOMPARE(repo().branch(), QString());
+    }
+
     // Folders in the home folder show from ~
     void showsPathsFromHome()
     {

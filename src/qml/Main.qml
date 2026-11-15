@@ -1745,6 +1745,7 @@ ApplicationWindow {
                         onComposeRequested: sha => root.editInCompose(sha)
                         onBranchRequested: (sha, subject) => branchDialog.create(sha, subject)
                         onCheckoutRequested: name => repo.checkoutBranch(name)
+                        onDetachRequested: rev => repo.checkoutDetached(rev)
                         onRenameBranchRequested: name => branchDialog.rename(name)
                         onDeleteBranchRequested: name => deleteBranchDialog.ask(name)
                         onMergeRequested: name => mergeDialog.ask(name)

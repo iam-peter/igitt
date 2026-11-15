@@ -28,6 +28,8 @@ Pane {
     // Branches: one to make at a commit, to switch to, to rename, to delete
     signal branchRequested(string sha, string subject)
     signal checkoutRequested(string name)
+    // A commit or tag checked out on no branch
+    signal detachRequested(string rev)
     signal renameBranchRequested(string name)
     signal deleteBranchRequested(string name)
     // Another branch merged into the current one, or the current one
@@ -141,14 +143,14 @@ Pane {
 
         MenuItem {
             objectName: "checkoutMenuItem"
-            visible: refMenu.kind !== "tag"
-            height: visible ? implicitHeight : 0
-            text: (refMenu.kind === "remote" ? qsTr("Check Out as a Local Branch") : qsTr("Check Out"))
+            text: (refMenu.kind === "remote" ? qsTr("Check Out as a Local Branch")
+                   : refMenu.kind === "tag" ? qsTr("Check Out on No Branch") : qsTr("Check Out"))
                   + (view.repo.planning ? qsTr(" (off while planning)") : "")
             enabled: !refMenu.current && !view.repo.planning
             icon.source: Icons.source("git-branch")
             icon.color: palette.windowText
-            onTriggered: view.checkoutRequested(refMenu.name)
+            onTriggered: refMenu.kind === "tag" ? view.detachRequested(refMenu.name)
+                                                : view.checkoutRequested(refMenu.name)
         }
         MenuItem {
             objectName: "mergeBranchMenuItem"
@@ -277,6 +279,16 @@ Pane {
                                                false)
         }
         MenuSeparator {}
+        MenuItem {
+            objectName: "detachMenuItem"
+            readonly property bool off: view.repo.planning || view.repo.operation !== ""
+            text: view.repo.planning ? qsTr("Check Out (off while planning)")
+                                     : qsTr("Check Out This Commit, on No Branch")
+            enabled: !off && !view.repo.writing && commitMenu.sha !== view.repo.headSha
+            icon.source: Icons.source("git-commit-vertical")
+            icon.color: palette.windowText
+            onTriggered: view.detachRequested(commitMenu.sha)
+        }
         MenuItem {
             objectName: "cherryPickMenuItem"
             readonly property bool off: view.repo.planning || view.repo.operation !== ""

@@ -1945,6 +1945,17 @@ void Repository::enqueueGitWrite(const QStringList &args, const QString &done, c
     });
 }
 
+void Repository::checkoutDetached(const QString &rev)
+{
+    if (rev.isEmpty())
+        return;
+    const QString shown = QRegularExpression(QStringLiteral("^[0-9a-f]{40,64}$")).match(rev).hasMatch()
+                              ? rev.left(10) : rev;
+    enqueueGitWrite({QStringLiteral("switch"), QStringLiteral("--detach"), rev},
+                    tr("Checked out %1 on no branch; switch to a branch to commit on one.").arg(shown),
+                    tr("Checking out %1").arg(shown));
+}
+
 void Repository::createBranch(const QString &name, const QString &start, bool checkout)
 {
     const QString at = start.isEmpty() ? QStringLiteral("HEAD") : start;
