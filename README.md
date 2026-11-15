@@ -331,7 +331,7 @@ touching the working tree:
    index for unstaged ones) in a temporary index.
 2. Merge that change into the target with `git merge-tree --write-tree
    --merge-base=<base>` and recreate the target with its author, date and
-   message.
+   message, signed when `commit.gpgSign` is set, as `git commit` would.
 3. Replay every later commit the same way.
 4. Move HEAD with `git update-ref HEAD <new> <old>`, which fails if the
    branch moved meanwhile. Unstaged lines that were folded are staged, so
