@@ -1830,7 +1830,9 @@ private slots:
         QVERIFY(QQuickTest::qWaitForPolish(window));
         QTest::mouseClick(window, Qt::RightButton, {}, label->mapToScene({label->width() / 2, label->height() / 2}).toPoint());
         QTRY_VERIFY(window->findChild<QQuickItem *>(u"deleteTagMenuItem"_s)->isVisible());
-        QVERIFY(!window->findChild<QQuickItem *>(u"checkoutMenuItem"_s)->isVisible());
+        // A tag checks out on no branch
+        QCOMPARE(window->findChild<QQuickItem *>(u"checkoutMenuItem"_s)->property("text").toString(),
+                 u"Check Out on No Branch"_s);
         click(window, u"deleteTagMenuItem"_s);
         click(window, u"deleteTagOkButton"_s);
         QVERIFY(settle(*repo));

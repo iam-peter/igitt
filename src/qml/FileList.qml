@@ -237,7 +237,10 @@ Item {
                         fileMenu.path = item.path
                         fileMenu.untracked = item.untracked
                         fileMenu.paths = fileList.targets(item.path)
-                        fileMenu.popup(item, eventPoint.position.x, eventPoint.position.y)
+                        // Placed in the list, which stays when rows are
+                        // made again
+                        const at = item.mapToItem(fileList, eventPoint.position.x, eventPoint.position.y)
+                        fileMenu.popup(fileList, at.x, at.y)
                     }
                 }
 

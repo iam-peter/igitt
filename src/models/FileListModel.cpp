@@ -1,5 +1,7 @@
 #include "FileListModel.h"
 
+#include <algorithm>
+
 FileListModel::FileListModel(bool staged, QObject *parent)
     : QAbstractListModel(parent)
     , m_staged(staged)
@@ -8,13 +10,21 @@ FileListModel::FileListModel(bool staged, QObject *parent)
 
 void FileListModel::setEntries(const QList<StatusEntry> &entries)
 {
-    const int oldCount = count();
-    beginResetModel();
-    m_entries.clear();
+    QList<StatusEntry> listed;
     for (const StatusEntry &e : entries) {
         if (m_staged ? e.hasStagedChange() : e.hasUnstagedChange())
-            m_entries.append(e);
+            listed.append(e);
     }
+    // The same files as before: the rows, and a menu opened on one, stay
+    const auto same = [](const StatusEntry &a, const StatusEntry &b) {
+        return a.path == b.path && a.origPath == b.origPath && a.index == b.index && a.worktree == b.worktree
+               && a.untracked == b.untracked && a.conflicted == b.conflicted;
+    };
+    if (std::equal(listed.cbegin(), listed.cend(), m_entries.cbegin(), m_entries.cend(), same))
+        return;
+    const int oldCount = count();
+    beginResetModel();
+    m_entries = listed;
     endResetModel();
     if (count() != oldCount)
         emit countChanged();
