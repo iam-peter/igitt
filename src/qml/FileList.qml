@@ -96,6 +96,7 @@ Item {
 
         property string path
         property bool untracked
+        property bool conflicted
         property var paths: []
         readonly property bool several: paths.length > 1
 
@@ -157,6 +158,24 @@ Item {
         }
         MenuSeparator {}
         MenuItem {
+            objectName: "mergeToolMenuItem"
+            visible: fileMenu.conflicted && !fileMenu.several
+            height: visible ? implicitHeight : 0
+            text: qsTr("Open in Merge Tool")
+            icon.source: Icons.source("git-merge")
+            icon.color: palette.windowText
+            onTriggered: fileList.repo.openMergeTool(fileMenu.path)
+        }
+        MenuItem {
+            objectName: "diffToolMenuItem"
+            visible: !fileMenu.untracked && !fileMenu.conflicted && !fileMenu.several
+            height: visible ? implicitHeight : 0
+            text: qsTr("Open in Diff Tool")
+            icon.source: Icons.source("external-link")
+            icon.color: palette.windowText
+            onTriggered: fileList.repo.openChangeInDiffTool(fileMenu.path, fileList.staged)
+        }
+        MenuItem {
             text: qsTr("Time-lapse View")
             icon.source: Icons.source("history")
             icon.color: palette.windowText
@@ -210,6 +229,7 @@ Item {
                 required property string origPath
                 required property string status
                 required property bool untracked
+                required property bool conflicted
                 required property int index
 
                 property point dragPos
@@ -236,6 +256,7 @@ Item {
                     onTapped: eventPoint => {
                         fileMenu.path = item.path
                         fileMenu.untracked = item.untracked
+                        fileMenu.conflicted = item.conflicted
                         fileMenu.paths = fileList.targets(item.path)
                         // Placed in the list, which stays when rows are
                         // made again

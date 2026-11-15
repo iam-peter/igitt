@@ -10,9 +10,11 @@
 #include "core/PatchCommit.h"
 #include "core/PatchBuilder.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QPointer>
 #include <QUrl>
 
 namespace {
@@ -1811,6 +1813,120 @@ void Repository::loadSparseFolders()
         outcome.sparseFolders = result.ok() ? QString::fromUtf8(result.out).split(QLatin1Char('\n'), Qt::SkipEmptyParts)
                                             : QStringList();
         return outcome;
+    });
+}
+
+namespace {
+
+// Which of the configured tools to start, as git difftool and mergetool
+// pick them: --gui for a guitool; none at all, and git would ask on a
+// terminal nobody sees
+std::optional<QStringList> toolChoice(const GitRunner &git, bool merge)
+{
+    const auto configured = [&git](const QString &key) {
+        return !git.run({QStringLiteral("config"), QStringLiteral("--get"), key}).out.trimmed().isEmpty();
+    };
+    if (configured(merge ? QStringLiteral("merge.guitool") : QStringLiteral("diff.guitool")))
+        return QStringList{QStringLiteral("--gui")};
+    if ((!merge && configured(QStringLiteral("diff.tool"))) || configured(QStringLiteral("merge.tool")))
+        return QStringList();
+    return std::nullopt;
+}
+
+} // namespace
+
+void Repository::openDiffTool(const QString &path)
+{
+    if (!valid() || path.isEmpty())
+        return;
+    QStringList revs;
+    switch (m_diffSource) {
+    case UnstagedDiff:
+        break;
+    case StagedDiff:
+        revs << QStringLiteral("--cached");
+        break;
+    case CommitDiff:
+        revs << m_diffCommit;
+        break;
+    case CompareDiff:
+        revs << (m_diffThreeDot ? m_diffBase + QStringLiteral("...") + m_diffCommit : m_diffBase)
+             << (m_diffThreeDot ? QString() : m_diffCommit);
+        break;
+    case PatchSetDiff:
+        revs << m_diffBase << m_diffCommit;
+        break;
+    default:
+        emit errorOccurred(tr("There is no diff on display to open."));
+        return;
+    }
+    revs.removeAll(QString());
+    startDiffTool(path, revs, m_diffSource == CommitDiff);
+}
+
+void Repository::openChangeInDiffTool(const QString &path, bool staged)
+{
+    if (valid() && !path.isEmpty())
+        startDiffTool(path, staged ? QStringList{QStringLiteral("--cached")} : QStringList(), false);
+}
+
+void Repository::startDiffTool(const QString &path, const QStringList &revs, bool commit)
+{
+    const QPointer<Repository> self(this);
+    QThreadPool::globalInstance()->start([self, git = m_git, path, revs, commit] {
+        QString error;
+        if (const std::optional<QStringList> gui = toolChoice(git, false); !gui) {
+            error = tr("No diff tool is set up: git config --global diff.tool meld, say, or kdiff3, vimdiff, "
+                       "vscode.");
+        } else {
+            QStringList range = revs;
+            // A commit against its parent, or against nothing for the first
+            if (commit) {
+                const QString parent = QString::fromUtf8(git.run({QStringLiteral("rev-parse"), QStringLiteral("--verify"),
+                                                                  QStringLiteral("-q"), revs.first() + QStringLiteral("^")})
+                                                             .out).trimmed();
+                const QString empty = QString::fromUtf8(git.run({QStringLiteral("hash-object"), QStringLiteral("-t"),
+                                                                 QStringLiteral("tree"), QStringLiteral("--stdin")})
+                                                            .out).trimmed();
+                range = {parent.isEmpty() ? empty : parent, revs.first()};
+            }
+            const GitResult result = git.run(QStringList{QStringLiteral("difftool"), QStringLiteral("-y")} + *gui
+                                             + range + QStringList{QStringLiteral("--"), path});
+            if (!result.ok())
+                error = tr("The diff tool failed: %1").arg(result.errorText());
+        }
+        if (!error.isEmpty()) {
+            QMetaObject::invokeMethod(qApp, [self, error] {
+                if (self)
+                    emit self->errorOccurred(error);
+            });
+        }
+    });
+}
+
+void Repository::openMergeTool(const QString &path)
+{
+    if (!valid() || path.isEmpty())
+        return;
+    const QPointer<Repository> self(this);
+    QThreadPool::globalInstance()->start([self, git = m_git, path] {
+        QString error;
+        if (const std::optional<QStringList> gui = toolChoice(git, true); !gui) {
+            error = tr("No merge tool is set up: git config --global merge.tool meld, say, or kdiff3, vimdiff, "
+                       "vscode.");
+        } else {
+            const GitResult result = git.run(QStringList{QStringLiteral("mergetool"), QStringLiteral("-y")} + *gui
+                                             + QStringList{QStringLiteral("--"), path});
+            if (!result.ok())
+                error = tr("The merge tool did not resolve %1: %2").arg(path, result.errorText());
+        }
+        QMetaObject::invokeMethod(qApp, [self, error] {
+            if (!self)
+                return;
+            if (!error.isEmpty())
+                emit self->errorOccurred(error);
+            self->refreshStatus();
+        });
     });
 }
 

@@ -239,7 +239,10 @@ keeps them in the order they were picked. The output below follows the
 choices and can be edited before **Save and Mark Resolved** writes and
 stages it. Files that cannot be merged line by line (binary, or deleted
 on one side) offer keeping one side instead. Folds and plans wait until
-the merge, rebase or cherry-pick is finished.
+the merge, rebase or cherry-pick is finished. A conflicted file's menu
+also opens it in your own merge tool (`git mergetool`, as `merge.tool`
+or `merge.guitool` names it), and the changes are read again once it
+closes.
 
 A merge, rebase, cherry-pick or revert that stops at conflicts shows a
 banner: once the conflicts are resolved and staged, **Continue** goes on
@@ -276,6 +279,10 @@ text; nothing in a file is ever read as markup.
 The diff toolbar turns highlighting and word marks off and on, and can
 ignore changes of white space (`git diff -w`). Lines can't be staged or
 folded while white space is ignored: such a diff would not apply back.
+A file's header in a diff, or its menu in the change lists, opens the
+same change in your own diff tool (`git difftool`, as `diff.tool`,
+`diff.guitool` or `merge.tool` names it), for images, say; it runs
+beside igitt, which says so when none is set up.
 
 A file kept in Git LFS changes only its pointer in git; its diff says
 what that means, the file added, removed or changed and its size before

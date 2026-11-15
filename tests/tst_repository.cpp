@@ -637,6 +637,55 @@ private slots:
         QVERIFY(!QFile::exists(m_dir->filePath(u"build"_s)));
     }
 
+    // The user's diff and merge tools, as configured; none, and it says so
+    void opensExternalTools()
+    {
+#ifdef Q_OS_WIN
+        QSKIP("Tools as shell commands");
+#endif
+        const QString log = m_dir->filePath(u"tool.log"_s);
+        git({"config", "difftool.fake.cmd", u"cat \"$LOCAL\" \"$REMOTE\" >> '%1'"_s.arg(log)});
+        open(m_dir->path());
+        QSignalSpy errors(m_repo.get(), &Repository::errorOccurred);
+        repo().openChangeInDiffTool(u"f.txt"_s, false);
+        QTRY_COMPARE(errors.size(), 1);
+        QVERIFY(errors.first().first().toString().contains(u"diff.tool"_s));
+        m_errors->clear();
+
+        git({"config", "diff.tool", "fake"});
+        writeFile(file(), "one\ntwo\nTHREE\nfour\nfive\n");
+        repo().openChangeInDiffTool(u"f.txt"_s, false);
+        QTRY_VERIFY(readFile(log).contains("THREE"));
+        QVERIFY(readFile(log).startsWith("one\ntwo\nthree\n")); // the old side first
+        QFile::remove(log);
+
+        // A commit against its parent: g.txt is new in "Second"
+        repo().showCommit(QString::fromUtf8(git({"rev-parse", "HEAD"}).trimmed()));
+        QVERIFY(settle(repo()));
+        repo().openDiffTool(u"g.txt"_s);
+        QTRY_COMPARE(readFile(log), "g\n"_ba);
+
+        // A conflict resolved in the merge tool, taken theirs
+        git({"checkout", "-q", "-b", "other", "HEAD~1"});
+        writeFile(m_dir->filePath(u"g.txt"_s), "theirs\n");
+        git({"add", "g.txt"});
+        git({"commit", "-q", "-m", "Theirs"});
+        git({"checkout", "-q", "main"});
+        git({"merge", "-q", "other"});
+        git({"config", "merge.tool", "fake"});
+        git({"config", "mergetool.fake.cmd", "cp \"$REMOTE\" \"$MERGED\""});
+        git({"config", "mergetool.fake.trustExitCode", "true"});
+        git({"config", "mergetool.keepBackup", "false"});
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        m_errors->clear();
+        repo().openMergeTool(u"g.txt"_s);
+        QTRY_COMPARE(readFile(m_dir->filePath(u"g.txt"_s)), "theirs\n"_ba);
+        QTRY_VERIFY(!git({"status", "--porcelain"}).startsWith("AA") && !git({"status", "--porcelain"}).contains("UU"));
+        QVERIFY(settle(repo()));
+        m_errors->clear();
+    }
+
     // A shallow clone, deepened to all of the history; a sparse checkout
     // of one folder, and back
     void handlesBigRepositories()

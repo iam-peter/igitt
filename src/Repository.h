@@ -420,6 +420,15 @@ public:
     Q_INVOKABLE void disableSparseCheckout();
     // sparseFoldersLoaded() with the folders a sparse checkout has now
     Q_INVOKABLE void loadSparseFolders();
+
+    // A file in the user's own tools, git difftool and git mergetool, as
+    // configured (diff.guitool, diff.tool, merge.guitool, merge.tool): the
+    // diff on display for it, or its conflict. They run beside igitt, not
+    // on its git thread; the status is read again once a merge tool closes.
+    Q_INVOKABLE void openDiffTool(const QString &path);
+    // A file's staged or unstaged changes, whatever is on display
+    Q_INVOKABLE void openChangeInDiffTool(const QString &path, bool staged);
+    Q_INVOKABLE void openMergeTool(const QString &path);
     Q_INVOKABLE void initRepository(const QString &folder);
     // The folder a clone of `url` goes into: its last part, without .git
     Q_INVOKABLE QString cloneFolderName(const QString &url) const;
@@ -654,6 +663,9 @@ private:
     bool m_sparse = false;
     // What the repository is set up with: Git LFS, commit.template
     void checkSetup();
+    // git difftool on `path` between `revs`; a single commit against its
+    // parent with `commit`
+    void startDiffTool(const QString &path, const QStringList &revs, bool commit);
     void searchCode(const QStringList &texts, bool caseSensitive, bool regex);
     QTimer m_reviewTimer;
     int m_reviewGeneration = 0;

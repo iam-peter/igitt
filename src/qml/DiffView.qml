@@ -56,6 +56,15 @@ Pane {
             icon.color: palette.windowText
             onTriggered: view.timelapseRequested(fileMenu.path)
         }
+        MenuItem {
+            objectName: "diffViewToolItem"
+            visible: view.repo.diffSource !== Repository.FileContent
+            height: visible ? implicitHeight : 0
+            text: qsTr("Open in Diff Tool")
+            icon.source: Icons.source("external-link")
+            icon.color: palette.windowText
+            onTriggered: view.repo.openDiffTool(fileMenu.path)
+        }
     }
 
     // The git gui actions: stage or unstage the hunk or line under the
