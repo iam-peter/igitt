@@ -163,6 +163,10 @@ wheel scrolls through the revisions, Ctrl+wheel zooms.
 
 **Fetch** fetches the current branch's remote (all remotes without an
 upstream) and prunes deleted branches; the button says when it last ran.
+igitt also fetches in the background, every 15 minutes by default
+(Settings, 0 to stop): only while nothing else runs, and asking for
+nothing, so only credentials already stored are used; one that fails
+waits for the next.
 **Push** updates the upstream branch, setting one on the first push. For
 Gerrit it becomes **Push for Review** and pushes `HEAD:refs/for/<branch>`:
 detected from a `refs/for/` push refspec on the remote, a commit-msg hook

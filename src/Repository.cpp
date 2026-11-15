@@ -50,6 +50,7 @@ Repository::Repository(QObject *parent)
     m_statsTimer.setSingleShot(true);
     m_statsTimer.setInterval(30);
     connect(&m_statsTimer, &QTimer::timeout, this, &Repository::loadRequestedStats);
+    connect(&m_autoFetchTimer, &QTimer::timeout, this, &Repository::fetchInBackground);
 }
 
 Repository::~Repository()
@@ -2664,6 +2665,38 @@ void Repository::resetTo(const QString &sha, const QString &mode)
                     tr("Reset %1 to %2.").arg(m_status.branch.isEmpty() ? QStringLiteral("HEAD") : m_status.branch,
                                               sha.left(10)),
                     tr("Resetting failed"));
+}
+
+void Repository::setAutoFetchMinutes(int minutes)
+{
+    minutes = std::max(0, minutes);
+    if (minutes == m_autoFetchMinutes)
+        return;
+    m_autoFetchMinutes = minutes;
+    // Checked every minute: a fetch is due by the last one's age, which a
+    // fetch from a terminal resets too
+    if (minutes > 0)
+        m_autoFetchTimer.start(60 * 1000);
+    else
+        m_autoFetchTimer.stop();
+    emit autoFetchMinutesChanged();
+}
+
+void Repository::fetchInBackground()
+{
+    if (!valid() || m_plan || m_autoFetchMinutes <= 0 || m_pendingJobs > 0 || !operation().isEmpty()
+        || m_remoteList.isEmpty())
+        return;
+    const QDateTime last = lastFetch();
+    if (last.isValid() && last.secsTo(QDateTime::currentDateTime()) < m_autoFetchMinutes * 60)
+        return;
+    enqueue(JobKind::Read, [request = diffRequest(), history = historyRequest(true)](const GitRunner &git) {
+        Outcome outcome;
+        // Quiet: a failure waits for the next fetch asked for
+        fetchFrom(git, upstreamRemote(git), true);
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
 }
 
 void Repository::fetch()

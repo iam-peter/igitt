@@ -28,6 +28,7 @@ ApplicationWindow {
         currentBranchOnly: AppSettings.graph.currentBranchOnly
         ignoreWhitespace: AppSettings.diff.ignoreWhitespace
         pushMode: AppSettings.remote.pushMode
+        autoFetchMinutes: AppSettings.remote.autoFetchMinutes
         gerritBranch: AppSettings.remote.gerritBranch
         githubHosts: AppSettings.remote.githubHosts
         gitlabHosts: AppSettings.remote.gitlabHosts

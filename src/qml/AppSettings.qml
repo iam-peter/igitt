@@ -59,6 +59,8 @@ QtObject {
         category: "remote"
 
         property string pushMode: "auto" // auto, plain, gerrit, github or gitlab
+        // The upstream's remote fetched in the background this often; 0 never
+        property int autoFetchMinutes: 15
         property string gerritBranch: ""
         // Self-hosted servers, comma-separated.
         property string githubHosts: ""

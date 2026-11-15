@@ -94,7 +94,9 @@ QString upstreamRemote(const GitRunner &git);
 // push, the review host finishes what the options ask for.
 NetworkResult pushTo(const GitRunner &git, const PushTarget &target, bool force);
 // Fetches `remote`, or all remotes if empty, pruning deleted branches.
-NetworkResult fetchFrom(const GitRunner &git, const QString &remote);
+// `quiet`: in the background, where nobody would answer a prompt; it
+// fails instead, and only credentials stored already are used
+NetworkResult fetchFrom(const GitRunner &git, const QString &remote, bool quiet = false);
 // Pulls the current branch's upstream as `git pull` does, with every
 // setting it honours (pull.rebase, branch.<name>.rebase, pull.ff, ...);
 // a merge commit takes git's message. `how` overrides them: "merge",

@@ -31,13 +31,21 @@ QString currentBranch(const GitRunner &git)
 // An unreachable host fails after a while rather than never, unless the
 // user configured their own SSH command. With no one to ask (see
 // AskPass), prompts would hang or fail obscurely: SSH fails fast then.
-QProcessEnvironment networkEnvironment(const GitRunner &git)
+QProcessEnvironment networkEnvironment(const GitRunner &git, bool quiet = false)
 {
     QProcessEnvironment env;
+    if (quiet) {
+        // Empty, git falls back to core.askPass, then SSH_ASKPASS: both
+        // empty, nothing is asked
+        env.insert(QStringLiteral("GIT_ASKPASS"), QString());
+        env.insert(QStringLiteral("SSH_ASKPASS"), QString());
+        env.insert(QStringLiteral("SSH_ASKPASS_REQUIRE"), QStringLiteral("never"));
+        env.insert(QStringLiteral("GIT_TERMINAL_PROMPT"), QStringLiteral("0"));
+    }
     const QProcessEnvironment system = QProcessEnvironment::systemEnvironment();
     if (!system.contains(QStringLiteral("GIT_SSH_COMMAND")) && !system.contains(QStringLiteral("GIT_SSH"))
         && config(git, QStringLiteral("core.sshCommand")).isEmpty()) {
-        const bool canAsk = GitRunner::sharedEnvironment().contains(QStringLiteral("SSH_ASKPASS"));
+        const bool canAsk = !quiet && GitRunner::sharedEnvironment().contains(QStringLiteral("SSH_ASKPASS"));
         env.insert(QStringLiteral("GIT_SSH_COMMAND"), canAsk ? QStringLiteral("ssh -o ConnectTimeout=20")
                                                              : QStringLiteral("ssh -o BatchMode=yes -o ConnectTimeout=20"));
     }
@@ -163,12 +171,12 @@ NetworkResult pushTo(const GitRunner &git, const PushTarget &target, bool force)
     return result;
 }
 
-NetworkResult fetchFrom(const GitRunner &git, const QString &remote)
+NetworkResult fetchFrom(const GitRunner &git, const QString &remote, bool quiet)
 {
     NetworkResult result;
     const GitResult r = git.run({QStringLiteral("fetch"), QStringLiteral("--prune"),
                                  remote.isEmpty() ? QStringLiteral("--all") : remote},
-                                {}, networkEnvironment(git));
+                                {}, networkEnvironment(git, quiet));
     result.ok = r.ok();
     if (!result.ok)
         result.message = explainNetworkFailure(r.errorText());

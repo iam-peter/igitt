@@ -636,6 +636,38 @@ private slots:
         QVERIFY(!QFile::exists(m_dir->filePath(u"build"_s)));
     }
 
+    // In the background, once the last fetch is old enough, and quietly
+    void fetchesInTheBackground()
+    {
+        QTemporaryDir remote;
+        GitRunner(remote.path()).run({u"init"_s, u"-q"_s, u"--bare"_s, u"-b"_s, u"main"_s});
+        git({"remote", "add", "origin", remote.path()});
+        git({"push", "-q", "-u", "origin", "main"});
+        QTemporaryDir other;
+        GitRunner them(other.path());
+        them.run({u"clone"_s, u"-q"_s, remote.path(), other.path()});
+        them.run({u"commit"_s, u"-q"_s, u"--allow-empty"_s, u"-m"_s, u"Theirs"_s});
+        them.run({u"push"_s, u"-q"_s});
+        open(m_dir->path());
+
+        repo().fetchInBackground(); // off
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().behind(), 0);
+        repo().setAutoFetchMinutes(10);
+        repo().fetchInBackground();
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().behind(), 1);
+        QVERIFY(m_errors->isEmpty());
+
+        // Fetched just now: not again before ten minutes are over
+        them.run({u"commit"_s, u"-q"_s, u"--allow-empty"_s, u"-m"_s, u"Later"_s});
+        them.run({u"push"_s, u"-q"_s});
+        repo().fetchInBackground();
+        QVERIFY(settle(repo()));
+        QCOMPARE(repo().behind(), 1);
+        repo().setAutoFetchMinutes(0);
+    }
+
     // A branch pushed elsewhere and tracked; all tags at once; a branch
     // deleted on the remote
     void managesRemoteBranches()

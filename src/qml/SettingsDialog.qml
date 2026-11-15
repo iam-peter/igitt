@@ -266,6 +266,26 @@ ModalDialog {
                     onActivated: index => AppSettings.remote.pushMode = modes[index]
                 }
                 Label {
+                    text: qsTr("Fetch")
+                }
+                RowLayout {
+                    SpinBox {
+                        objectName: "autoFetchSetting"
+                        from: 0
+                        to: 240
+                        stepSize: 5
+                        value: AppSettings.remote.autoFetchMinutes
+                        onValueModified: AppSettings.remote.autoFetchMinutes = value
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        text: AppSettings.remote.autoFetchMinutes > 0
+                              ? qsTr("minutes apart in the background, asking for nothing")
+                              : qsTr("only when asked (0)")
+                    }
+                }
+                Label {
                     text: qsTr("Gerrit branch")
                 }
                 TextField {

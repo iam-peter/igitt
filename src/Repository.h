@@ -140,6 +140,9 @@ class Repository : public QObject
     Q_PROPERTY(QString reviewTopic READ reviewTopic NOTIFY headChanged)
     // When FETCH_HEAD was last written; invalid if never.
     Q_PROPERTY(QDateTime lastFetch READ lastFetch NOTIFY headChanged)
+    // Fetches the upstream's remote in the background this often, without
+    // asking for anything; 0 never
+    Q_PROPERTY(int autoFetchMinutes READ autoFetchMinutes WRITE setAutoFetchMinutes NOTIFY autoFetchMinutesChanged)
     // "Merging", "Rebasing", ... while git is stopped in such an operation.
     Q_PROPERTY(QString operation READ operation NOTIFY headChanged)
     // Uncommitted changes, drawn as a row on top of the history.
@@ -224,6 +227,11 @@ public:
     void setGitlabHosts(const QString &hosts);
     QString reviewTopic() const { return m_pushTarget.savedTopic; }
     QDateTime lastFetch() const;
+    int autoFetchMinutes() const { return m_autoFetchMinutes; }
+    void setAutoFetchMinutes(int minutes);
+    // A background fetch, if the last fetch is older than the interval
+    // and nothing else is going on; what the timer runs
+    Q_INVOKABLE void fetchInBackground();
     QString operation() const;
     bool hasWip() const { return m_historyWip; }
     QVariant wipGraph() const { return QVariant::fromValue(m_wipGraph); }
@@ -516,6 +524,7 @@ signals:
     void cleanPreviewed(const QStringList &paths, bool ignored);
     void lfsChanged();
     void commitTemplateChanged();
+    void autoFetchMinutesChanged();
     void errorOccurred(const QString &message);
     // `links` are URLs the remote printed, such as Gerrit's changes.
     void notice(const QString &message, const QStringList &links);
@@ -657,6 +666,8 @@ private:
     QStringList m_statsWanted;
     QSet<QString> m_statsRequested;
     QTimer m_statsTimer;
+    QTimer m_autoFetchTimer;
+    int m_autoFetchMinutes = 0;
     QString m_headMessage;
     QSet<QString> m_foldTargets;
     QStringList m_editChain; // the fold targets in order, HEAD first
