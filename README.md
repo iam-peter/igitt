@@ -429,6 +429,11 @@ any; and applying a patch, as a commit when `git format-patch` wrote it
 (undone whole if it does not apply), else to the working tree. Removing
 a remote or a worktree asks first.
 
+igitt remembers the last twelve repositories it opened, under Open
+Recent. Started outside a repository, or with none to open, it shows a
+start page with them, besides Open, Clone and New Repository; a
+repository whose folder is gone stays listed until it is forgotten.
+
 ## Bisecting
 
 A commit's menu marks it good or bad for `git bisect`, which starts a

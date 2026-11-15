@@ -256,6 +256,11 @@ void Repository::open(const QString &pathOrUrl)
     });
 }
 
+bool Repository::folderExists(const QString &path) const
+{
+    return !path.isEmpty() && QFileInfo(path).isDir();
+}
+
 void Repository::refresh()
 {
     if (!valid())

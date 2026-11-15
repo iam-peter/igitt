@@ -264,6 +264,8 @@ ApplicationWindow {
             }
         }
         function onPathChanged() {
+            if (repo.valid)
+                tools.remember(repo.path)
             root.modeChosen = false
             root.historySha = ""
             root.closeFileHistory()
@@ -1436,11 +1438,92 @@ ApplicationWindow {
             }
         }
 
+        // With no repository open: how to get one, and the ones opened before
+        Pane {
+            objectName: "startPage"
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            visible: !repo.valid && !repo.busy
+
+            ColumnLayout {
+                anchors.centerIn: parent
+                width: Math.min(560, parent.width - 32)
+                spacing: 12
+
+                Label {
+                    text: qsTr("No repository open")
+                    font.pixelSize: root.font.pixelSize * 1.4
+                    font.weight: Font.DemiBold
+                }
+                RowLayout {
+                    spacing: 8
+                    IconButton {
+                        objectName: "startOpenButton"
+                        iconName: "folder-open"
+                        text: qsTr("Open…")
+                        onClicked: tools.openRepository()
+                    }
+                    IconButton {
+                        objectName: "startCloneButton"
+                        iconName: "copy"
+                        text: qsTr("Clone…")
+                        onClicked: tools.cloneRepository()
+                    }
+                    IconButton {
+                        objectName: "startNewButton"
+                        iconName: "plus"
+                        text: qsTr("New Repository…")
+                        onClicked: tools.newRepository()
+                    }
+                }
+                Label {
+                    visible: tools.recent.length > 0
+                    topPadding: 8
+                    text: qsTr("Recent")
+                    opacity: 0.7
+                }
+                Repeater {
+                    model: tools.recent
+
+                    delegate: ItemDelegate {
+                        id: recentRow
+
+                        required property string modelData
+                        readonly property bool there: repo.folderExists(modelData)
+
+                        objectName: "recentRepository"
+                        Layout.fillWidth: true
+                        rightPadding: 40
+                        // Gone, it can still be forgotten
+                        text: tools.describe(modelData) + (there ? "" : qsTr("  (gone)"))
+                        icon.source: Icons.source("git-branch")
+                        icon.color: palette.windowText
+                        onClicked: {
+                            if (there)
+                                repo.open(modelData)
+                        }
+
+                        ToolButton {
+                            objectName: "forgetRecentButton"
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            icon.source: Icons.source("x")
+                            icon.color: palette.windowText
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Forget it")
+                            onClicked: tools.forget(recentRow.modelData)
+                        }
+                    }
+                }
+            }
+        }
+
         SplitView {
             handle: SplitterHandle {}
             Layout.fillWidth: true
             Layout.fillHeight: true
             orientation: Qt.Horizontal
+            visible: repo.valid || repo.busy
 
             StackLayout {
                 id: modes

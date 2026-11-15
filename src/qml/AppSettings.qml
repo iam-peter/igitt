@@ -38,6 +38,13 @@ QtObject {
         property bool highlightSyntax: true
     }
 
+    readonly property Settings repositories: Settings {
+        category: "repositories"
+
+        // The repositories opened last, the latest first
+        property var recent: []
+    }
+
     readonly property Settings remote: Settings {
         category: "remote"
 

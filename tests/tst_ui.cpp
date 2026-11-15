@@ -1210,6 +1210,61 @@ private slots:
 
     // Changes thrown away after a guard, from a file's menu or the diff's
     // selection; stashed from the tool bar, and a stash dropped after one.
+    // The repositories opened are remembered, latest first; with none
+    // open, the start page offers them
+    void remembersRepositories()
+    {
+        QTemporaryDir first;
+        QTemporaryDir second;
+        QTemporaryDir none;
+        for (QTemporaryDir *dir : {&first, &second})
+            GitRunner(dir->path()).run({u"init"_s, u"-q"_s});
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, none.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        QVERIFY(!repo->valid());
+        auto *start = findItem(window->contentItem(), u"startPage"_s);
+        QVERIFY(start);
+        QTRY_VERIFY(start->isVisible());
+
+        QObject *tools = nullptr;
+        for (QObject *child : window->findChildren<QObject *>()) {
+            if (child->property("recentLimit").isValid())
+                tools = child;
+        }
+        QVERIFY(tools);
+        const auto recent = [tools] {
+            QStringList paths;
+            for (const QString &path : tools->property("recent").toStringList())
+                paths << QFileInfo(path).canonicalFilePath();
+            return paths;
+        };
+        const auto canonical = [](const QTemporaryDir &dir) { return QFileInfo(dir.path()).canonicalFilePath(); };
+        QMetaObject::invokeMethod(tools, "forgetAll");
+        QMetaObject::invokeMethod(tools, "remember", Q_ARG(QString, first.path()));
+        QMetaObject::invokeMethod(tools, "remember", Q_ARG(QString, second.path()));
+        QCOMPARE(recent(), (QStringList{canonical(second), canonical(first)}));
+
+        QList<QQuickItem *> rows;
+        QTRY_VERIFY((rows = findItems(window->contentItem(), u"recentRepository"_s)).size() == 2);
+        clickItem(window, rows.last());
+        QVERIFY(settle(*repo));
+        QCOMPARE(QFileInfo(repo->path()).canonicalFilePath(), canonical(first));
+        QTRY_VERIFY(!start->isVisible());
+        QTRY_COMPARE(recent(), (QStringList{canonical(first), canonical(second)}));
+
+        repo->open(second.path());
+        QVERIFY(settle(*repo));
+        QTRY_COMPARE(recent(), (QStringList{canonical(second), canonical(first)}));
+        QMetaObject::invokeMethod(tools, "forget", Q_ARG(QString, tools->property("recent").toStringList().last()));
+        QCOMPARE(recent(), QStringList{canonical(second)});
+        QMetaObject::invokeMethod(tools, "forgetAll");
+    }
+
     // What git asks shows in a dialog, a password hidden, one at a time
     void asksForCredentials()
     {

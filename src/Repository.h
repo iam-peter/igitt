@@ -227,6 +227,8 @@ public:
 
     // Accepts a local path or a file:// URL anywhere inside a work tree.
     Q_INVOKABLE void open(const QString &pathOrUrl);
+    // Whether a folder is still there, for the repositories opened before
+    Q_INVOKABLE bool folderExists(const QString &path) const;
     // Reloads refs, history and status.
     Q_INVOKABLE void refresh();
     // Reloads status and the file diff on display; reloads history only if

@@ -19,8 +19,34 @@ Item {
     function openMenu(button: Item) {
         menu.popup(button, 0, button.height)
     }
+    // At most this many repositories opened before are remembered
+    readonly property int recentLimit: 12
+    readonly property var recent: AppSettings.repositories.recent ?? []
+
     function openRepository() {
         openDialog.open()
+    }
+    function cloneRepository() {
+        cloneDialog.ask()
+    }
+    function newRepository() {
+        initDialog.open()
+    }
+    function remember(path: string) {
+        if (path === "")
+            return
+        AppSettings.repositories.recent = [path].concat(recent.filter(p => p !== path)).slice(0, recentLimit)
+    }
+    function forget(path: string) {
+        AppSettings.repositories.recent = recent.filter(p => p !== path)
+    }
+    function forgetAll() {
+        AppSettings.repositories.recent = []
+    }
+    // "name  (where it is)"
+    function describe(path: string): string {
+        const slash = path.lastIndexOf("/")
+        return slash < 0 ? path : path.substring(slash + 1) + "  —  " + path.substring(0, slash)
     }
     function savePatch(sha: string) {
         patchSaveDialog.sha = sha
@@ -39,6 +65,30 @@ Item {
             icon.source: Icons.source("folder-open")
             icon.color: palette.windowText
             onTriggered: openDialog.open()
+        }
+        Menu {
+            id: recentMenu
+            objectName: "recentMenu"
+            title: qsTr("Open Recent")
+            enabled: tools.recent.some(path => path !== tools.repo.path)
+
+            Instantiator {
+                model: tools.recent.filter(path => path !== tools.repo.path)
+                delegate: MenuItem {
+                    required property string modelData
+                    text: tools.describe(modelData)
+                    enabled: tools.repo.folderExists(modelData)
+                    onTriggered: tools.repo.open(modelData)
+                }
+                onObjectAdded: (index, object) => recentMenu.insertItem(index, object)
+                onObjectRemoved: (index, object) => recentMenu.removeItem(object)
+            }
+            MenuSeparator {}
+            MenuItem {
+                objectName: "forgetRecentItem"
+                text: qsTr("Clear the List")
+                onTriggered: tools.forgetAll()
+            }
         }
         MenuItem {
             objectName: "cloneRepositoryItem"
