@@ -277,7 +277,9 @@ unlock from their menu (`git lfs lock`).
 In the Changes mode, as in git gui: click lines to select them (Shift+click for a range, a hunk
 header for the whole hunk) and stage or unstage the selection, or
 right-click a line for Stage Hunk and Stage Line. Double-click a file, or
-click its status badge, to stage or unstage all of it.
+click its status badge, to stage or unstage all of it. Ctrl+click and
+Shift+click pick several files in a change list; their menu stages,
+unstages, discards or stashes them together.
 
 An untracked file's menu ignores it: the file alone, every file with its
 extension, its folder, or its name anywhere, or a pattern written by
@@ -289,7 +291,9 @@ hand; in `.gitignore`, shared with everyone, or only in this clone's
 A file's unstaged changes are discarded from its menu in the change
 lists, an untracked file deleted; the lines selected in the unstaged
 diff from the diff's tool bar. Nothing keeps what is discarded, so it
-asks first; staged changes stay.
+asks first; staged changes stay. Delete Untracked Files, in the same
+menu, lists what `git clean` would delete, ignored files too if ticked,
+and deletes those and nothing made since.
 
 The stash button in the tool bar, with how many there are, stashes the
 changes under a message, untracked files too if ticked, or only what is

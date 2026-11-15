@@ -113,6 +113,7 @@ qt_add_qml_module(igitt_ui
         ui/CommitGraph.h ui/CommitGraph.cpp
         ui/DiffLineText.h ui/DiffLineText.cpp
         ui/Clipboard.h
+        ui/Input.h
         ui/ActivityMinimap.h ui/ActivityMinimap.cpp
         ui/Fonts.h ui/Fonts.cpp
         ui/RevisionTimeline.h ui/RevisionTimeline.cpp

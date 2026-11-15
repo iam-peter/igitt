@@ -477,6 +477,58 @@ private slots:
         QVERIFY(git({"stash", "list"}).contains("one file"));
     }
 
+    // Several files staged, unstaged and discarded at once; untracked
+    // files deleted as previewed, ignored ones only when asked
+    void handlesSeveralFilesAndCleans()
+    {
+        writeFile(file(), "changed\n");
+        writeFile(m_dir->filePath(u"g.txt"_s), "g changed\n");
+        writeFile(m_dir->filePath(u"new.txt"_s), "new\n");
+        QDir(m_dir->path()).mkpath(u"build"_s);
+        writeFile(m_dir->filePath(u"build/out.o"_s), "object\n");
+        writeFile(m_dir->filePath(u".git/info/exclude"_s), "build/\n");
+        open(m_dir->path());
+
+        repo().stageFiles({u"f.txt"_s, u"g.txt"_s});
+        QVERIFY(settle(repo()));
+        QCOMPARE(git({"diff", "--cached", "--name-only"}), "f.txt\ng.txt\n"_ba);
+        repo().unstageFiles({u"f.txt"_s, u"g.txt"_s});
+        QVERIFY(settle(repo()));
+        QVERIFY(git({"diff", "--cached"}).isEmpty());
+
+        repo().discardFiles({u"g.txt"_s, u"new.txt"_s});
+        QVERIFY(settle(repo()));
+        QVERIFY(m_errors->isEmpty());
+        QCOMPARE(readFile(m_dir->filePath(u"g.txt"_s)), "g\n"_ba);
+        QVERIFY(!QFile::exists(m_dir->filePath(u"new.txt"_s)));
+        QCOMPARE(readFile(file()), "changed\n"_ba); // not picked
+
+        writeFile(m_dir->filePath(u"a.tmp"_s), "a\n");
+        QDir(m_dir->path()).mkpath(u"scratch/deep"_s);
+        writeFile(m_dir->filePath(u"scratch/deep/b.tmp"_s), "b\n");
+        QSignalSpy previewed(m_repo.get(), &Repository::cleanPreviewed);
+        repo().previewClean(false);
+        QVERIFY(settle(repo()));
+        QCOMPARE(previewed.size(), 1);
+        QStringList paths = previewed.takeFirst().first().toStringList();
+        QCOMPARE(paths, (QStringList{u"a.tmp"_s, u"scratch/"_s}));
+        writeFile(m_dir->filePath(u"later.tmp"_s), "made after the preview\n");
+        repo().clean(paths, false);
+        QVERIFY(settle(repo()));
+        QVERIFY(!QFile::exists(m_dir->filePath(u"a.tmp"_s)));
+        QVERIFY(!QFile::exists(m_dir->filePath(u"scratch"_s)));
+        QVERIFY(QFile::exists(m_dir->filePath(u"later.tmp"_s)));
+        QVERIFY(QFile::exists(m_dir->filePath(u"build/out.o"_s)));
+
+        repo().previewClean(true);
+        QVERIFY(settle(repo()));
+        paths = previewed.takeFirst().first().toStringList();
+        QVERIFY(paths.contains(u"build/"_s));
+        repo().clean({u"build/"_s}, true);
+        QVERIFY(settle(repo()));
+        QVERIFY(!QFile::exists(m_dir->filePath(u"build"_s)));
+    }
+
     // A branch pushed elsewhere and tracked; all tags at once; a branch
     // deleted on the remote
     void managesRemoteBranches()

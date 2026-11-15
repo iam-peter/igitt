@@ -168,6 +168,8 @@ void Repository::finish(JobKind kind, Outcome outcome)
             emit messageLoaded(outcome.message->first, outcome.message->second);
         if (outcome.lostWork)
             emit lostWorkFound(*outcome.lostWork);
+        if (outcome.cleanPreview)
+            emit cleanPreviewed(outcome.cleanPreview->first, outcome.cleanPreview->second);
         if (outcome.lfs) {
             m_usesLfs = outcome.lfs->first;
             m_lfsInstalled = outcome.lfs->second;
@@ -522,32 +524,50 @@ void Repository::setShowTags(bool show)
 
 void Repository::stageFile(const QString &path)
 {
-    // Follow the file to the side it moves to.
-    if (m_diffSource == UnstagedDiff && m_diffPath == path)
-        setDiffView(StagedDiff, path, {});
-    if (m_plan) {
-        PlanEntry entry;
-        entry.kind = PlanEntry::StagePaths;
-        entry.paths = {path};
-        entry.title = tr("Stage %1").arg(path);
-        enqueuePlanEntry(entry);
-        return;
-    }
-    enqueueCommand(tr("Staging %1").arg(path), {QStringLiteral("add"), QStringLiteral("--"), path});
+    stageFiles({path});
 }
 
 void Repository::unstageFile(const QString &path)
 {
-    QStringList paths{path};
-    if (const StatusEntry *entry = m_staged.entry(path); entry && !entry->origPath.isEmpty())
-        paths.append(entry->origPath);
-    if (m_diffSource == StagedDiff && m_diffPath == path)
-        setDiffView(UnstagedDiff, path, {});
+    unstageFiles({path});
+}
+
+void Repository::stageFiles(const QStringList &paths)
+{
+    if (paths.isEmpty())
+        return;
+    const QString what = paths.size() == 1 ? paths.first() : tr("%n file(s)", "", int(paths.size()));
+    // Follow the file to the side it moves to.
+    if (m_diffSource == UnstagedDiff && paths.contains(m_diffPath))
+        setDiffView(StagedDiff, m_diffPath, {});
+    if (m_plan) {
+        PlanEntry entry;
+        entry.kind = PlanEntry::StagePaths;
+        entry.paths = paths;
+        entry.title = tr("Stage %1").arg(what);
+        enqueuePlanEntry(entry);
+        return;
+    }
+    enqueueCommand(tr("Staging %1").arg(what), QStringList{QStringLiteral("add"), QStringLiteral("--")} + paths);
+}
+
+void Repository::unstageFiles(const QStringList &files)
+{
+    if (files.isEmpty())
+        return;
+    QStringList paths = files;
+    for (const QString &path : files) {
+        if (const StatusEntry *entry = m_staged.entry(path); entry && !entry->origPath.isEmpty())
+            paths.append(entry->origPath);
+    }
+    const QString what = files.size() == 1 ? files.first() : tr("%n file(s)", "", int(files.size()));
+    if (m_diffSource == StagedDiff && files.contains(m_diffPath))
+        setDiffView(UnstagedDiff, m_diffPath, {});
     if (m_plan) {
         PlanEntry entry;
         entry.kind = PlanEntry::UnstagePaths;
         entry.paths = paths;
-        entry.title = tr("Unstage %1").arg(path);
+        entry.title = tr("Unstage %1").arg(what);
         enqueuePlanEntry(entry);
         return;
     }
@@ -555,7 +575,7 @@ void Repository::unstageFile(const QString &path)
     const QStringList command = m_status.headSha.isEmpty()
         ? QStringList{QStringLiteral("rm"), QStringLiteral("--cached"), QStringLiteral("-q")}
         : QStringList{QStringLiteral("reset"), QStringLiteral("-q"), QStringLiteral("HEAD")};
-    enqueueCommand(tr("Unstaging %1").arg(path), command + QStringList{QStringLiteral("--")} + paths);
+    enqueueCommand(tr("Unstaging %1").arg(what), command + QStringList{QStringLiteral("--")} + paths);
 }
 
 void Repository::stageAll()
@@ -2232,6 +2252,85 @@ void Repository::ignore(const QString &pattern, bool local)
         outcome.state = loadState(sourceFor(git, nullptr), request, history);
         return outcome;
     });
+}
+
+void Repository::discardFiles(const QStringList &paths)
+{
+    if (paths.isEmpty())
+        return;
+    if (paths.size() == 1) {
+        discardFile(paths.first());
+        return;
+    }
+    if (m_plan) {
+        emit errorOccurred(tr("Discarding is off while planning."));
+        return;
+    }
+    QStringList tracked;
+    QStringList untracked;
+    for (const QString &path : paths) {
+        bool isUntracked = false;
+        for (const StatusEntry &entry : std::as_const(m_status.entries)) {
+            if (entry.path == path)
+                isUntracked = entry.untracked;
+        }
+        (isUntracked ? untracked : tracked).append(path);
+    }
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(false), tracked,
+                             untracked](const GitRunner &git) {
+        Outcome outcome;
+        QStringList failures;
+        if (!tracked.isEmpty()) {
+            const GitResult result = git.run(QStringList{QStringLiteral("restore"), QStringLiteral("--worktree"),
+                                                         QStringLiteral("--")} + tracked);
+            if (!result.ok())
+                failures << result.errorText();
+        }
+        if (!untracked.isEmpty()) {
+            const GitResult result = git.run(QStringList{QStringLiteral("clean"), QStringLiteral("-f"),
+                                                         QStringLiteral("-q"), QStringLiteral("--")} + untracked);
+            if (!result.ok())
+                failures << result.errorText();
+        }
+        if (failures.isEmpty())
+            outcome.notice = tr("Discarded the changes to %n file(s).", "", int(tracked.size() + untracked.size()));
+        else
+            outcome.error = tr("Discarding failed: %1").arg(failures.join(QLatin1Char('\n')));
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::previewClean(bool ignored)
+{
+    if (!valid())
+        return;
+    enqueue(JobKind::Read, [ignored](const GitRunner &git) {
+        Outcome outcome;
+        QStringList args{QStringLiteral("clean"), QStringLiteral("-n"), QStringLiteral("-d")};
+        if (ignored)
+            args << QStringLiteral("-x");
+        const GitResult result = git.run(args);
+        QStringList paths;
+        for (const QByteArray &line : result.out.split('\n')) {
+            if (line.startsWith("Would remove "))
+                paths << QString::fromUtf8(line.mid(13));
+        }
+        outcome.cleanPreview = std::pair{paths, ignored};
+        return outcome;
+    });
+}
+
+void Repository::clean(const QStringList &paths, bool ignored)
+{
+    if (paths.isEmpty())
+        return;
+    QStringList args{QStringLiteral("clean"), QStringLiteral("-f"), QStringLiteral("-d"), QStringLiteral("-q")};
+    if (ignored)
+        args << QStringLiteral("-x");
+    enqueueGitWrite(args + QStringList{QStringLiteral("--")} + paths,
+                    tr("Deleted %n untracked file(s) and folder(s).", "", int(paths.size())),
+                    tr("Cleaning failed"));
 }
 
 void Repository::discardFile(const QString &path)

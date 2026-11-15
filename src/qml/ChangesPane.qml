@@ -14,9 +14,10 @@ Pane {
     signal timelapseRequested(string path)
     // A file dragged out of a list, and where it was let go, to fold it
     // into a commit
-    signal discardRequested(string path)
+    signal discardRequested(var paths)
     signal ignoreRequested(string path)
-    signal stashRequested(string path)
+    signal stashRequested(var paths)
+    signal cleanRequested()
     signal fileDragMoved(string path, bool staged, point scenePos)
     // The commit a dragged file would fold into, or why not (FileList)
     property string foldInto
@@ -40,9 +41,10 @@ Pane {
             SplitView.minimumHeight: 56
             repo: pane.repo
             staged: false
-            onDiscardRequested: path => pane.discardRequested(path)
+            onDiscardRequested: paths => pane.discardRequested(paths)
+            onCleanRequested: pane.cleanRequested()
             onIgnoreRequested: path => pane.ignoreRequested(path)
-            onStashRequested: path => pane.stashRequested(path)
+            onStashRequested: paths => pane.stashRequested(paths)
             title: qsTr("Unstaged Changes")
             onTimelapseRequested: path => pane.timelapseRequested(path)
             onFileDragMoved: (path, pos) => {
@@ -65,7 +67,7 @@ Pane {
             SplitView.minimumHeight: 56
             repo: pane.repo
             staged: true
-            onStashRequested: path => pane.stashRequested(path)
+            onStashRequested: paths => pane.stashRequested(paths)
             title: qsTr("Staged Changes")
             onTimelapseRequested: path => pane.timelapseRequested(path)
             onFileDragMoved: (path, pos) => {

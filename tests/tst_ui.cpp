@@ -1250,6 +1250,62 @@ private slots:
         QVERIFY(git.run({u"stash"_s, u"show"_s, u"--name-only"_s}).out.contains("a.txt"));
     }
 
+    // Files picked with Ctrl and Shift, staged together from the menu;
+    // untracked files deleted from a list shown first
+    void actsOnSeveralFiles()
+    {
+        QTemporaryDir dir;
+        GitRunner git(dir.path());
+        const auto write = [&](const QString &name, const QByteArray &content) {
+            QFile file(dir.filePath(name));
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            file.write(content);
+        };
+        git.run({u"init"_s, u"-q"_s, u"-b"_s, u"main"_s});
+        for (const char *name : {"a.txt", "b.txt", "c.txt", "d.txt"})
+            write(QString::fromLatin1(name), "one\n");
+        git.run({u"add"_s, u"."_s});
+        git.run({u"commit"_s, u"-q"_s, u"-m"_s, u"One"_s});
+        for (const char *name : {"a.txt", "b.txt", "c.txt", "d.txt"})
+            write(QString::fromLatin1(name), "two\n");
+        write(u"stray.tmp"_s, "stray\n");
+
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        QTRY_COMPARE(window->property("mode").toInt(), 1);
+        const auto rowOf = [&](const QString &path) {
+            QQuickItem *row = nullptr;
+            [&] { QTRY_VERIFY((row = fileRow(window, u"unstagedList"_s, path))); }();
+            return row->mapToScene({row->width() / 2, row->height() / 2}).toPoint();
+        };
+        QTest::mouseClick(window, Qt::LeftButton, {}, rowOf(u"a.txt"_s));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::ShiftModifier, rowOf(u"c.txt"_s));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::ControlModifier, rowOf(u"b.txt"_s));
+        QTest::mouseClick(window, Qt::RightButton, {}, rowOf(u"c.txt"_s));
+        QQuickItem *stage = window->findChild<QQuickItem *>(u"stageFileMenuItem"_s);
+        QTRY_VERIFY(stage && stage->isVisible());
+        QCOMPARE(stage->property("text").toString(), u"Stage 2 Files"_s);
+        click(window, u"stageFileMenuItem"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(git.run({u"diff"_s, u"--cached"_s, u"--name-only"_s}).out, "a.txt\nc.txt\n"_ba);
+
+        QTest::mouseClick(window, Qt::RightButton, {}, rowOf(u"d.txt"_s));
+        click(window, u"cleanMenuItem"_s);
+        auto *dialog = window->findChild<QObject *>(u"cleanDialog"_s);
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QVERIFY(settle(*repo));
+        QTRY_COMPARE(dialog->property("paths").toStringList(), QStringList{u"stray.tmp"_s});
+        click(window, u"cleanOkButton"_s);
+        QVERIFY(settle(*repo));
+        QVERIFY(!QFile::exists(dir.filePath(u"stray.tmp"_s)));
+        QVERIFY(QFile::exists(dir.filePath(u"d.txt"_s)));
+    }
+
     // A branch pushed under another name, from its dialog
     void pushesABranchElsewhere()
     {

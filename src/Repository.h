@@ -263,6 +263,8 @@ public:
 
     Q_INVOKABLE void stageFile(const QString &path);
     Q_INVOKABLE void unstageFile(const QString &path);
+    Q_INVOKABLE void stageFiles(const QStringList &paths);
+    Q_INVOKABLE void unstageFiles(const QStringList &paths);
     Q_INVOKABLE void stageAll();
     Q_INVOKABLE void unstageAll();
     // Stages the selected lines of the unstaged diff, or unstages the
@@ -319,6 +321,12 @@ public:
     // changes, an untracked file deleted; the lines selected in the
     // unstaged diff. Off while planning.
     Q_INVOKABLE void discardFile(const QString &path);
+    Q_INVOKABLE void discardFiles(const QStringList &paths);
+    // What `git clean` would delete: untracked files and folders, ignored
+    // ones too with `ignored`; cleanPreviewed() with them
+    Q_INVOKABLE void previewClean(bool ignored);
+    // Deletes those, and only those
+    Q_INVOKABLE void clean(const QStringList &paths, bool ignored);
     // Patterns that ignore an untracked path, most specific first: it
     // alone, the files with its extension, its folder, its name anywhere
     Q_INVOKABLE QStringList ignorePatterns(const QString &path) const;
@@ -494,6 +502,7 @@ signals:
     void changeMoved(bool ok, const QString &error);
     void messageLoaded(const QString &sha, const QString &message);
     void lostWorkFound(const QVariantList &commits);
+    void cleanPreviewed(const QStringList &paths, bool ignored);
     void lfsChanged();
     void errorOccurred(const QString &message);
     // `links` are URLs the remote printed, such as Gerrit's changes.
@@ -535,6 +544,7 @@ private:
         QHash<QString, CommitStats> stats;
         std::optional<QStringList> trackedFiles;
         std::optional<QVariantList> lostWork;
+        std::optional<std::pair<QStringList, bool>> cleanPreview;
         std::optional<std::pair<bool, bool>> lfs; // used, installed
         std::shared_ptr<FileTreeNode> fileTree;
         QString notice;

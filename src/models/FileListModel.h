@@ -27,6 +27,11 @@ public:
     void setEntries(const QList<StatusEntry> &entries);
     const StatusEntry *entry(const QString &path) const;
     int count() const { return int(m_entries.size()); }
+    // The file in a row, empty past the end
+    Q_INVOKABLE QString pathAt(int row) const
+    {
+        return row >= 0 && row < m_entries.size() ? m_entries[row].path : QString();
+    }
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;

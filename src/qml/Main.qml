@@ -452,26 +452,30 @@ ApplicationWindow {
     ModalDialog {
         id: discardChangesDialog
 
-        property string path
+        property var paths: []
         property int lines
 
         function askFile(file: string) {
-            path = file
+            askFiles([file])
+        }
+        function askFiles(files: var) {
+            paths = files
             lines = 0
             open()
         }
         function askLines(count: int) {
-            path = ""
+            paths = []
             lines = count
             open()
         }
 
         objectName: "discardChangesDialog"
         width: Math.min(460, root.width - 40)
-        title: path !== "" ? qsTr("Discard the changes to %1?").arg(path)
-                           : qsTr("Discard %n line(s)?", "", lines)
+        title: paths.length === 1 ? qsTr("Discard the changes to %1?").arg(paths[0])
+             : paths.length > 1 ? qsTr("Discard the changes to %n file(s)?", "", paths.length)
+             : qsTr("Discard %n line(s)?", "", lines)
         standardButtons: Dialog.Ok | Dialog.Cancel
-        onAccepted: path !== "" ? repo.discardFile(path) : repo.discardSelection()
+        onAccepted: paths.length > 0 ? repo.discardFiles(paths) : repo.discardSelection()
         Component.onCompleted: {
             const ok = standardButton(Dialog.Ok)
             ok.objectName = "discardOkButton"
@@ -613,6 +617,98 @@ ApplicationWindow {
                 id: ignoreLocal
                 objectName: "ignoreLocal"
                 text: qsTr("Only in this clone (.git/info/exclude), not shared")
+            }
+        }
+    }
+
+    // Every untracked file and folder deleted, ignored ones too if ticked:
+    // the list git would delete, shown first, and those only
+    ModalDialog {
+        id: cleanDialog
+
+        objectName: "cleanDialog"
+        property var paths: []
+        property bool loading
+
+        function ask() {
+            cleanIgnored.checked = false
+            paths = []
+            loading = true
+            repo.previewClean(false)
+            open()
+        }
+
+        width: Math.min(520, root.width - 40)
+        title: qsTr("Delete untracked files")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: repo.clean(paths, cleanIgnored.checked)
+        onPathsChanged: {
+            const ok = standardButton(Dialog.Ok)
+            if (ok) {
+                ok.enabled = paths.length > 0
+                ok.text = qsTr("Delete %n", "", paths.length)
+            }
+        }
+        Component.onCompleted: {
+            const ok = standardButton(Dialog.Ok)
+            ok.objectName = "cleanOkButton"
+            ok.enabled = false
+            const styled = ok as Styles.Button
+            if (styled)
+                styled.styles = [Styles.ButtonStyle.destructive]
+        }
+
+        Connections {
+            target: repo
+            function onCleanPreviewed(paths: var, ignored: bool) {
+                if (ignored !== cleanIgnored.checked)
+                    return
+                cleanDialog.paths = paths
+                cleanDialog.loading = false
+            }
+        }
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 8
+
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: qsTr("These are deleted from the disk; nothing here brings them back.")
+            }
+            CheckBox {
+                id: cleanIgnored
+                objectName: "cleanIgnored"
+                text: qsTr("Ignored files too, such as build output (-x)")
+                onToggled: {
+                    cleanDialog.loading = true
+                    repo.previewClean(checked)
+                }
+            }
+            ListView {
+                id: cleanList
+                objectName: "cleanList"
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(240, Math.max(1, count) * 22 + 8)
+                clip: true
+                model: cleanDialog.paths
+                ScrollBar.vertical: ScrollBar {}
+                delegate: Label {
+                    required property string modelData
+                    width: ListView.view.width
+                    height: 22
+                    verticalAlignment: Text.AlignVCenter
+                    text: modelData
+                    font: root.monoFont
+                    elide: Text.ElideMiddle
+                }
+                Label {
+                    anchors.centerIn: parent
+                    visible: cleanList.count === 0
+                    text: cleanDialog.loading ? qsTr("Looking…") : qsTr("Nothing untracked.")
+                    opacity: 0.7
+                }
             }
         }
     }
@@ -1933,9 +2029,10 @@ ApplicationWindow {
                         ChangesPane {
                             repo: repo
                             monoFont: root.monoFont
-                            onDiscardRequested: path => discardChangesDialog.askFile(path)
+                            onDiscardRequested: paths => discardChangesDialog.askFiles(paths)
+                            onCleanRequested: cleanDialog.ask()
                             onIgnoreRequested: path => ignoreDialog.ask(path)
-                            onStashRequested: path => stashDialog.ask([path])
+                            onStashRequested: paths => stashDialog.ask(paths)
                             foldInto: recent.dropSubject
                             foldRefused: recent.dropBlocker
                             onFileDragMoved: (path, staged, pos) => recent.updateDrop(pos, true)
