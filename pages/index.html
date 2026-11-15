@@ -166,13 +166,13 @@
     Sankey diagram. Each commit that touched the file is a node, a bar as long as the
     file was then, line 1 at the top. Between two nodes the lines flow from their old
     place to their new one: kept lines in gray, edited ones in orange, removed ones
-    narrowing in red to where they went, added ones widening in green from where they
-    came. Above each node its counts, below it its commit. Click a node to show that
+    narrowing in red to where they went and fading out, added ones fading in and
+    widening in green from where they came. Above each node its counts, below it its commit. Click a node to show that
     revision underneath, with what it added, edited and removed in the same colors;
     the wheel scrolls through the history and Ctrl+wheel zooms.
     <a href="https://github.com/iam-peter/igitt#time-lapse-view">More in the README</a>.</p>
   <img class="shot" src="flow.png" width="1400" height="1000" loading="lazy"
-       alt="The History mode with the history of TimelapseWindow.qml below the graph: its flow through eight commits, the third one picked, above that revision's lines, added in green and deleted in red">
+       alt="The History mode with the history of TimelapseWindow.qml below the graph: its flow through nine commits, the third one picked, above that revision's lines, added in green and deleted in red">
 
   <div class="detail">
     <p>Beside the scroll bar, a strip shows the whole file at once with the changes of

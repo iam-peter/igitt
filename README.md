@@ -139,15 +139,15 @@ click or drag it to scroll.
 Switch on **Flow** to see the file's whole history as a Sankey diagram.
 Each revision is a node as long as the file was then, line 1 at the top.
 Between two nodes, kept lines flow in gray from their old place to their
-new one, edited lines in orange; removed lines narrow in red to where
-they went, added lines widen in green from where they came. A change
-belongs to the revision on the right, which made it: its bands take
-their color towards it, and its bar shows its own changes. Click a node
+new one, edited lines in orange all the way; removed lines narrow in
+red to where they went and fade out, added lines widen in green from
+where they came and fade in. A change belongs to the revision on the
+right, which made it, and its bar shows its own changes. Click a node
 to show that revision; on the current one, a marker shows the lines in
 sight in the code, and clicking or dragging along it scrolls there. The
 wheel scrolls through the revisions, Ctrl+wheel zooms.
 
-![The History mode with the history of TimelapseWindow.qml below the graph: its flow through eight commits, the third one picked, above that revision's lines, added in green and deleted in red](docs/screenshots/flow.png)
+![The History mode with the history of TimelapseWindow.qml below the graph: its flow through nine commits, the third one picked, above that revision's lines, added in green and deleted in red](docs/screenshots/flow.png)
 
 ![The time-lapse of Repository.h in a window of its own, at the revision that moved git onto a background thread](docs/screenshots/timelapse.png)
 

@@ -214,14 +214,14 @@ void FileFlowChart::paint(QPainter *painter)
         }
     };
 
-    // A change takes its color toward the revision that made it, on the
-    // right, from the gray of the lines kept on the left: a band of lines
-    // removed is widest on the left, where they were, and would otherwise
-    // look like a change of the revision there
-    const auto towards = [&](qreal x0, qreal x1, const QColor &color) {
+    // Lines removed fade out on their way to the right, lines added fade
+    // in, and lines changed stay as they are all the way
+    const auto fade = [](qreal x0, qreal x1, QColor color, bool in) {
+        QColor clear = color;
+        clear.setAlphaF(0);
         QLinearGradient gradient(x0, 0, x1, 0);
-        gradient.setColorAt(0, kept);
-        gradient.setColorAt(1, color);
+        gradient.setColorAt(0, in ? clear : color);
+        gradient.setColorAt(1, in ? color : clear);
         return QBrush(gradient);
     };
 
@@ -240,16 +240,16 @@ void FileFlowChart::paint(QPainter *painter)
                 break;
             case LineChange::Removed:
                 widen(top0, bottom0);
-                painter->setBrush(towards(x0, x1, removed));
+                painter->setBrush(fade(x0, x1, removed, false));
                 break;
             case LineChange::Added:
                 widen(top1, bottom1);
-                painter->setBrush(towards(x0, x1, added));
+                painter->setBrush(fade(x0, x1, added, true));
                 break;
             case LineChange::Changed:
                 widen(top0, bottom0);
                 widen(top1, bottom1);
-                painter->setBrush(towards(x0, x1, changed));
+                painter->setBrush(changed);
                 break;
             }
             painter->drawPath(band(x0, top0, bottom0, x1, top1, bottom1));
