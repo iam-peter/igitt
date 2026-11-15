@@ -120,7 +120,7 @@ the commits that added or removed the text, as `git log -S` finds them,
 or with regular expressions those that changed a line matching it
 (`git log -G`).
 
-![The History mode searching code:AskPass: the one commit that added it picked, its diff below](docs/screenshots/code-search.png) The scope selector limits the graph to
+![The History mode searching code:AskPass: the three commits that added or removed it, one of them picked, its diff below](docs/screenshots/code-search.png) The scope selector limits the graph to
 the current branch. Beside the diff, the project's files can be filtered
 by name.
 
