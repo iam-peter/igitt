@@ -4,6 +4,8 @@
 #include <QList>
 #include <QString>
 
+#include <optional>
+
 struct DiffLine
 {
     enum Kind : char { Context = ' ', Added = '+', Removed = '-', NoNewline = '\\' };
@@ -38,6 +40,16 @@ struct FileDiff
 
     QString path() const { return newPath.isEmpty() ? oldPath : newPath; }
 };
+
+// A file kept in Git LFS changes only its pointer in git: the object's
+// size before and after, -1 where there is none (added, deleted)
+struct LfsChange
+{
+    qint64 oldSize = -1;
+    qint64 newSize = -1;
+};
+// The change, if every line of the file's diff is an LFS pointer's
+std::optional<LfsChange> lfsChange(const FileDiff &file);
 
 // Parses the output of `git diff`/`git show` in the default unified format
 // with the a/ and b/ prefixes. Combined diffs of merges are not supported;

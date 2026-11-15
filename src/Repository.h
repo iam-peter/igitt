@@ -54,6 +54,10 @@ class Repository : public QObject
     Q_PROPERTY(QVariantList worktrees READ worktrees NOTIFY headChanged)
     // Whether the work tree has submodules (a .gitmodules)
     Q_PROPERTY(bool hasSubmodules READ hasSubmodules NOTIFY headChanged)
+    // Some files are kept in Git LFS (filter=lfs), and whether git-lfs is
+    // there to fetch them and to lock
+    Q_PROPERTY(bool usesLfs READ usesLfs NOTIFY lfsChanged)
+    Q_PROPERTY(bool lfsInstalled READ lfsInstalled NOTIFY lfsChanged)
     // While git bisect looks for the commit that broke something
     Q_PROPERTY(bool bisecting READ bisecting NOTIFY headChanged)
     Q_PROPERTY(QString headSha READ headSha NOTIFY headChanged)
@@ -169,6 +173,8 @@ public:
     QVariantList remotes() const { return m_remoteList; }
     QVariantList worktrees() const { return m_worktreeList; }
     bool hasSubmodules() const;
+    bool usesLfs() const { return m_usesLfs; }
+    bool lfsInstalled() const { return m_lfsInstalled; }
     bool bisecting() const;
     QString headSha() const { return m_status.headSha; }
     QString headMessage() const { return m_headMessage; }
@@ -326,6 +332,9 @@ public:
     // with {sha, subject, time, kind ("reflog" or "dangling"), selector,
     // action, unreachable, stash}, newest first in each kind
     Q_INVOKABLE void findLostWork();
+    // Locks a file kept in Git LFS for others, or unlocks it; `force`
+    // unlocks someone else's lock
+    Q_INVOKABLE void lockFile(const QString &path, bool lock, bool force = false);
     // A dropped stash's commit back into the stash list, as stash@{0}
     Q_INVOKABLE void restoreStash(const QString &sha, const QString &subject);
 
@@ -469,6 +478,7 @@ signals:
     void changeMoved(bool ok, const QString &error);
     void messageLoaded(const QString &sha, const QString &message);
     void lostWorkFound(const QVariantList &commits);
+    void lfsChanged();
     void errorOccurred(const QString &message);
     // `links` are URLs the remote printed, such as Gerrit's changes.
     void notice(const QString &message, const QStringList &links);
@@ -509,6 +519,7 @@ private:
         QHash<QString, CommitStats> stats;
         std::optional<QStringList> trackedFiles;
         std::optional<QVariantList> lostWork;
+        std::optional<std::pair<bool, bool>> lfs; // used, installed
         std::shared_ptr<FileTreeNode> fileTree;
         QString notice;
         QStringList links;
@@ -562,6 +573,9 @@ private:
     // `git log -S` reads every commit's changes, which can take a while;
     // it gets a thread of its own too
     QThreadPool m_searchPool;
+    bool m_usesLfs = false;
+    bool m_lfsInstalled = false;
+    void checkLfs();
     void searchCode(const QStringList &texts, bool caseSensitive, bool regex);
     QTimer m_reviewTimer;
     int m_reviewGeneration = 0;

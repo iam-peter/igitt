@@ -2,6 +2,7 @@
 
 #include <QElapsedTimer>
 #include <QFile>
+#include <QLocale>
 #include <QSignalSpy>
 
 #include <QTemporaryDir>
@@ -414,6 +415,39 @@ private slots:
         QCOMPARE(stats.value(u"files"_s).toInt(), 1);
         QCOMPARE(stats.value(u"added"_s).toInt(), 5);
         QVERIFY(settle(repo()));
+    }
+
+    // A repository with files in Git LFS says so, and a pointer's change
+    // reads as the file's
+    void knowsGitLfs()
+    {
+        open(m_dir->path());
+        QVERIFY(!repo().usesLfs());
+        writeFile(m_dir->filePath(u".gitattributes"_s), "*.bin filter=lfs diff=lfs merge=lfs -text\n");
+        const QByteArray pointer = "version https://git-lfs.github.com/spec/v1\n"
+                                   "oid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393\n"
+                                   "size 2048\n";
+        writeFile(m_dir->filePath(u"big.bin"_s), pointer);
+        // No filter set up here: what is written is what git keeps
+        git({"add", ".gitattributes", "big.bin"});
+        git({"commit", "-q", "-m", "Keep binaries in LFS"});
+        writeFile(m_dir->filePath(u"big.bin"_s), QByteArray(pointer).replace("size 2048", "size 4096"));
+        QSignalSpy lfs(m_repo.get(), &Repository::lfsChanged);
+        open(m_dir->path());
+        QTRY_VERIFY(repo().usesLfs());
+        // Without git-lfs, it is said once
+        QCOMPARE(m_errors->size(), repo().lfsInstalled() ? 0 : 1);
+        m_errors->clear();
+
+        repo().showFile(u"big.bin"_s, false);
+        QVERIFY(settle(repo()));
+        bool summarized = false;
+        for (int row = 0; row < repo().diff()->rowCount(); ++row) {
+            summarized |= repo().diff()->data(repo().diff()->index(row), DiffModel::TextRole).toString()
+                          == u"Changed in Git LFS: %1 → %2"_s.arg(QLocale().formattedDataSize(2048),
+                                                                    QLocale().formattedDataSize(4096));
+        }
+        QVERIFY(summarized);
     }
 
     // Only the staged changes, or only a file's

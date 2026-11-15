@@ -89,6 +89,32 @@ Pane {
             icon.color: palette.windowText
             onTriggered: Clipboard.setText(fileMenu.path)
         }
+        // Files kept in Git LFS can be locked, so nobody else changes them
+        // meanwhile; binary files cannot be merged
+        MenuSeparator {
+            visible: pane.repo.usesLfs && pane.repo.lfsInstalled
+            height: visible ? implicitHeight : 0
+        }
+        MenuItem {
+            objectName: "lfsLockItem"
+            visible: pane.repo.usesLfs && pane.repo.lfsInstalled
+            height: visible ? implicitHeight : 0
+            text: qsTr("Lock (Git LFS)")
+            enabled: !pane.repo.writing
+            icon.source: Icons.source("pin")
+            icon.color: palette.windowText
+            onTriggered: pane.repo.lockFile(fileMenu.path, true)
+        }
+        MenuItem {
+            objectName: "lfsUnlockItem"
+            visible: pane.repo.usesLfs && pane.repo.lfsInstalled
+            height: visible ? implicitHeight : 0
+            text: qsTr("Unlock (Git LFS)")
+            enabled: !pane.repo.writing
+            icon.source: Icons.source("x")
+            icon.color: palette.windowText
+            onTriggered: pane.repo.lockFile(fileMenu.path, false)
+        }
     }
 
     ColumnLayout {

@@ -135,8 +135,11 @@ void Repository::finish(JobKind kind, Outcome outcome)
         ++*m_diffGeneration;
         m_suggester = FoldSuggester();
         m_diff.clear();
+        m_usesLfs = false;
+        emit lfsChanged();
         emit pathChanged();
         emit diffChanged();
+        checkLfs();
         emit commitReviewChanged();
         emit canUndoFoldChanged();
     }
@@ -165,6 +168,14 @@ void Repository::finish(JobKind kind, Outcome outcome)
             emit messageLoaded(outcome.message->first, outcome.message->second);
         if (outcome.lostWork)
             emit lostWorkFound(*outcome.lostWork);
+        if (outcome.lfs) {
+            m_usesLfs = outcome.lfs->first;
+            m_lfsInstalled = outcome.lfs->second;
+            emit lfsChanged();
+            if (m_usesLfs && !m_lfsInstalled)
+                emit errorOccurred(tr("This repository keeps files in Git LFS, but git-lfs is not installed: "
+                                      "those files show as pointers, and new ones would go into git itself."));
+        }
         if (!outcome.pushRejected.isEmpty())
             emit pushRejected(outcome.pushRejected, m_pushTarget.description());
         if (!outcome.notice.isEmpty())
@@ -2246,6 +2257,37 @@ void Repository::applyStash(int index, bool pop)
     enqueueGitWrite({QStringLiteral("stash"), pop ? QStringLiteral("pop") : QStringLiteral("apply"), ref},
                     pop ? tr("Applied and dropped %1.").arg(ref) : tr("Applied %1; it is kept.").arg(ref),
                     tr("Applying %1").arg(ref));
+}
+
+void Repository::checkLfs()
+{
+    enqueue(JobKind::Read, [](const GitRunner &git) {
+        Outcome outcome;
+        // Any file the attributes give the LFS filter, in any .gitattributes
+        const GitResult files = git.run({QStringLiteral("ls-files"), QStringLiteral(":(attr:filter=lfs)")});
+        const bool used = files.ok() && !files.out.trimmed().isEmpty();
+        const bool installed = used && git.run({QStringLiteral("lfs"), QStringLiteral("version")}).ok();
+        outcome.lfs = std::pair{used, installed};
+        return outcome;
+    });
+}
+
+void Repository::lockFile(const QString &path, bool lock, bool force)
+{
+    if (!m_lfsInstalled || path.isEmpty())
+        return;
+    enqueue(JobKind::Write, [path, lock, force](const GitRunner &git) {
+        Outcome outcome;
+        QStringList args{QStringLiteral("lfs"), lock ? QStringLiteral("lock") : QStringLiteral("unlock")};
+        if (!lock && force)
+            args << QStringLiteral("--force");
+        const GitResult result = git.run(args + QStringList{path});
+        if (result.ok())
+            outcome.notice = lock ? tr("Locked %1.").arg(path) : tr("Unlocked %1.").arg(path);
+        else
+            outcome.error = (lock ? tr("Locking %1: %2") : tr("Unlocking %1: %2")).arg(path, result.errorText());
+        return outcome;
+    });
 }
 
 void Repository::findLostWork()

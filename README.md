@@ -258,6 +258,12 @@ The diff toolbar turns highlighting and word marks off and on, and can
 ignore changes of white space (`git diff -w`). Lines can't be staged or
 folded while white space is ignored: such a diff would not apply back.
 
+A file kept in Git LFS changes only its pointer in git; its diff says
+what that means, the file added, removed or changed and its size before
+and after. A repository with such files whose git-lfs is missing says
+so when it is opened, and with git-lfs, the project's files lock and
+unlock from their menu (`git lfs lock`).
+
 ## Staging
 
 In the Changes mode, as in git gui: click lines to select them (Shift+click for a range, a hunk

@@ -112,6 +112,54 @@ private slots:
         QCOMPARE(info.branch, u"main"_s);
     }
 
+    // A file in Git LFS: only its pointer is in the diff
+    void recognizesLfsPointers()
+    {
+        const QByteArray changed =
+            "diff --git a/big.bin b/big.bin\n"
+            "index 1111111..2222222 100644\n"
+            "--- a/big.bin\n"
+            "+++ b/big.bin\n"
+            "@@ -1,3 +1,3 @@\n"
+            " version https://git-lfs.github.com/spec/v1\n"
+            "-oid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393\n"
+            "-size 12345\n"
+            "+oid sha256:5e7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393\n"
+            "+size 67890\n";
+        const QList<FileDiff> files = parseDiff(changed);
+        QCOMPARE(files.size(), 1);
+        const std::optional<LfsChange> change = lfsChange(files.first());
+        QVERIFY(change);
+        QCOMPARE(change->oldSize, 12345);
+        QCOMPARE(change->newSize, 67890);
+
+        const QByteArray added =
+            "diff --git a/big.bin b/big.bin\n"
+            "new file mode 100644\n"
+            "index 0000000..2222222\n"
+            "--- /dev/null\n"
+            "+++ b/big.bin\n"
+            "@@ -0,0 +1,3 @@\n"
+            "+version https://git-lfs.github.com/spec/v1\n"
+            "+oid sha256:5e7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393\n"
+            "+size 67890\n";
+        const std::optional<LfsChange> created = lfsChange(parseDiff(added).first());
+        QVERIFY(created);
+        QCOMPARE(created->oldSize, -1);
+        QCOMPARE(created->newSize, 67890);
+
+        // Text that only mentions a size is no pointer
+        const QByteArray text =
+            "diff --git a/notes.txt b/notes.txt\n"
+            "index 1111111..2222222 100644\n"
+            "--- a/notes.txt\n"
+            "+++ b/notes.txt\n"
+            "@@ -1 +1 @@\n"
+            "-size 1\n"
+            "+size 2\n";
+        QVERIFY(!lfsChange(parseDiff(text).first()));
+    }
+
     void parseDiffFiles()
     {
         const QByteArray out =

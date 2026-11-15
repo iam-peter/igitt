@@ -1,5 +1,7 @@
 #include "DiffModel.h"
 
+#include <QLocale>
+
 #include <algorithm>
 
 namespace {
@@ -40,6 +42,15 @@ void DiffModel::setFiles(const QList<FileDiff> &files, const QList<FileMarkup> &
             body.append({Message, f, -1, -1, tr("Binary file")});
         else if (file.hunks.isEmpty())
             body.append({Message, f, -1, -1, tr("No content changes (mode or rename only)")});
+        else if (const std::optional<LfsChange> lfs = lfsChange(file)) {
+            // What changed is the file in LFS; git only has a pointer to it
+            const QLocale locale;
+            const QString text = lfs->oldSize < 0 ? tr("Added to Git LFS: %1").arg(locale.formattedDataSize(lfs->newSize))
+                : lfs->newSize < 0 ? tr("Removed from Git LFS: it was %1").arg(locale.formattedDataSize(lfs->oldSize))
+                : tr("Changed in Git LFS: %1 → %2").arg(locale.formattedDataSize(lfs->oldSize),
+                                                        locale.formattedDataSize(lfs->newSize));
+            body.append({Message, f, -1, -1, text});
+        }
 
         for (int h = 0; h < file.hunks.size(); ++h) {
             const DiffHunk &hunk = file.hunks[h];

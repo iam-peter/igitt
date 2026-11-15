@@ -45,6 +45,40 @@ QByteArray DiffHunk::header() const
     return h;
 }
 
+std::optional<LfsChange> lfsChange(const FileDiff &file)
+{
+    // https://github.com/git-lfs/git-lfs/blob/main/docs/spec.md
+    static const QByteArray version = "version https://git-lfs.github.com/spec/v1";
+    if (file.isBinary || file.hunks.isEmpty())
+        return std::nullopt;
+    LfsChange change;
+    bool pointer = false;
+    for (const DiffHunk &hunk : file.hunks) {
+        for (const DiffLine &line : hunk.lines) {
+            if (line.kind == DiffLine::NoNewline)
+                continue;
+            const QByteArray &text = line.content;
+            if (text == version) {
+                pointer = true;
+            } else if (text.startsWith("size ")) {
+                bool ok = false;
+                const qint64 size = text.mid(5).toLongLong(&ok);
+                if (!ok)
+                    return std::nullopt;
+                if (line.kind != DiffLine::Added)
+                    change.oldSize = size;
+                if (line.kind != DiffLine::Removed)
+                    change.newSize = size;
+            } else if (!text.startsWith("oid sha256:") && !text.startsWith("ext-")) {
+                return std::nullopt;
+            }
+        }
+    }
+    if (!pointer)
+        return std::nullopt;
+    return change;
+}
+
 QList<FileDiff> parseDiff(const QByteArray &data)
 {
     static const QRegularExpression hunkRe(
