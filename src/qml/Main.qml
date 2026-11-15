@@ -489,6 +489,66 @@ ApplicationWindow {
         }
     }
 
+    // A branch merged into the current one: as git is set up, always with
+    // a merge commit, only fast-forwarding, or squashed into staged
+    // changes to commit
+    ModalDialog {
+        id: mergeDialog
+
+        objectName: "mergeDialog"
+        property string branch
+        readonly property string how: mergeNoFf.checked ? "no-ff" : mergeFfOnly.checked ? "ff-only"
+                                    : mergeSquash.checked ? "squash" : ""
+
+        function ask(name: string) {
+            branch = name
+            const last = AppSettings.workflow.mergeHow
+            mergeNoFf.checked = last === "no-ff"
+            mergeFfOnly.checked = last === "ff-only"
+            mergeSquash.checked = last === "squash"
+            mergeDefault.checked = last === ""
+            open()
+        }
+
+        width: Math.min(500, root.width - 40)
+        title: qsTr("Merge %1 into %2").arg(branch, repo.branch)
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: {
+            AppSettings.workflow.mergeHow = how
+            repo.mergeBranch(branch, how)
+        }
+        Component.onCompleted: {
+            standardButton(Dialog.Ok).objectName = "mergeOkButton"
+            standardButton(Dialog.Ok).text = qsTr("Merge")
+        }
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 4
+
+            RadioButton {
+                id: mergeDefault
+                objectName: "mergeDefault"
+                text: qsTr("As git is set up: fast-forward when it can")
+            }
+            RadioButton {
+                id: mergeNoFf
+                objectName: "mergeNoFf"
+                text: qsTr("Always a merge commit (--no-ff)")
+            }
+            RadioButton {
+                id: mergeFfOnly
+                objectName: "mergeFfOnly"
+                text: qsTr("Only a fast-forward, or nothing (--ff-only)")
+            }
+            RadioButton {
+                id: mergeSquash
+                objectName: "mergeSquash"
+                text: qsTr("Squashed: stage what it changes, for one commit of its own (--squash)")
+            }
+        }
+    }
+
     // An untracked file ignored: by a pattern picked or written, for
     // everyone in .gitignore or only in this clone
     ModalDialog {
@@ -1282,16 +1342,57 @@ ApplicationWindow {
             }
             IconButton {
                 styles: [Styles.ButtonStyle.medium]
+                id: pullButton
                 objectName: "pullButton"
                 iconName: "arrow-down"
                 text: qsTr("Pull") + (repo.behind > 0 ? `  ↓${repo.behind}` : "")
                 enabled: repo.valid && repo.upstream !== "" && !repo.writing && !repo.planning && repo.operation === ""
-                onClicked: repo.pull()
+                onClicked: repo.pull("", AppSettings.workflow.pullAutostash)
                 ToolTip.visible: hovered
                 ToolTip.text: repo.planning ? qsTr("Off while planning")
                             : repo.operation !== "" ? qsTr("Finish the %1 first").arg(repo.operation.toLowerCase())
                             : repo.upstream === "" ? qsTr("The branch has no upstream to pull from")
                             : qsTr("Fetch %1 and merge it, or rebase onto it as pull.rebase says").arg(repo.upstream)
+                              + (AppSettings.workflow.pullAutostash ? qsTr(", with the changes put aside meanwhile") : "")
+            }
+            IconButton {
+                id: pullOptionsButton
+                styles: [Styles.ButtonStyle.medium]
+                objectName: "pullOptionsButton"
+                iconName: "chevron-down"
+                enabled: pullButton.enabled
+                onClicked: pullMenu.popup(pullOptionsButton, 0, pullOptionsButton.height)
+                ToolTip.visible: hovered && !pullMenu.opened
+                ToolTip.text: qsTr("Pull merging, rebasing or only fast-forwarding, whatever git is set up to do")
+
+                Menu {
+                    id: pullMenu
+                    objectName: "pullMenu"
+
+                    MenuItem {
+                        objectName: "pullMergeItem"
+                        text: qsTr("Pull and Merge")
+                        onTriggered: repo.pull("merge", AppSettings.workflow.pullAutostash)
+                    }
+                    MenuItem {
+                        objectName: "pullRebaseItem"
+                        text: qsTr("Pull and Rebase")
+                        onTriggered: repo.pull("rebase", AppSettings.workflow.pullAutostash)
+                    }
+                    MenuItem {
+                        objectName: "pullFastForwardItem"
+                        text: qsTr("Pull Only a Fast-Forward")
+                        onTriggered: repo.pull("ff-only", AppSettings.workflow.pullAutostash)
+                    }
+                    MenuSeparator {}
+                    MenuItem {
+                        objectName: "pullAutostashItem"
+                        text: qsTr("Put the Changes Aside Meanwhile")
+                        checkable: true
+                        checked: AppSettings.workflow.pullAutostash
+                        onToggled: AppSettings.workflow.pullAutostash = checked
+                    }
+                }
             }
             IconButton {
                 id: pushButton
@@ -1619,7 +1720,7 @@ ApplicationWindow {
                         onCheckoutRequested: name => repo.checkoutBranch(name)
                         onRenameBranchRequested: name => branchDialog.rename(name)
                         onDeleteBranchRequested: name => deleteBranchDialog.ask(name)
-                        onMergeRequested: name => repo.mergeBranch(name)
+                        onMergeRequested: name => mergeDialog.ask(name)
                         onCherryPickRequested: sha => repo.cherryPick(sha)
                         onRevertRequested: sha => repo.revertCommit(sha)
                         onResetRequested: (sha, subject) => resetDialog.ask(sha, subject)

@@ -175,10 +175,19 @@ NetworkResult fetchFrom(const GitRunner &git, const QString &remote)
     return result;
 }
 
-NetworkResult pullUpstream(const GitRunner &git)
+NetworkResult pullUpstream(const GitRunner &git, const QString &how, bool autostash)
 {
     NetworkResult result;
-    const GitResult r = git.run({QStringLiteral("pull"), QStringLiteral("--no-edit")}, {}, networkEnvironment(git));
+    QStringList args{QStringLiteral("pull"), QStringLiteral("--no-edit")};
+    if (how == QLatin1String("merge"))
+        args << QStringLiteral("--no-rebase");
+    else if (how == QLatin1String("rebase"))
+        args << QStringLiteral("--rebase");
+    else if (how == QLatin1String("ff-only"))
+        args << QStringLiteral("--ff-only");
+    if (autostash)
+        args << QStringLiteral("--autostash");
+    const GitResult r = git.run(args, {}, networkEnvironment(git));
     result.ok = r.ok();
     if (!result.ok) {
         QString text = r.errorText().trimmed();

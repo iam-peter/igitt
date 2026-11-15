@@ -168,7 +168,9 @@ pushing. A rejected push offers a force-push that uses
 
 **Pull**, beside it, shows how far the upstream is ahead and runs `git
 pull`: it merges the upstream, or rebases onto it, as `pull.rebase`,
-`branch.<name>.rebase` and `pull.ff` say.
+`branch.<name>.rebase` and `pull.ff` say. The arrow next to it pulls
+merging, rebasing or only fast-forwarding instead, and can put the
+uncommitted changes aside meanwhile (`--autostash`) for every pull.
 
 On GitHub and GitLab, recognized by the remote's host name (self-hosted
 servers by other names are listed in Settings), the current branch's pull
@@ -198,7 +200,10 @@ in the way. A right-click on a branch there, or on its label in the
 graph, switches to it, renames it or deletes it; a double-click on a
 label switches too. A label also merges its branch into the current
 one, rebases the current one onto it, makes a remote-tracking branch
-the current one's upstream, or compares it with the current branch.
+the current one's upstream, or compares it with the current branch. A
+merge asks how: as git is set up, always with a merge commit
+(`--no-ff`), only fast-forwarding (`--ff-only`), or squashed into staged
+changes to commit (`--squash`); the way chosen is asked first next time.
 
 A commit's menu in History makes a branch there, switched to unless
 unticked, or a tag, annotated when it has a message. Names are checked

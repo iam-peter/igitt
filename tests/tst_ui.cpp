@@ -1210,6 +1210,40 @@ private slots:
 
     // Changes thrown away after a guard, from a file's menu or the diff's
     // selection; stashed from the tool bar, and a stash dropped after one.
+    // A merge asks how, and remembers it
+    void mergesAsChosen()
+    {
+        QTemporaryDir dir;
+        GitRunner git(dir.path());
+        git.run({u"init"_s, u"-q"_s, u"-b"_s, u"main"_s});
+        git.run({u"commit"_s, u"-q"_s, u"--allow-empty"_s, u"-m"_s, u"Start"_s});
+        git.run({u"checkout"_s, u"-q"_s, u"-b"_s, u"feature"_s});
+        git.run({u"commit"_s, u"-q"_s, u"--allow-empty"_s, u"-m"_s, u"Feature"_s});
+        git.run({u"checkout"_s, u"-q"_s, u"main"_s});
+
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        auto *dialog = window->findChild<QObject *>(u"mergeDialog"_s);
+        QMetaObject::invokeMethod(dialog, "ask", Q_ARG(QString, u"feature"_s));
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QCOMPARE(dialog->property("how").toString(), QString());
+        click(window, u"mergeNoFf"_s);
+        QCOMPARE(dialog->property("how").toString(), u"no-ff"_s);
+        click(window, u"mergeOkButton"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(git.run({u"log"_s, u"-1"_s, u"--format=%P"_s}).out.trimmed().split(' ').size(), 2);
+        // Asked again, the way chosen last
+        QMetaObject::invokeMethod(dialog, "ask", Q_ARG(QString, u"feature"_s));
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QCOMPARE(dialog->property("how").toString(), u"no-ff"_s);
+        QMetaObject::invokeMethod(dialog, "reject");
+    }
+
     // An untracked file, from its menu, into .gitignore
     void ignoresAnUntrackedFile()
     {

@@ -763,6 +763,70 @@ private slots:
         QVERIFY(settle(repo()));
         QCOMPARE(git({"log", "-3", "--format=%s"}), "Ours\nLater\nTheirs\n"_ba); // no merge commit
         QVERIFY(m_errors->isEmpty());
+
+        // Diverged again, with a change not committed: only a fast-forward
+        // is refused; merging, as asked over the branch's setting, puts the
+        // change aside meanwhile
+        writeFile(m_dir->filePath(u"ours.txt"_s), "ours, again\n");
+        git({"commit", "-q", "-am", "Ours again"});
+        writeFile(m_dir->filePath(u"ours.txt"_s), "ours, not committed\n");
+        them.run({u"pull"_s, u"-q"_s});
+        writeFile(other.filePath(u"third.txt"_s), "third\n");
+        them.run({u"add"_s, u"third.txt"_s});
+        them.run({u"commit"_s, u"-q"_s, u"-m"_s, u"Third"_s});
+        them.run({u"push"_s, u"-q"_s});
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        repo().pull(u"ff-only"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(m_errors->size(), 1);
+        m_errors->clear();
+        QCOMPARE(git({"log", "-1", "--format=%s"}), "Ours again\n"_ba);
+        repo().pull(u"merge"_s, true);
+        QVERIFY(settle(repo()));
+        QVERIFY2(m_errors->isEmpty(), qPrintable(m_errors->value(0).value(0).toString()));
+        QCOMPARE(git({"log", "-1", "--format=%P"}).trimmed().split(' ').size(), 2); // merged
+        QVERIFY(QFile::exists(m_dir->filePath(u"third.txt"_s)));
+        QCOMPARE(readFile(m_dir->filePath(u"ours.txt"_s)), "ours, not committed\n"_ba);
+    }
+
+    // A branch merged with a merge commit always, only fast-forwarding,
+    // or squashed into staged changes
+    void mergesAsAsked()
+    {
+        git({"checkout", "-q", "-b", "feature"});
+        writeFile(m_dir->filePath(u"feature.txt"_s), "feature\n");
+        git({"add", "feature.txt"});
+        git({"commit", "-q", "-m", "Feature"});
+        git({"checkout", "-q", "main"});
+        open(m_dir->path());
+        const QString start = QString::fromUtf8(git({"rev-parse", "HEAD"}).trimmed());
+
+        repo().mergeBranch(u"feature"_s, u"no-ff"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(git({"log", "-1", "--format=%P"}).trimmed().split(' ').size(), 2);
+
+        git({"reset", "-q", "--hard", start});
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        repo().mergeBranch(u"feature"_s, u"squash"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(QString::fromUtf8(git({"rev-parse", "HEAD"}).trimmed()), start);
+        QVERIFY(git({"diff", "--cached", "--name-only"}).contains("feature.txt"));
+        QCOMPARE(repo().operation(), QString()); // nothing to continue, only to commit
+        QVERIFY(m_errors->isEmpty());
+
+        git({"reset", "-q", "--hard", start});
+        writeFile(m_dir->filePath(u"main.txt"_s), "main\n");
+        git({"add", "main.txt"});
+        git({"commit", "-q", "-m", "Main"});
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        repo().mergeBranch(u"feature"_s, u"ff-only"_s);
+        QVERIFY(settle(repo()));
+        QCOMPARE(m_errors->size(), 1);
+        m_errors->clear();
+        QCOMPARE(git({"log", "-1", "--format=%s"}), "Main\n"_ba);
     }
 
     // A merge that stops at a conflict waits for it; resolved and staged,

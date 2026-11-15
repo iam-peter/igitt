@@ -290,8 +290,13 @@ public:
     // into the current one, rebasing the current one onto a branch. One
     // that stops at conflicts leaves them to resolve in the merge tool, and
     // the operation (operation) to continue or abort. Off while planning.
-    Q_INVOKABLE void pull();
-    Q_INVOKABLE void mergeBranch(const QString &name);
+    // `how`: as configured if empty, else "merge", "rebase" or "ff-only";
+    // `autostash` puts the changes aside meanwhile
+    Q_INVOKABLE void pull(const QString &how = {}, bool autostash = false);
+    // `how`: as configured if empty, else "no-ff" (always a merge commit),
+    // "ff-only", or "squash", which stages what the branch changed for a
+    // commit of its own
+    Q_INVOKABLE void mergeBranch(const QString &name, const QString &how = {});
     Q_INVOKABLE void rebaseOnto(const QString &name);
     Q_INVOKABLE void continueOperation();
     Q_INVOKABLE void abortOperation();

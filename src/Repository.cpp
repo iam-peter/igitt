@@ -1959,7 +1959,7 @@ void Repository::deleteBranch(const QString &name, bool force)
 }
 
 
-void Repository::pull()
+void Repository::pull(const QString &how, bool autostash)
 {
     if (m_plan) {
         emit errorOccurred(tr("Pulling is off while planning."));
@@ -1970,9 +1970,10 @@ void Repository::pull()
         return;
     }
     const QString upstream = m_status.upstream;
-    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true), upstream](const GitRunner &git) {
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true), upstream, how,
+                             autostash](const GitRunner &git) {
         Outcome outcome;
-        const NetworkResult pulled = pullUpstream(git);
+        const NetworkResult pulled = pullUpstream(git, how, autostash);
         if (pulled.ok)
             outcome.notice = tr("Pulled %1.").arg(upstream);
         else if (!operationInProgress(git).isEmpty())
@@ -1986,10 +1987,19 @@ void Repository::pull()
     });
 }
 
-void Repository::mergeBranch(const QString &name)
+void Repository::mergeBranch(const QString &name, const QString &how)
 {
-    enqueueGitWrite({QStringLiteral("merge"), QStringLiteral("--no-edit"), name}, tr("Merged %1.").arg(name),
-                    tr("Merging %1").arg(name));
+    QStringList args{QStringLiteral("merge"), QStringLiteral("--no-edit")};
+    QString done = tr("Merged %1.").arg(name);
+    if (how == QLatin1String("no-ff")) {
+        args << QStringLiteral("--no-ff");
+    } else if (how == QLatin1String("ff-only")) {
+        args << QStringLiteral("--ff-only");
+    } else if (how == QLatin1String("squash")) {
+        args << QStringLiteral("--squash");
+        done = tr("Staged what %1 changes, for a commit of its own.").arg(name);
+    }
+    enqueueGitWrite(args + QStringList{name}, done, tr("Merging %1").arg(name));
 }
 
 void Repository::rebaseOnto(const QString &name)

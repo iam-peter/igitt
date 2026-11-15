@@ -97,8 +97,9 @@ NetworkResult pushTo(const GitRunner &git, const PushTarget &target, bool force)
 NetworkResult fetchFrom(const GitRunner &git, const QString &remote);
 // Pulls the current branch's upstream as `git pull` does, with every
 // setting it honours (pull.rebase, branch.<name>.rebase, pull.ff, ...);
-// a merge commit takes git's message.
-NetworkResult pullUpstream(const GitRunner &git);
+// a merge commit takes git's message. `how` overrides them: "merge",
+// "rebase" or "ff-only"; `autostash` stashes the changes for the time.
+NetworkResult pullUpstream(const GitRunner &git, const QString &how = {}, bool autostash = false);
 // Fetches the objects of `ref` from `remote` without writing any ref or
 // FETCH_HEAD, e.g. a Gerrit patch set to compare with.
 NetworkResult fetchObjects(const GitRunner &git, const QString &remote, const QString &ref);

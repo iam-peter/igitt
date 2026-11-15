@@ -45,6 +45,16 @@ QtObject {
         property var recent: []
     }
 
+    readonly property Settings workflow: Settings {
+        category: "workflow"
+
+        // How a branch was merged last: "" as git is set up, "no-ff",
+        // "ff-only" or "squash"
+        property string mergeHow: ""
+        // Pull puts uncommitted changes aside meanwhile (--autostash)
+        property bool pullAutostash: false
+    }
+
     readonly property Settings remote: Settings {
         category: "remote"
 
