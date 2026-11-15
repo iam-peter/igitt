@@ -236,6 +236,44 @@ private slots:
         m_errors->clear();
     }
 
+    // Hooks skipped once; an amend made the user's; commit.template read
+    // without its comments
+    void commitsWithOptions()
+    {
+        QDir(m_dir->path()).mkpath(u".git/hooks"_s);
+        const QString hook = m_dir->filePath(u".git/hooks/pre-commit"_s);
+        writeFile(hook, "#!/bin/sh\necho no >&2\nexit 1\n");
+        QFile::setPermissions(hook, QFile::permissions(hook) | QFile::ExeOwner);
+        writeFile(m_dir->filePath(u".gitmessage"_s), "# What and why\nArea: \n\n# Tests run:\n");
+        git({"config", "commit.template", ".gitmessage"});
+        open(m_dir->path());
+        QTRY_COMPARE(repo().commitTemplate(), u"Area:\n"_s);
+
+        writeFile(file(), "hooked\n");
+        git({"add", "f.txt"});
+        repo().commit(u"Blocked"_s, false);
+        QVERIFY(settle(repo()));
+        QCOMPARE(m_errors->size(), 1);
+        m_errors->clear();
+        repo().commit(u"Past the hook"_s, false, true);
+        QVERIFY(settle(repo()));
+        QVERIFY(m_errors->isEmpty());
+        QCOMPARE(git({"log", "-1", "--format=%s"}), "Past the hook\n"_ba);
+
+        QProcessEnvironment other;
+        other.insert(u"GIT_AUTHOR_NAME"_s, u"Other"_s);
+        other.insert(u"GIT_AUTHOR_EMAIL"_s, u"other@example.com"_s);
+        QVERIFY(m_git.run({u"commit"_s, u"-q"_s, u"--amend"_s, u"--no-verify"_s, u"--reset-author"_s, u"-m"_s,
+                           u"Theirs"_s}, {}, other).ok());
+        QCOMPARE(git({"log", "-1", "--format=%an"}), "Other\n"_ba);
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        repo().commit(u"Mine now"_s, true, true, true);
+        QVERIFY(settle(repo()));
+        QVERIFY(m_errors->isEmpty());
+        QCOMPARE(git({"log", "-1", "--format=%an %s"}), "Test Mine now\n"_ba);
+    }
+
     void dropsResultsForViewsLeftMeanwhile()
     {
         open(m_dir->path());

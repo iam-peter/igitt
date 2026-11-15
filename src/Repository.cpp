@@ -139,7 +139,7 @@ void Repository::finish(JobKind kind, Outcome outcome)
         emit lfsChanged();
         emit pathChanged();
         emit diffChanged();
-        checkLfs();
+        checkSetup();
         emit commitReviewChanged();
         emit canUndoFoldChanged();
     }
@@ -174,6 +174,10 @@ void Repository::finish(JobKind kind, Outcome outcome)
             m_usesLfs = outcome.lfs->first;
             m_lfsInstalled = outcome.lfs->second;
             emit lfsChanged();
+            if (outcome.commitTemplate && *outcome.commitTemplate != m_commitTemplate) {
+                m_commitTemplate = *outcome.commitTemplate;
+                emit commitTemplateChanged();
+            }
             if (m_usesLfs && !m_lfsInstalled)
                 emit errorOccurred(tr("This repository keeps files in Git LFS, but git-lfs is not installed: "
                                       "those files show as pointers, and new ones would go into git itself."));
@@ -697,13 +701,15 @@ void Repository::resolveWithSide(const QString &path, bool theirs)
     });
 }
 
-void Repository::commit(const QString &message, bool amend)
+void Repository::commit(const QString &message, bool amend, bool skipHooks, bool resetAuthor)
 {
     if (m_plan) {
         PlanEntry entry;
         entry.kind = PlanEntry::Commit;
         entry.message = message;
         entry.amend = amend;
+        entry.skipHooks = skipHooks;
+        entry.resetAuthor = amend && resetAuthor;
         const QString subject = message.section(QLatin1Char('\n'), 0, 0).trimmed();
         entry.title = amend ? tr("Amend the last commit as “%1”").arg(subject)
                             : tr("Commit “%1”").arg(subject);
@@ -714,6 +720,10 @@ void Repository::commit(const QString &message, bool amend)
     QStringList args{QStringLiteral("commit"), QStringLiteral("-F"), QStringLiteral("-")};
     if (amend)
         args.append(QStringLiteral("--amend"));
+    if (amend && resetAuthor)
+        args.append(QStringLiteral("--reset-author"));
+    if (skipHooks)
+        args.append(QStringLiteral("--no-verify"));
     enqueue(JobKind::Write, [args, input = message.toUtf8(), request = diffRequest(),
                              history = historyRequest(true)](const GitRunner &git) {
         Outcome outcome;
@@ -2459,7 +2469,7 @@ void Repository::applyStash(int index, bool pop)
                     tr("Applying %1").arg(ref));
 }
 
-void Repository::checkLfs()
+void Repository::checkSetup()
 {
     enqueue(JobKind::Read, [](const GitRunner &git) {
         Outcome outcome;
@@ -2468,6 +2478,17 @@ void Repository::checkLfs()
         const bool used = files.ok() && !files.out.trimmed().isEmpty();
         const bool installed = used && git.run({QStringLiteral("lfs"), QStringLiteral("version")}).ok();
         outcome.lfs = std::pair{used, installed};
+        // A path relative to the work tree's top, as git commit reads it
+        const QString file = QString::fromUtf8(git.run({QStringLiteral("config"), QStringLiteral("--path"),
+                                                        QStringLiteral("commit.template")}).out).trimmed();
+        QString text;
+        if (!file.isEmpty()) {
+            QFile in(QDir(git.workDir()).absoluteFilePath(file));
+            if (in.open(QIODevice::ReadOnly))
+                text = QString::fromUtf8(git.run({QStringLiteral("stripspace"), QStringLiteral("--strip-comments")},
+                                                 in.readAll()).out);
+        }
+        outcome.commitTemplate = text;
         return outcome;
     });
 }

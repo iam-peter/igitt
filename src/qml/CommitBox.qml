@@ -13,24 +13,43 @@ MessageEditor {
 
     required property Repository repo
 
-    readonly property bool canCommit: titleAccepted && !repo.writing && (repo.staged.count > 0 || amend.checked)
+    // The template as it was loaded, not written over yet
+    readonly property bool untouchedTemplate: repo.commitTemplate.trim() !== ""
+                                              && message().trim() === repo.commitTemplate.trim()
+    readonly property bool canCommit: titleAccepted && !untouchedTemplate && !repo.writing
+                                      && (repo.staged.count > 0 || amend.checked)
 
     function commit() {
         if (canCommit)
-            repo.commit(message(), amend.checked)
+            repo.commit(message(), amend.checked, skipHooks.checked, amend.checked && resetAuthor.checked)
     }
+    // commit.template, to fill in, while nothing else is written
+    function loadTemplate() {
+        if (empty && !amend.checked && repo.commitTemplate !== "")
+            load(repo.commitTemplate)
+    }
+
+    Component.onCompleted: loadTemplate()
 
     Connections {
         target: box.repo
         function onCommitted() {
             box.clear()
             amend.checked = false
+            skipHooks.checked = false
+            resetAuthor.checked = false
+            box.loadTemplate()
         }
         // A message, and above all an amend, is meant for the repository
         // it was written in, never the next one opened.
         function onPathChanged() {
             box.clear()
             amend.checked = false
+            skipHooks.checked = false
+            resetAuthor.checked = false
+        }
+        function onCommitTemplateChanged() {
+            box.loadTemplate()
         }
     }
 
@@ -48,9 +67,32 @@ MessageEditor {
             text: qsTr("Amend")
             enabled: box.repo.headSha.length > 0
             onToggled: {
-                if (checked && box.empty)
+                if (checked && (box.empty || box.untouchedTemplate))
                     box.load(box.repo.headMessage)
+                else if (!checked && box.message().trim() === box.repo.headMessage.trim()) {
+                    box.clear()
+                    box.loadTemplate()
+                }
             }
+        },
+        CheckBox {
+            id: resetAuthor
+            styles: [Styles.ToggleStyle.small]
+            objectName: "resetAuthorBox"
+            visible: amend.checked
+            text: qsTr("As Me")
+            ToolTip.visible: hovered
+            ToolTip.delay: 500
+            ToolTip.text: qsTr("Make the amended commit yours, dated now (--reset-author)")
+        },
+        CheckBox {
+            id: skipHooks
+            styles: [Styles.ToggleStyle.small]
+            objectName: "skipHooksBox"
+            text: qsTr("Skip Hooks")
+            ToolTip.visible: hovered
+            ToolTip.delay: 500
+            ToolTip.text: qsTr("Commit without running the pre-commit and commit-msg hooks (--no-verify), once")
         }
     ]
     trailingItems: [

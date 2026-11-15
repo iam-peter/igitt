@@ -37,6 +37,8 @@ struct PlanEntry
     bool reverse = false; // ApplyPatch
     QString message;      // Commit, CommitPatch
     bool amend = false;   // Commit
+    bool skipHooks = false;   // Commit: as git commit --no-verify
+    bool resetAuthor = false; // Commit, amending: as git commit --reset-author
     QString target;       // Fold, MoveChange: a commit id from before the plan, or "plan:<id>"
     QString source;       // MoveChange: where the change is, as target; empty for the working tree
     FoldBase base = FoldBase::Index;

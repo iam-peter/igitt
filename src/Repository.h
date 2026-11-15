@@ -438,8 +438,14 @@ public:
     // commands for GitHub and GitLab; or why it cannot. {text, error}.
     Q_INVOKABLE QVariantMap pushPreview(const QVariantMap &review) const;
 
-    // Emits committed() on success.
-    Q_INVOKABLE void commit(const QString &message, bool amend);
+    // Emits committed() on success. `skipHooks`: without the pre-commit
+    // and commit-msg hooks (--no-verify); `resetAuthor`: an amend made
+    // the user's, now (--reset-author).
+    Q_INVOKABLE void commit(const QString &message, bool amend, bool skipHooks = false, bool resetAuthor = false);
+    // The message commit.template starts a commit with, its comments left
+    // out; empty without one
+    Q_PROPERTY(QString commitTemplate READ commitTemplate NOTIFY commitTemplateChanged)
+    QString commitTemplate() const { return m_commitTemplate; }
     // Commits `patch` on HEAD alone, apart from the index (see commitPatch()
     // in PatchCommit.h); while planning, plans it. Emits patchCommitted().
     Q_INVOKABLE void commitPatch(const QByteArray &patch, const QString &message);
@@ -509,6 +515,7 @@ signals:
     void lostWorkFound(const QVariantList &commits);
     void cleanPreviewed(const QStringList &paths, bool ignored);
     void lfsChanged();
+    void commitTemplateChanged();
     void errorOccurred(const QString &message);
     // `links` are URLs the remote printed, such as Gerrit's changes.
     void notice(const QString &message, const QStringList &links);
@@ -551,6 +558,7 @@ private:
         std::optional<QVariantList> lostWork;
         std::optional<std::pair<QStringList, bool>> cleanPreview;
         std::optional<std::pair<bool, bool>> lfs; // used, installed
+        std::optional<QString> commitTemplate;
         std::shared_ptr<FileTreeNode> fileTree;
         QString notice;
         QStringList links;
@@ -611,7 +619,9 @@ private:
     QThreadPool m_searchPool;
     bool m_usesLfs = false;
     bool m_lfsInstalled = false;
-    void checkLfs();
+    QString m_commitTemplate;
+    // What the repository is set up with: Git LFS, commit.template
+    void checkSetup();
     void searchCode(const QStringList &texts, bool caseSensitive, bool regex);
     QTimer m_reviewTimer;
     int m_reviewGeneration = 0;

@@ -400,6 +400,8 @@ bool PlanSession::simulateCommit(PlanEntry &entry, QString &error, const QString
         }
         parents = QString::fromLatin1(m_git.run({QStringLiteral("rev-parse"), m_head + QStringLiteral("^@")}).out)
                       .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    }
+    if (entry.amend && !entry.resetAuthor) {
         // Amending keeps the author, like git commit --amend.
         const QStringList ident = QString::fromUtf8(m_git.run({QStringLiteral("log"), QStringLiteral("-1"),
                                                                QStringLiteral("--format=%an%n%ae%n%ad"),
@@ -408,7 +410,8 @@ bool PlanSession::simulateCommit(PlanEntry &entry, QString &error, const QString
         author.insert(QStringLiteral("GIT_AUTHOR_NAME"), ident.value(0));
         author.insert(QStringLiteral("GIT_AUTHOR_EMAIL"), ident.value(1));
         author.insert(QStringLiteral("GIT_AUTHOR_DATE"), QLatin1Char('@') + ident.value(2));
-    } else {
+    }
+    if (!entry.amend) {
         const QString headTree = m_head.isEmpty()
             ? firstLine(m_git.run({QStringLiteral("hash-object"), QStringLiteral("-t"), QStringLiteral("tree"),
                                    QStringLiteral("--stdin")}).out)
@@ -438,6 +441,9 @@ bool PlanSession::simulateCommit(PlanEntry &entry, QString &error, const QString
         {QStringLiteral("commit-msg"), QStringLiteral("--"), messageFile},
     };
     for (const QStringList &hook : hooks) {
+        // --no-verify skips these two, not prepare-commit-msg
+        if (entry.skipHooks && hook.first() != QLatin1String("prepare-commit-msg"))
+            continue;
         const GitResult r = run(entry, QStringList{QStringLiteral("hook"), QStringLiteral("run"),
                                                    QStringLiteral("--ignore-missing")} + hook);
         if (!r.ok()) {

@@ -1250,6 +1250,46 @@ private slots:
         QVERIFY(git.run({u"stash"_s, u"show"_s, u"--name-only"_s}).out.contains("a.txt"));
     }
 
+    // commit.template fills the empty message; unchanged, it is not
+    // committed; an amend starts from the last message
+    void startsFromTheCommitTemplate()
+    {
+        QTemporaryDir dir;
+        GitRunner git(dir.path());
+        git.run({u"init"_s, u"-q"_s, u"-b"_s, u"main"_s});
+        git.run({u"commit"_s, u"-q"_s, u"--allow-empty"_s, u"-m"_s, u"Start"_s});
+        QFile templ(dir.filePath(u".gitmessage"_s));
+        QVERIFY(templ.open(QIODevice::WriteOnly));
+        templ.write("# Say why\nArea: \n");
+        templ.close();
+        git.run({u"config"_s, u"commit.template"_s, u".gitmessage"_s});
+        git.run({u"add"_s, u".gitmessage"_s});
+
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        QTRY_COMPARE(window->property("mode").toInt(), 1);
+        QQuickItem *title = nullptr;
+        QTRY_VERIFY((title = findItem(window->contentItem(), u"commitTitle"_s)));
+        QTRY_COMPARE(title->property("text").toString(), u"Area:"_s);
+        auto *button = window->findChild<QQuickItem *>(u"commitButton"_s);
+        QVERIFY(!button->isEnabled());
+        title->setProperty("text", u"Area: say what"_s);
+        QTRY_VERIFY(button->isEnabled());
+        title->setProperty("text", u"Area:"_s);
+        QTRY_VERIFY(!button->isEnabled());
+
+        clickItem(window, window->findChild<QQuickItem *>(u"amendBox"_s));
+        QTRY_COMPARE(title->property("text").toString(), u"Start"_s);
+        QVERIFY(window->findChild<QQuickItem *>(u"resetAuthorBox"_s)->isVisible());
+        clickItem(window, window->findChild<QQuickItem *>(u"amendBox"_s));
+        QTRY_COMPARE(title->property("text").toString(), u"Area:"_s);
+    }
+
     // Commits marked with Ctrl+click picked together, oldest first; a
     // branch's later commits moved onto another base
     void picksCommitsAndMovesThem()
