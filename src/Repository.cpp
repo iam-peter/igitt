@@ -1599,14 +1599,79 @@ void Repository::pushTag(const QString &name)
         QString remote = upstreamRemote(git);
         if (remote.isEmpty())
             remote = QStringLiteral("origin");
-        const GitResult result = git.run({QStringLiteral("push"), remote, QStringLiteral("refs/tags/") + name});
-        if (result.ok())
+        const NetworkResult result = runNetwork(git, {QStringLiteral("push"), remote, QStringLiteral("refs/tags/") + name});
+        if (result.ok)
             outcome.notice = tr("Pushed the tag %1 to %2.").arg(name, remote);
         else
-            outcome.error = tr("Pushing the tag %1 failed: %2").arg(name, explainNetworkFailure(result.errorText().trimmed()));
+            outcome.error = tr("Pushing the tag %1 failed: %2").arg(name, result.message);
         outcome.state = loadState(sourceFor(git, nullptr), request, history);
         return outcome;
     });
+}
+
+void Repository::enqueueNetwork(const QStringList &args, const QString &done, const QString &failed)
+{
+    if (m_plan) {
+        emit errorOccurred(tr("That cannot be planned; end planning first."));
+        return;
+    }
+    enqueue(JobKind::Write, [=, request = diffRequest(), history = historyRequest(true)](const GitRunner &git) {
+        Outcome outcome;
+        const NetworkResult result = runNetwork(git, args);
+        if (result.ok)
+            outcome.notice = done;
+        else
+            outcome.error = tr("%1: %2").arg(failed, result.message);
+        outcome.links = result.links;
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+QString Repository::remoteOf(const QString &ref) const
+{
+    QString remote;
+    for (const QVariant &entry : std::as_const(m_remoteList)) {
+        const QString candidate = entry.toMap().value(QStringLiteral("name")).toString();
+        if (ref.startsWith(candidate + QLatin1Char('/')) && candidate.size() > remote.size())
+            remote = candidate;
+    }
+    return remote;
+}
+
+void Repository::pushAllTags(const QString &remote)
+{
+    QString to = remote;
+    if (to.isEmpty())
+        to = remoteOf(m_status.upstream);
+    if (to.isEmpty())
+        to = QStringLiteral("origin");
+    enqueueNetwork({QStringLiteral("push"), to, QStringLiteral("--tags")}, tr("Pushed every tag to %1.").arg(to),
+                   tr("Pushing the tags to %1 failed").arg(to));
+}
+
+void Repository::pushBranch(const QString &branch, const QString &remote, const QString &remoteBranch, bool track)
+{
+    if (branch.isEmpty() || remote.isEmpty() || remoteBranch.isEmpty())
+        return;
+    QStringList args{QStringLiteral("push")};
+    if (track)
+        args << QStringLiteral("--set-upstream");
+    args << remote << QStringLiteral("refs/heads/%1:refs/heads/%2").arg(branch, remoteBranch);
+    enqueueNetwork(args, tr("Pushed %1 to %2/%3.").arg(branch, remote, remoteBranch),
+                   tr("Pushing %1 to %2 failed").arg(branch, remote));
+}
+
+void Repository::deleteRemoteBranch(const QString &name)
+{
+    const QString remote = remoteOf(name);
+    if (remote.isEmpty()) {
+        emit errorOccurred(tr("%1 is on no remote known here.").arg(name));
+        return;
+    }
+    const QString branch = name.mid(remote.size() + 1);
+    enqueueNetwork({QStringLiteral("push"), remote, QStringLiteral("--delete"), branch},
+                   tr("Deleted %1 on %2.").arg(branch, remote), tr("Deleting %1 on %2 failed").arg(branch, remote));
 }
 
 bool Repository::hasSubmodules() const

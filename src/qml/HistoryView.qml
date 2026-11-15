@@ -47,6 +47,11 @@ Pane {
     // Tags: one to make at a commit, to push, to delete
     signal tagRequested(string sha, string subject)
     signal pushTagRequested(string name)
+    signal pushAllTagsRequested()
+    // A local branch pushed to a remote under a name; a remote-tracking
+    // branch deleted on its remote
+    signal pushBranchRequested(string name)
+    signal deleteRemoteBranchRequested(string name)
     signal deleteTagRequested(string name)
     // A commit saved as a patch; marked for a bisection; a remote-tracking
     // branch made the current one's upstream
@@ -207,6 +212,37 @@ Pane {
             icon.source: Icons.source("cloud-upload")
             icon.color: palette.windowText
             onTriggered: view.pushTagRequested(refMenu.name)
+        }
+        MenuItem {
+            objectName: "pushAllTagsMenuItem"
+            visible: refMenu.kind === "tag"
+            height: visible ? implicitHeight : 0
+            text: view.repo.planning ? qsTr("Push All Tags (off while planning)") : qsTr("Push All Tags")
+            enabled: !view.repo.planning && !view.repo.writing
+            icon.source: Icons.source("cloud-upload")
+            icon.color: palette.windowText
+            onTriggered: view.pushAllTagsRequested()
+        }
+        MenuItem {
+            objectName: "pushBranchMenuItem"
+            visible: refMenu.kind === "branch"
+            height: visible ? implicitHeight : 0
+            text: view.repo.planning ? qsTr("Push To (off while planning)") : qsTr("Push To…")
+            enabled: !view.repo.planning && !view.repo.writing && view.repo.remotes.length > 0
+            icon.source: Icons.source("cloud-upload")
+            icon.color: palette.windowText
+            onTriggered: view.pushBranchRequested(refMenu.name)
+        }
+        MenuItem {
+            objectName: "deleteRemoteBranchMenuItem"
+            visible: refMenu.kind === "remote" && !refMenu.name.endsWith("/HEAD")
+            height: visible ? implicitHeight : 0
+            text: view.repo.planning ? qsTr("Delete on the Remote (off while planning)")
+                                     : qsTr("Delete on the Remote…")
+            enabled: !view.repo.planning && !view.repo.writing
+            icon.source: Icons.source("trash-2")
+            icon.color: palette.windowText
+            onTriggered: view.deleteRemoteBranchRequested(refMenu.name)
         }
         MenuItem {
             objectName: "deleteTagMenuItem"

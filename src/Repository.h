@@ -369,6 +369,14 @@ public:
     Q_INVOKABLE void createTag(const QString &name, const QString &sha, const QString &message);
     Q_INVOKABLE void deleteTag(const QString &name);
     Q_INVOKABLE void pushTag(const QString &name);
+    // Every tag to `remote`, the upstream's if empty
+    Q_INVOKABLE void pushAllTags(const QString &remote = {});
+    // A local branch to `remote` as `remoteBranch`, tracked from then on
+    // with `track`
+    Q_INVOKABLE void pushBranch(const QString &branch, const QString &remote, const QString &remoteBranch,
+                                bool track);
+    // A remote-tracking branch, origin/x, deleted on its remote
+    Q_INVOKABLE void deleteRemoteBranch(const QString &name);
 
     // A repository to work in: cloned from `url` into a folder of its name
     // in `parent`, or a new one made in `folder`; opened once it is there.
@@ -546,6 +554,11 @@ private:
     // A merge, rebase, cherry-pick or revert that stops at conflicts says
     // so, and waits for them.
     void enqueueGitWrite(const QStringList &args, const QString &done, const QString &failed);
+    // The same for a command that talks to a remote
+    void enqueueNetwork(const QStringList &args, const QString &done, const QString &failed);
+    // The remote of a remote-tracking ref, origin/x: the known remote with
+    // the longest name it starts with, as names may hold a /
+    QString remoteOf(const QString &ref) const;
     void enqueuePlanEntry(const PlanEntry &entry);
     void endPlan();
     void scheduleReviewQuery();

@@ -1250,6 +1250,41 @@ private slots:
         QVERIFY(git.run({u"stash"_s, u"show"_s, u"--name-only"_s}).out.contains("a.txt"));
     }
 
+    // A branch pushed under another name, from its dialog
+    void pushesABranchElsewhere()
+    {
+        QTemporaryDir dir;
+        QTemporaryDir remote;
+        GitRunner git(dir.path());
+        GitRunner(remote.path()).run({u"init"_s, u"-q"_s, u"--bare"_s});
+        git.run({u"init"_s, u"-q"_s, u"-b"_s, u"main"_s});
+        git.run({u"commit"_s, u"-q"_s, u"--allow-empty"_s, u"-m"_s, u"Start"_s});
+        git.run({u"remote"_s, u"add"_s, u"origin"_s, remote.path()});
+        git.run({u"branch"_s, u"feature"_s});
+
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        auto *dialog = window->findChild<QObject *>(u"pushBranchDialog"_s);
+        QMetaObject::invokeMethod(dialog, "ask", Q_ARG(QString, u"feature"_s));
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        auto *name = findItem(window->contentItem(), u"pushRemoteBranch"_s);
+        QCOMPARE(name->property("text").toString(), u"feature"_s);
+        QCOMPARE(findItem(window->contentItem(), u"pushRemote"_s)->property("currentText").toString(), u"origin"_s);
+        QVERIFY(findItem(window->contentItem(), u"pushTrack"_s)->property("checked").toBool());
+        name->setProperty("text", u"bad name"_s);
+        QTRY_VERIFY(!window->findChild<QQuickItem *>(u"pushBranchOkButton"_s)->isEnabled());
+        name->setProperty("text", u"review/feature"_s);
+        QTRY_VERIFY(window->findChild<QQuickItem *>(u"pushBranchOkButton"_s)->isEnabled());
+        click(window, u"pushBranchOkButton"_s);
+        QVERIFY(settle(*repo));
+        QVERIFY(GitRunner(remote.path()).run({u"rev-parse"_s, u"--verify"_s, u"refs/heads/review/feature"_s}).ok());
+    }
+
     // A merge asks how, and remembers it
     void mergesAsChosen()
     {

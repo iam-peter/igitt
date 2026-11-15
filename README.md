@@ -212,7 +212,11 @@ changes to commit (`--squash`); the way chosen is asked first next time.
 A commit's menu in History makes a branch there, switched to unless
 unticked, or a tag, annotated when it has a message. Names are checked
 as git checks them, and against those taken. A tag's label pushes it to
-the upstream's remote, or deletes it.
+the upstream's remote, pushes every tag there, or deletes it.
+
+A branch's label pushes it to any remote under any name, and tracks it
+from then on if ticked. A remote-tracking branch's label deletes the
+branch on its remote, after asking.
 
 Deleting a branch asks for its name to be typed again: nothing here
 brings it back, only the reflog. One that is not merged is deleted only

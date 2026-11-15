@@ -477,6 +477,42 @@ private slots:
         QVERIFY(git({"stash", "list"}).contains("one file"));
     }
 
+    // A branch pushed elsewhere and tracked; all tags at once; a branch
+    // deleted on the remote
+    void managesRemoteBranches()
+    {
+        QTemporaryDir remote;
+        GitRunner(remote.path()).run({u"init"_s, u"-q"_s, u"--bare"_s});
+        git({"remote", "add", "origin", remote.path()});
+        git({"push", "-q", "-u", "origin", "main"});
+        git({"branch", "feature"});
+        git({"tag", "v1", "HEAD~1"});
+        git({"tag", "-a", "v2", "-m", "Two"});
+        open(m_dir->path());
+        GitRunner bare(remote.path());
+
+        repo().pushBranch(u"feature"_s, u"origin"_s, u"topic"_s, true);
+        QVERIFY(settle(repo()));
+        QVERIFY2(m_errors->isEmpty(), qPrintable(m_errors->value(0).value(0).toString()));
+        QVERIFY(bare.run({u"rev-parse"_s, u"--verify"_s, u"refs/heads/topic"_s}).ok());
+        QCOMPARE(git({"config", "branch.feature.merge"}), "refs/heads/topic\n"_ba);
+
+        repo().pushAllTags();
+        QVERIFY(settle(repo()));
+        QVERIFY(m_errors->isEmpty());
+        QCOMPARE(bare.run({u"tag"_s}).out, "v1\nv2\n"_ba);
+
+        repo().deleteRemoteBranch(u"origin/topic"_s);
+        QVERIFY(settle(repo()));
+        QVERIFY(m_errors->isEmpty());
+        QVERIFY(!bare.run({u"rev-parse"_s, u"--verify"_s, u"-q"_s, u"refs/heads/topic"_s}).ok());
+        QVERIFY(!repo().remoteBranches().contains(u"origin/topic"_s));
+
+        repo().deleteRemoteBranch(u"nowhere/topic"_s);
+        QCOMPARE(m_errors->size(), 1);
+        m_errors->clear();
+    }
+
     // A tag or commit checked out on no branch, and back
     void checksOutOnNoBranch()
     {

@@ -198,6 +198,19 @@ NetworkResult pullUpstream(const GitRunner &git, const QString &how, bool autost
     return result;
 }
 
+NetworkResult runNetwork(const GitRunner &git, const QStringList &args)
+{
+    NetworkResult result;
+    const GitResult r = git.run(args, {}, networkEnvironment(git));
+    result.ok = r.ok();
+    QString text = r.errorText().trimmed();
+    if (!result.ok)
+        result.message = explainNetworkFailure(text);
+    result.rejected = text.contains(QLatin1String("[rejected]"));
+    result.links = remoteLinks(QString::fromUtf8(r.err));
+    return result;
+}
+
 NetworkResult fetchObjects(const GitRunner &git, const QString &remote, const QString &ref)
 {
     NetworkResult result;

@@ -103,6 +103,9 @@ NetworkResult pullUpstream(const GitRunner &git, const QString &how = {}, bool a
 // Fetches the objects of `ref` from `remote` without writing any ref or
 // FETCH_HEAD, e.g. a Gerrit patch set to compare with.
 NetworkResult fetchObjects(const GitRunner &git, const QString &remote, const QString &ref);
+// Any other git command that talks to a remote, `git push origin --delete
+// x` say, as fetch and push run: the reason it failed made readable.
+NetworkResult runNetwork(const GitRunner &git, const QStringList &args);
 
 QStringList remoteLinks(const QString &stderrText);
 // Turns git's errors about credentials and SSH into advice; igitt cannot

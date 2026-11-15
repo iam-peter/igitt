@@ -944,6 +944,102 @@ ApplicationWindow {
         }
     }
 
+    // A branch pushed to any remote, under any name; tracked from then on
+    // if ticked, as it is first when it tracks nothing yet
+    ModalDialog {
+        id: pushBranchDialog
+
+        objectName: "pushBranchDialog"
+        property string branch
+        readonly property var remoteNames: repo.remotes.map(r => r.name)
+
+        function ask(name: string) {
+            branch = name
+            const upstreamRemote = remoteNames.find(r => repo.upstream.startsWith(r + "/")) ?? ""
+            pushRemote.currentIndex = Math.max(0, remoteNames.indexOf(upstreamRemote !== "" ? upstreamRemote : "origin"))
+            pushRemoteBranch.text = name
+            pushTrack.checked = name !== repo.branch || repo.upstream === ""
+            open()
+        }
+        function allowOk() {
+            const ok = standardButton(Dialog.Ok)
+            if (ok)
+                ok.enabled = pushRemoteBranch.text.trim() !== "" && repo.branchNameError(pushRemoteBranch.text.trim()) === ""
+        }
+
+        width: Math.min(480, root.width - 40)
+        title: qsTr("Push %1").arg(branch)
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onOpened: allowOk()
+        onAccepted: repo.pushBranch(branch, pushRemote.currentText, pushRemoteBranch.text.trim(), pushTrack.checked)
+        Component.onCompleted: {
+            standardButton(Dialog.Ok).objectName = "pushBranchOkButton"
+            standardButton(Dialog.Ok).text = qsTr("Push")
+        }
+
+        GridLayout {
+            width: parent.width
+            columns: 2
+            columnSpacing: 8
+            rowSpacing: 8
+
+            Label { text: qsTr("To") }
+            ComboBox {
+                id: pushRemote
+                objectName: "pushRemote"
+                Layout.fillWidth: true
+                model: pushBranchDialog.remoteNames
+            }
+            Label { text: qsTr("As") }
+            TextField {
+                id: pushRemoteBranch
+                objectName: "pushRemoteBranch"
+                Layout.fillWidth: true
+                onTextChanged: pushBranchDialog.allowOk()
+                onAccepted: pushBranchDialog.accept()
+            }
+            CheckBox {
+                id: pushTrack
+                objectName: "pushTrack"
+                Layout.columnSpan: 2
+                text: qsTr("Track it: pull from and push to it from then on")
+            }
+        }
+    }
+
+    // A branch deleted on its remote, for everyone who fetches from it
+    ModalDialog {
+        id: deleteRemoteBranchDialog
+
+        objectName: "deleteRemoteBranchDialog"
+        property string name
+
+        function ask(ref: string) {
+            name = ref
+            open()
+        }
+
+        width: Math.min(460, root.width - 40)
+        title: qsTr("Delete %1 on the remote?").arg(name)
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: repo.deleteRemoteBranch(name)
+        Component.onCompleted: {
+            const ok = standardButton(Dialog.Ok)
+            ok.objectName = "deleteRemoteBranchOkButton"
+            ok.text = qsTr("Delete on the Remote")
+            const styled = ok as Styles.Button
+            if (styled)
+                styled.styles = [Styles.ButtonStyle.destructive]
+        }
+
+        Label {
+            width: parent.width
+            wrapMode: Text.Wrap
+            text: qsTr("The branch goes for everyone who fetches from the remote; local branches stay. "
+                       + "Whoever still has its commits can push it again.")
+        }
+    }
+
     // Dropping a stash cannot be undone either
     ModalDialog {
         id: dropStashDialog
@@ -1755,6 +1851,9 @@ ApplicationWindow {
                         onCompareRequested: (base, commit, baseName, threeDot) => repo.compareCommits(base, commit, baseName, threeDot)
                         onTagRequested: (sha, subject) => tagDialog.ask(sha, subject)
                         onPushTagRequested: name => repo.pushTag(name)
+                        onPushAllTagsRequested: repo.pushAllTags("")
+                        onPushBranchRequested: name => pushBranchDialog.ask(name)
+                        onDeleteRemoteBranchRequested: name => deleteRemoteBranchDialog.ask(name)
                         onDeleteTagRequested: name => deleteTagDialog.ask(name)
                         onSavePatchRequested: sha => tools.savePatch(sha)
                         onBisectRequested: (sha, verdict) => repo.bisectMark(sha, verdict)
