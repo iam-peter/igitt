@@ -37,10 +37,13 @@ Item {
     function newRepository() {
         initDialog.open()
     }
-    function remember(path: string) {
-        if (path === "")
+    function remember(given: string) {
+        if (given === "")
             return
-        AppSettings.repositories.recent = [path].concat(recent.filter(p => p !== path)).slice(0, recentLimit)
+        // One entry per folder, however it was reached
+        const path = repo.canonicalPath(given)
+        AppSettings.repositories.recent = [path].concat(recent.filter(p => repo.canonicalPath(p) !== path))
+            .slice(0, recentLimit)
     }
     function forget(path: string) {
         AppSettings.repositories.recent = recent.filter(p => p !== path)

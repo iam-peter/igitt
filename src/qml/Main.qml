@@ -511,7 +511,7 @@ ApplicationWindow {
         }
 
         width: Math.min(500, root.width - 40)
-        title: qsTr("Merge %1 into %2").arg(branch, repo.branch)
+        title: qsTr("Merge %1 into %2").arg(branch).arg(repo.branch)
         standardButtons: Dialog.Ok | Dialog.Cancel
         onAccepted: {
             AppSettings.workflow.mergeHow = how
@@ -564,7 +564,7 @@ ApplicationWindow {
             if (index === 0)
                 return qsTr("Only this: %1").arg(pattern)
             if (pattern.startsWith("*."))
-                return qsTr("Every %1 file: %2").arg(pattern.substring(1), pattern)
+                return qsTr("Every %1 file: %2").arg(pattern.substring(1)).arg(pattern)
             if (pattern.startsWith("/"))
                 return qsTr("Its folder: %1").arg(pattern)
             return qsTr("By its name, anywhere: %1").arg(pattern)

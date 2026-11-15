@@ -305,6 +305,12 @@ bool Repository::folderExists(const QString &path) const
     return !path.isEmpty() && QFileInfo(path).isDir();
 }
 
+QString Repository::canonicalPath(const QString &path) const
+{
+    const QString canonical = QFileInfo(path).canonicalFilePath();
+    return canonical.isEmpty() ? path : canonical;
+}
+
 void Repository::refresh()
 {
     if (!valid())

@@ -235,6 +235,9 @@ public:
     Q_INVOKABLE void open(const QString &pathOrUrl);
     // Whether a folder is still there, for the repositories opened before
     Q_INVOKABLE bool folderExists(const QString &path) const;
+    // The folder as the file system names it, through symbolic links (on
+    // macOS, /var is /private/var); as given if it is gone
+    Q_INVOKABLE QString canonicalPath(const QString &path) const;
     // Reloads refs, history and status.
     Q_INVOKABLE void refresh();
     // Reloads status and the file diff on display; reloads history only if
