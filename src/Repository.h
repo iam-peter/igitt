@@ -309,6 +309,12 @@ public:
     Q_INVOKABLE void stash(const QString &message, bool includeUntracked);
     Q_INVOKABLE void applyStash(int index, bool pop);
     Q_INVOKABLE void dropStash(int index);
+    // Where HEAD was and what nothing refers to any more: lostWorkFound()
+    // with {sha, subject, time, kind ("reflog" or "dangling"), selector,
+    // action, unreachable, stash}, newest first in each kind
+    Q_INVOKABLE void findLostWork();
+    // A dropped stash's commit back into the stash list, as stash@{0}
+    Q_INVOKABLE void restoreStash(const QString &sha, const QString &subject);
 
     // Commits of other places: one picked onto the current branch, one
     // undone by a new commit; a merge commit by its first parent's side.
@@ -449,6 +455,7 @@ signals:
     // After moveChange(), whether it went through; error says why not.
     void changeMoved(bool ok, const QString &error);
     void messageLoaded(const QString &sha, const QString &message);
+    void lostWorkFound(const QVariantList &commits);
     void errorOccurred(const QString &message);
     // `links` are URLs the remote printed, such as Gerrit's changes.
     void notice(const QString &message, const QStringList &links);
@@ -488,6 +495,7 @@ private:
         QString pushRejected; // why the remote refused a push
         QHash<QString, CommitStats> stats;
         std::optional<QStringList> trackedFiles;
+        std::optional<QVariantList> lostWork;
         std::shared_ptr<FileTreeNode> fileTree;
         QString notice;
         QStringList links;

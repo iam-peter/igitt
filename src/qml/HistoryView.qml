@@ -53,10 +53,14 @@ Pane {
     signal upstreamRequested(string name)
 
     // Selects the commit and shows it, as if clicked
+    // A commit the graph does not show, one lost, say, shows on its own
     function select(sha: string) {
         const row = repo.commits.rowOf(sha)
-        if (row < 0)
+        if (row < 0) {
+            list.currentIndex = -1
+            repo.showCommit(sha)
             return
+        }
         list.currentIndex = row
         list.positionViewAtIndex(row, ListView.Contain)
         list.showCurrent()

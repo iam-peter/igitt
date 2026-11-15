@@ -5,6 +5,7 @@
 #include "core/GerritReview.h"
 #include "core/HistoryEditor.h"
 #include "core/LaneColors.h"
+#include "core/LostWork.h"
 #include "core/MergeConflict.h"
 #include "core/PatchCommit.h"
 #include "core/PatchBuilder.h"
@@ -132,6 +133,8 @@ void Repository::finish(JobKind kind, Outcome outcome)
             emit changeMoved(outcome.changeMoved->isEmpty(), *outcome.changeMoved);
         if (outcome.message)
             emit messageLoaded(outcome.message->first, outcome.message->second);
+        if (outcome.lostWork)
+            emit lostWorkFound(*outcome.lostWork);
         if (!outcome.pushRejected.isEmpty())
             emit pushRejected(outcome.pushRejected, m_pushTarget.description());
         if (!outcome.notice.isEmpty())
@@ -2119,6 +2122,38 @@ void Repository::applyStash(int index, bool pop)
     enqueueGitWrite({QStringLiteral("stash"), pop ? QStringLiteral("pop") : QStringLiteral("apply"), ref},
                     pop ? tr("Applied and dropped %1.").arg(ref) : tr("Applied %1; it is kept.").arg(ref),
                     tr("Applying %1").arg(ref));
+}
+
+void Repository::findLostWork()
+{
+    if (!valid())
+        return;
+    enqueue(JobKind::Read, [](const GitRunner &git) {
+        Outcome outcome;
+        QVariantList commits;
+        for (const LostCommit &commit : ::findLostWork(git)) {
+            commits.append(QVariantMap{
+                {QStringLiteral("sha"), commit.sha},
+                {QStringLiteral("subject"), commit.subject},
+                {QStringLiteral("time"), commit.time},
+                {QStringLiteral("kind"), commit.kind == LostCommit::Reflog ? QStringLiteral("reflog")
+                                                                           : QStringLiteral("dangling")},
+                {QStringLiteral("selector"), commit.selector},
+                {QStringLiteral("action"), commit.action},
+                {QStringLiteral("unreachable"), commit.unreachable},
+                {QStringLiteral("stash"), commit.stash},
+            });
+        }
+        outcome.lostWork = commits;
+        return outcome;
+    });
+}
+
+void Repository::restoreStash(const QString &sha, const QString &subject)
+{
+    enqueueGitWrite({QStringLiteral("stash"), QStringLiteral("store"), QStringLiteral("-m"), subject, sha},
+                    tr("%1 is back among the stashes, as stash@{0}.").arg(sha.left(10)),
+                    tr("Restoring the stash %1").arg(sha.left(10)));
 }
 
 void Repository::dropStash(int index)

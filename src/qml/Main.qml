@@ -1012,6 +1012,12 @@ ApplicationWindow {
     RepositoryTools {
         id: tools
         repo: repo
+        onShowCommitRequested: sha => {
+            root.closeFileHistory()
+            root.showCommitInHistory(sha)
+        }
+        onBranchRequested: (sha, subject) => branchDialog.create(sha, subject)
+        onResetRequested: (sha, subject) => resetDialog.ask(sha, subject)
     }
 
     // Not while a dialog asks something about the repository as it is, or

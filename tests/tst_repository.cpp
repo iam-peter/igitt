@@ -1073,6 +1073,64 @@ private slots:
 
     // A bisection from a good and a bad commit to the first bad one, and
     // back where it began.
+    // Work no branch holds any more: a branch deleted after it was
+    // checked out, one never checked out, a dropped stash
+    void findsLostWork()
+    {
+        git({"checkout", "-q", "-b", "side"});
+        writeFile(m_dir->filePath(u"side.txt"_s), "side\n");
+        git({"add", "side.txt"});
+        git({"commit", "-q", "-m", "Work on the side"});
+        const QString side = QString::fromUtf8(git({"rev-parse", "HEAD"}).trimmed());
+        git({"checkout", "-q", "main"});
+        git({"branch", "-q", "-D", "side"});
+
+        const QString tree = QString::fromUtf8(git({"rev-parse", "HEAD^{tree}"}).trimmed());
+        const QString never = QString::fromUtf8(
+            gitWithInput({"commit-tree", tree, "-p", "HEAD"}, "Never checked out\n").trimmed());
+        git({"branch", "-q", "never", never});
+        git({"branch", "-q", "-D", "never"});
+
+        writeFile(m_dir->filePath(u"g.txt"_s), "stashed\n");
+        git({"stash", "push", "-q", "-m", "half done"});
+        const QString stash = QString::fromUtf8(git({"rev-parse", "stash@{0}"}).trimmed());
+        git({"stash", "drop", "-q"});
+
+        open(m_dir->path());
+        QSignalSpy found(m_repo.get(), &Repository::lostWorkFound);
+        repo().findLostWork();
+        QVERIFY(settle(repo()));
+        QCOMPARE(found.size(), 1);
+        const QVariantList commits = found.first().first().toList();
+        const auto entry = [&](const QString &sha, const QString &kind) {
+            for (const QVariant &commit : commits) {
+                const QVariantMap map = commit.toMap();
+                if (map.value(u"sha"_s) == sha && map.value(u"kind"_s) == kind)
+                    return map;
+            }
+            return QVariantMap();
+        };
+        const QVariantMap onSide = entry(side, u"reflog"_s);
+        QVERIFY(!onSide.isEmpty());
+        QVERIFY(onSide.value(u"unreachable"_s).toBool());
+        QCOMPARE(onSide.value(u"subject"_s).toString(), u"Work on the side"_s);
+        QVERIFY(onSide.value(u"selector"_s).toString().startsWith(u"HEAD@{"_s));
+        QVERIFY(onSide.value(u"action"_s).toString().startsWith(u"commit"_s));
+        // The commit main is on, still had
+        const QString head = QString::fromUtf8(git({"rev-parse", "HEAD"}).trimmed());
+        QVERIFY(!entry(head, u"reflog"_s).value(u"unreachable"_s).toBool());
+        const QVariantMap lost = entry(never, u"dangling"_s);
+        QVERIFY(lost.value(u"unreachable"_s).toBool());
+        QVERIFY(!lost.value(u"stash"_s).toBool());
+        const QVariantMap dropped = entry(stash, u"dangling"_s);
+        QVERIFY(dropped.value(u"stash"_s).toBool());
+
+        repo().restoreStash(stash, dropped.value(u"subject"_s).toString());
+        QVERIFY(settle(repo()));
+        QCOMPARE(QString::fromUtf8(git({"rev-parse", "stash@{0}"}).trimmed()), stash);
+        QVERIFY(git({"stash", "list"}).contains("half done"));
+    }
+
     void bisects()
     {
         for (int i = 3; i <= 8; ++i) {
@@ -1206,6 +1264,13 @@ private:
     QByteArray git(const QStringList &args)
     {
         const GitResult result = m_git.run(args);
+        if (!result.ok())
+            qWarning() << args << result.errorText();
+        return result.out;
+    }
+    QByteArray gitWithInput(const QStringList &args, const QByteArray &input)
+    {
+        const GitResult result = m_git.run(args, input);
         if (!result.ok())
             qWarning() << args << result.errorText();
         return result.out;

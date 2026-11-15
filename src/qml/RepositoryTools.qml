@@ -16,6 +16,11 @@ Item {
 
     required property Repository repo
 
+    // From the lost work: for the window to act on
+    signal showCommitRequested(string sha)
+    signal branchRequested(string sha, string subject)
+    signal resetRequested(string sha, string subject)
+
     function openMenu(button: Item) {
         menu.popup(button, 0, button.height)
     }
@@ -165,6 +170,14 @@ Item {
             onTriggered: tools.repo.updateSubmodules()
         }
         MenuItem {
+            objectName: "recoverItem"
+            text: qsTr("Recover Lost Work…")
+            enabled: tools.repo.valid
+            icon.source: Icons.source("history")
+            icon.color: palette.windowText
+            onTriggered: recoverDialog.open()
+        }
+        MenuItem {
             objectName: "applyPatchItem"
             text: tools.repo.planning ? qsTr("Apply a Patch (off while planning)") : qsTr("Apply a Patch…")
             enabled: tools.repo.valid && !tools.repo.planning
@@ -208,6 +221,173 @@ Item {
         fileMode: FileDialog.OpenFile
         nameFilters: [qsTr("Patches (*.patch *.diff)"), qsTr("All files (*)")]
         onAccepted: tools.repo.applyPatch(selectedFile)
+    }
+
+    // Where HEAD was, and commits nothing refers to any more: a branch
+    // deleted, a stash dropped, a reset too far. Each can become a branch
+    // again, a stash, or where the branch is.
+    ModalDialog {
+        id: recoverDialog
+
+        property var commits: []
+        property bool loading: false
+        readonly property var shown: onlyLost.checked ? commits.filter(c => c.unreachable) : commits
+
+        function describe(commit: var): string {
+            const when = new Date(commit.time * 1000).toLocaleString(Qt.locale(), Locale.ShortFormat)
+            if (commit.kind === "reflog")
+                return `${commit.sha.substring(0, 10)} · ${when} · ${commit.selector}: ${commit.action}`
+            return `${commit.sha.substring(0, 10)} · ${when} · `
+                + (commit.stash ? qsTr("a dropped stash") : qsTr("nothing refers to it"))
+        }
+
+        parent: Overlay.overlay
+        objectName: "recoverDialog"
+        width: Math.min(720, (parent ? parent.width : 760) - 40)
+        title: qsTr("Recover Lost Work")
+        standardButtons: Dialog.Close
+        onOpened: {
+            commits = []
+            loading = true
+            tools.repo.findLostWork()
+        }
+
+        Connections {
+            target: tools.repo
+            function onLostWorkFound(found: var) {
+                recoverDialog.commits = found
+                recoverDialog.loading = false
+            }
+        }
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 8
+
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: qsTr("Where HEAD was, newest first, and the commits nothing refers to any more, "
+                           + "such as a deleted branch's or a dropped stash. git keeps them for a while "
+                           + "(gc.reflogExpire, gc.pruneExpire).")
+            }
+            CheckBox {
+                id: onlyLost
+                objectName: "recoverOnlyLost"
+                text: qsTr("Only what no branch, tag or stash has")
+                checked: true
+            }
+            ListView {
+                id: lostList
+                objectName: "lostWorkList"
+                Layout.fillWidth: true
+                Layout.preferredHeight: 360
+                clip: true
+                model: recoverDialog.shown
+                ScrollBar.vertical: ScrollBar {}
+
+                delegate: ItemDelegate {
+                    id: lostRow
+
+                    required property var modelData
+                    required property int index
+
+                    objectName: "lostWorkRow"
+                    width: ListView.view.width
+                    rightPadding: 44
+                    onClicked: lostMenu.popup()
+
+                    contentItem: ColumnLayout {
+                        spacing: 2
+                        Label {
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                            text: lostRow.modelData.subject
+                            font.weight: Font.Medium
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                            text: recoverDialog.describe(lostRow.modelData)
+                            opacity: 0.7
+                        }
+                    }
+
+                    ToolButton {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        icon.source: Icons.source("chevron-down")
+                        icon.color: palette.windowText
+                        onClicked: lostMenu.popup(this, 0, height)
+                    }
+
+                    Menu {
+                        id: lostMenu
+
+                        MenuItem {
+                            objectName: "lostShowItem"
+                            text: qsTr("Show")
+                            icon.source: Icons.source("git-commit-horizontal")
+                            icon.color: palette.windowText
+                            onTriggered: {
+                                recoverDialog.close()
+                                tools.showCommitRequested(lostRow.modelData.sha)
+                            }
+                        }
+                        MenuItem {
+                            objectName: "lostBranchItem"
+                            text: tools.repo.planning ? qsTr("Make a Branch Here (off while planning)")
+                                                      : qsTr("Make a Branch Here…")
+                            enabled: !tools.repo.planning
+                            icon.source: Icons.source("git-branch")
+                            icon.color: palette.windowText
+                            onTriggered: {
+                                recoverDialog.close()
+                                tools.branchRequested(lostRow.modelData.sha, lostRow.modelData.subject)
+                            }
+                        }
+                        MenuItem {
+                            objectName: "lostStashItem"
+                            visible: lostRow.modelData.stash
+                            height: visible ? implicitHeight : 0
+                            text: qsTr("Back Among the Stashes")
+                            enabled: !tools.repo.planning
+                            icon.source: Icons.source("archive")
+                            icon.color: palette.windowText
+                            onTriggered: {
+                                tools.repo.restoreStash(lostRow.modelData.sha, lostRow.modelData.subject)
+                                recoverDialog.close()
+                            }
+                        }
+                        MenuItem {
+                            objectName: "lostResetItem"
+                            text: tools.repo.planning ? qsTr("Reset the Branch Here (off while planning)")
+                                                      : qsTr("Reset the Branch Here…")
+                            enabled: !tools.repo.planning
+                            icon.source: Icons.source("undo-2")
+                            icon.color: palette.windowText
+                            onTriggered: {
+                                recoverDialog.close()
+                                tools.resetRequested(lostRow.modelData.sha, lostRow.modelData.subject)
+                            }
+                        }
+                        MenuItem {
+                            text: qsTr("Copy SHA")
+                            icon.source: Icons.source("copy")
+                            icon.color: palette.windowText
+                            onTriggered: Clipboard.setText(lostRow.modelData.sha)
+                        }
+                    }
+                }
+
+                Label {
+                    anchors.centerIn: parent
+                    visible: lostList.count === 0
+                    text: recoverDialog.loading ? qsTr("Looking…") : qsTr("Nothing lost.")
+                    opacity: 0.7
+                }
+            }
+        }
     }
 
     function localPath(url: url): string {

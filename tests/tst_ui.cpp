@@ -1210,6 +1210,49 @@ private slots:
 
     // Changes thrown away after a guard, from a file's menu or the diff's
     // selection; stashed from the tool bar, and a stash dropped after one.
+    // A branch deleted is in the lost work, and shows from there
+    void recoversLostWork()
+    {
+        QTemporaryDir dir;
+        GitRunner git(dir.path());
+        git.run({u"init"_s, u"-q"_s, u"-b"_s, u"main"_s});
+        git.run({u"commit"_s, u"-q"_s, u"--allow-empty"_s, u"-m"_s, u"Start"_s});
+        git.run({u"checkout"_s, u"-q"_s, u"-b"_s, u"side"_s});
+        git.run({u"commit"_s, u"-q"_s, u"--allow-empty"_s, u"-m"_s, u"Lost on the side"_s});
+        const QString lost = QString::fromUtf8(git.run({u"rev-parse"_s, u"HEAD"_s}).out.trimmed());
+        git.run({u"checkout"_s, u"-q"_s, u"main"_s});
+        git.run({u"branch"_s, u"-q"_s, u"-D"_s, u"side"_s});
+
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        auto *dialog = window->findChild<QObject *>(u"recoverDialog"_s);
+        QVERIFY(dialog);
+        QMetaObject::invokeMethod(dialog, "open");
+        QVERIFY(settle(*repo));
+        QList<QQuickItem *> rows;
+        // Only the lost commit; with everything, main's too
+        QTRY_COMPARE((rows = findItems(window->contentItem(), u"lostWorkRow"_s)).size(), 1);
+        QCOMPARE(rows.first()->property("modelData").toMap().value(u"sha"_s).toString(), lost);
+        findItem(window->contentItem(), u"recoverOnlyLost"_s)->setProperty("checked", false);
+        QTRY_VERIFY(findItems(window->contentItem(), u"lostWorkRow"_s).size() > 1);
+        findItem(window->contentItem(), u"recoverOnlyLost"_s)->setProperty("checked", true);
+        QTRY_COMPARE((rows = findItems(window->contentItem(), u"lostWorkRow"_s)).size(), 1);
+        clickItem(window, rows.first());
+        auto *show = rows.first()->findChild<QQuickItem *>(u"lostShowItem"_s);
+        QVERIFY(show);
+        QTRY_VERIFY(show->isVisible());
+        clickItem(window, show);
+        QVERIFY(settle(*repo));
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QCOMPARE(window->property("mode").toInt(), 0);
+        QCOMPARE(repo->diffCommit(), lost);
+    }
+
     // The repositories opened are remembered, latest first; with none
     // open, the start page offers them
     void remembersRepositories()

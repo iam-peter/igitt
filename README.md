@@ -429,6 +429,14 @@ any; and applying a patch, as a commit when `git format-patch` wrote it
 (undone whole if it does not apply), else to the working tree. Removing
 a remote or a worktree asks first.
 
+**Recover Lost Work** lists where HEAD was, from its reflog, and the
+commits nothing refers to any more: the tip of a branch deleted, a
+stash dropped, what a reset or an amend left behind. By default only
+what no branch, tag or stash has. Each shows in History, becomes a
+branch again, or the place the current branch is reset to; a dropped
+stash goes back among the stashes. git keeps them until `gc.reflogExpire`
+and `gc.pruneExpire` are over.
+
 igitt remembers the last twelve repositories it opened, under Open
 Recent. Started outside a repository, or with none to open, it shows a
 start page with them, besides Open, Clone and New Repository; a
