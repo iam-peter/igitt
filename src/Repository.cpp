@@ -2127,9 +2127,16 @@ void Repository::mergeBranch(const QString &name, const QString &how)
     enqueueGitWrite(args + QStringList{name}, done, tr("Merging %1").arg(name));
 }
 
-void Repository::rebaseOnto(const QString &name)
+void Repository::rebaseOnto(const QString &name, const QString &after)
 {
-    enqueueGitWrite({QStringLiteral("rebase"), name}, tr("Rebased onto %1.").arg(name), tr("Rebasing onto %1").arg(name));
+    if (after.isEmpty()) {
+        enqueueGitWrite({QStringLiteral("rebase"), name}, tr("Rebased onto %1.").arg(name),
+                        tr("Rebasing onto %1").arg(name));
+        return;
+    }
+    enqueueGitWrite({QStringLiteral("rebase"), QStringLiteral("--onto"), name, after},
+                    tr("Moved the commits after %1 onto %2.").arg(after, name),
+                    tr("Moving the commits after %1 onto %2").arg(after, name));
 }
 
 void Repository::continueOperation()
@@ -2558,6 +2565,52 @@ void Repository::cherryPick(const QString &sha)
         } else {
             outcome.error = tr("Cherry-picking %1: %2").arg(sha.left(10), stoppedAt(git, result));
         }
+        outcome.state = loadState(sourceFor(git, nullptr), request, history);
+        return outcome;
+    });
+}
+
+void Repository::cherryPickCommits(const QStringList &shas)
+{
+    if (shas.size() == 1) {
+        cherryPick(shas.first());
+        return;
+    }
+    if (m_plan) {
+        emit errorOccurred(tr("Cherry-picking is off while planning."));
+        return;
+    }
+    enqueue(JobKind::Write, [request = diffRequest(), history = historyRequest(true), shas](const GitRunner &git) {
+        Outcome outcome;
+        QStringList picks;
+        for (const QString &sha : shas) {
+            if (!mainline(git, sha).isEmpty()) {
+                outcome.error = tr("%1 is a merge; pick merges one at a time.").arg(sha.left(10));
+                return outcome;
+            }
+            if (!git.run({QStringLiteral("merge-base"), QStringLiteral("--is-ancestor"), sha, QStringLiteral("HEAD")}).ok())
+                picks << sha;
+        }
+        if (picks.isEmpty()) {
+            outcome.error = tr("The branch has all of them already.");
+            return outcome;
+        }
+        GitResult result = git.run(QStringList{QStringLiteral("cherry-pick")} + picks);
+        // One whose change the branch has by another commit is skipped,
+        // and the rest picked on
+        int skipped = 0;
+        while (!result.ok() && (QString::fromUtf8(result.out) + result.errorText()).contains(QLatin1String("is now empty"))) {
+            ++skipped;
+            result = git.run({QStringLiteral("cherry-pick"), QStringLiteral("--skip")});
+        }
+        const int had = int(shas.size() - picks.size()) + skipped;
+        if (result.ok())
+            outcome.notice = had == 0 ? tr("Picked %n commit(s).", "", int(picks.size()))
+                                      : tr("Picked %1; %2 the branch had already.")
+                                            .arg(tr("%n commit(s)", "", int(picks.size()) - skipped))
+                                            .arg(had);
+        else
+            outcome.error = tr("Cherry-picking: %1").arg(stoppedAt(git, result));
         outcome.state = loadState(sourceFor(git, nullptr), request, history);
         return outcome;
     });

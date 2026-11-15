@@ -477,6 +477,44 @@ private slots:
         QVERIFY(git({"stash", "list"}).contains("one file"));
     }
 
+    // Several commits picked oldest first, one the branch has skipped;
+    // a branch's commits after a point moved onto another base
+    void picksSeveralAndMovesOnto()
+    {
+        git({"checkout", "-q", "-b", "side"});
+        QStringList picks;
+        for (const char *name : {"one", "two", "three"}) {
+            writeFile(m_dir->filePath(QString::fromLatin1(name) + u".txt"_s), QByteArray(name) + '\n');
+            git({"add", "."});
+            git({"commit", "-q", "-m", QString::fromLatin1(name)});
+            picks << QString::fromUtf8(git({"rev-parse", "HEAD"}).trimmed());
+        }
+        git({"checkout", "-q", "main"});
+        // main has "two" already, by a commit of its own
+        writeFile(m_dir->filePath(u"two.txt"_s), "two\n");
+        git({"add", "."});
+        git({"commit", "-q", "-m", "Two, separately"});
+        open(m_dir->path());
+
+        repo().cherryPickCommits(picks);
+        QVERIFY(settle(repo()));
+        QVERIFY2(m_errors->isEmpty(), qPrintable(m_errors->value(0).value(0).toString()));
+        QCOMPARE(git({"log", "-3", "--format=%s"}), "three\none\nTwo, separately\n"_ba);
+
+        // The commits of "topic" after "side" moved onto main
+        git({"checkout", "-q", "-b", "topic", "side"});
+        writeFile(m_dir->filePath(u"topic.txt"_s), "topic\n");
+        git({"add", "."});
+        git({"commit", "-q", "-m", "Topic"});
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        repo().rebaseOnto(u"main"_s, u"side"_s);
+        QVERIFY(settle(repo()));
+        QVERIFY(m_errors->isEmpty());
+        QCOMPARE(git({"log", "-2", "--format=%s"}), "Topic\nthree\n"_ba);
+        QVERIFY(!git({"log", "--format=%s", "main..topic"}).contains("one"));
+    }
+
     // Several files staged, unstaged and discarded at once; untracked
     // files deleted as previewed, ignored ones only when asked
     void handlesSeveralFilesAndCleans()

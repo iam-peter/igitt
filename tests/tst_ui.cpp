@@ -1250,6 +1250,68 @@ private slots:
         QVERIFY(git.run({u"stash"_s, u"show"_s, u"--name-only"_s}).out.contains("a.txt"));
     }
 
+    // Commits marked with Ctrl+click picked together, oldest first; a
+    // branch's later commits moved onto another base
+    void picksCommitsAndMovesThem()
+    {
+        QTemporaryDir dir;
+        GitRunner git(dir.path());
+        git.run({u"init"_s, u"-q"_s, u"-b"_s, u"main"_s});
+        git.run({u"commit"_s, u"-q"_s, u"--allow-empty"_s, u"-m"_s, u"Start"_s});
+        git.run({u"checkout"_s, u"-q"_s, u"-b"_s, u"side"_s});
+        for (const QString &name : {u"one"_s, u"two"_s, u"three"_s}) {
+            QFile file(dir.filePath(name));
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write(name.toUtf8());
+            file.close();
+            git.run({u"add"_s, u"."_s});
+            git.run({u"commit"_s, u"-q"_s, u"-m"_s, name});
+        }
+        git.run({u"checkout"_s, u"-q"_s, u"main"_s});
+
+        QQmlApplicationEngine engine;
+        engine.setInitialProperties({{u"initialPath"_s, dir.path()}});
+        engine.loadFromModule("Igitt", "Main");
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *repo = window->findChild<Repository *>();
+        QVERIFY(settle(*repo));
+        QVERIFY(QMetaObject::invokeMethod(window, "setMode", Q_ARG(int, 0)));
+        auto *list = window->findChild<QQuickItem *>(u"historyList"_s);
+        QVERIFY(QQuickTest::qWaitForPolish(window));
+        const auto rowPoint = [&](const QString &subject) {
+            const int row = [&] {
+                for (int r = 0; r < repo->commits()->count(); ++r) {
+                    if (repo->commits()->subjectAt(r) == subject)
+                        return r;
+                }
+                return -1;
+            }();
+            QQuickItem *item = nullptr;
+            QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, item), Q_ARG(int, row));
+            return item ? item->mapToScene({item->width() / 2, item->height() / 2}).toPoint() : QPoint();
+        };
+        QTest::mouseClick(window, Qt::LeftButton, {}, rowPoint(u"three"_s));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::ControlModifier, rowPoint(u"one"_s));
+        QTest::mouseClick(window, Qt::RightButton, {}, rowPoint(u"one"_s));
+        QQuickItem *pick = nullptr;
+        QTRY_VERIFY((pick = window->findChild<QQuickItem *>(u"cherryPickMenuItem"_s)) && pick->isVisible());
+        QCOMPARE(pick->property("text").toString(), u"Cherry-Pick 2 Commits onto main"_s);
+        click(window, u"cherryPickMenuItem"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(git.run({u"log"_s, u"-3"_s, u"--format=%s"_s}).out, "three\none\nStart\n"_ba);
+
+        // main's two picked commits moved back off it, onto Start
+        auto *dialog = window->findChild<QObject *>(u"moveOntoDialog"_s);
+        const QString start = QString::fromUtf8(git.run({u"rev-parse"_s, u"HEAD~2"_s}).out.trimmed());
+        QMetaObject::invokeMethod(dialog, "ask", Q_ARG(QString, start), Q_ARG(QString, start.left(10)));
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        findItem(window->contentItem(), u"moveOntoAfter"_s)->setProperty("editText", u"HEAD~1"_s);
+        click(window, u"moveOntoOkButton"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(git.run({u"log"_s, u"-2"_s, u"--format=%s"_s}).out, "three\nStart\n"_ba);
+    }
+
     // Files picked with Ctrl and Shift, staged together from the menu;
     // untracked files deleted from a list shown first
     void actsOnSeveralFiles()

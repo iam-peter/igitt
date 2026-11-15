@@ -313,7 +313,9 @@ public:
     // "ff-only", or "squash", which stages what the branch changed for a
     // commit of its own
     Q_INVOKABLE void mergeBranch(const QString &name, const QString &how = {});
-    Q_INVOKABLE void rebaseOnto(const QString &name);
+    // `after` given: only the current branch's commits after it move onto
+    // `name` (git rebase --onto name after)
+    Q_INVOKABLE void rebaseOnto(const QString &name, const QString &after = {});
     Q_INVOKABLE void continueOperation();
     Q_INVOKABLE void abortOperation();
 
@@ -361,6 +363,9 @@ public:
     // between staged, mixed unstaged, hard throws it and every
     // uncommitted change away. Off while planning.
     Q_INVOKABLE void cherryPick(const QString &sha);
+    // Several, in the order given (oldest first); those the branch has, or
+    // whose changes it has already, are left out. No merges.
+    Q_INVOKABLE void cherryPickCommits(const QStringList &shas);
     Q_INVOKABLE void revertCommit(const QString &sha);
     Q_INVOKABLE void resetTo(const QString &sha, const QString &mode);
 

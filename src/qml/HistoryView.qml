@@ -39,6 +39,10 @@ Pane {
     // A commit picked onto the current branch, undone by a new one, or the
     // current branch reset to it
     signal cherryPickRequested(string sha)
+    // Several, oldest first
+    signal cherryPickManyRequested(var shas)
+    // The current branch's commits after a point moved onto `target`
+    signal moveOntoRequested(string target, string label)
     signal revertRequested(string sha)
     signal resetRequested(string sha, string subject)
     // Two commits compared, `threeDot` for what `commit` changed since it
@@ -58,6 +62,13 @@ Pane {
     signal savePatchRequested(string sha)
     signal bisectRequested(string sha, string verdict)
     signal upstreamRequested(string name)
+
+    // Commits marked with Ctrl+click; and those in the order they were
+    // made, oldest first, as the graph lists them newest first
+    property var picked: []
+    function oldestFirst(shas: var): var {
+        return shas.slice().sort((a, b) => view.repo.commits.rowOf(b) - view.repo.commits.rowOf(a))
+    }
 
     // Selects the commit and shows it, as if clicked
     // A commit the graph does not show, one lost, say, shows on its own
@@ -180,6 +191,18 @@ Pane {
             icon.source: Icons.source("git-branch")
             icon.color: palette.windowText
             onTriggered: view.rebaseRequested(refMenu.name)
+        }
+        MenuItem {
+            objectName: "moveOntoRefMenuItem"
+            visible: !refMenu.current
+            height: visible ? implicitHeight : 0
+            readonly property string branch: view.repo.branch
+            text: view.repo.planning ? qsTr("Move Commits onto This (off while planning)")
+                                     : qsTr("Move Some of %1's Commits onto This…").arg(branch || "HEAD")
+            enabled: !view.repo.planning && view.repo.operation === "" && !view.repo.writing
+            icon.source: Icons.source("git-branch")
+            icon.color: palette.windowText
+            onTriggered: view.moveOntoRequested(refMenu.name, refMenu.name)
         }
         MenuSeparator {}
         MenuItem {
@@ -328,12 +351,32 @@ Pane {
         MenuItem {
             objectName: "cherryPickMenuItem"
             readonly property bool off: view.repo.planning || view.repo.operation !== ""
+            readonly property var many: view.picked.length > 1 && view.picked.includes(commitMenu.sha)
+                                        ? view.oldestFirst(view.picked) : []
             text: view.repo.planning ? qsTr("Cherry-Pick (off while planning)")
-                                     : qsTr("Cherry-Pick onto %1").arg(view.repo.branch || "HEAD")
+                  : many.length > 0 ? qsTr("Cherry-Pick %1 Commits onto %2").arg(many.length).arg(view.repo.branch || "HEAD")
+                  : qsTr("Cherry-Pick onto %1").arg(view.repo.branch || "HEAD")
             enabled: !off && !view.repo.writing
             icon.source: Icons.source("git-commit-horizontal")
             icon.color: palette.windowText
-            onTriggered: view.cherryPickRequested(commitMenu.sha)
+            onTriggered: {
+                const shas = many
+                view.picked = []
+                if (shas.length > 0)
+                    view.cherryPickManyRequested(shas)
+                else
+                    view.cherryPickRequested(commitMenu.sha)
+            }
+        }
+        MenuItem {
+            objectName: "moveOntoMenuItem"
+            text: view.repo.planning ? qsTr("Move Commits onto This (off while planning)")
+                                     : qsTr("Move %1's Commits onto This…").arg(view.repo.branch || "HEAD")
+            enabled: !view.repo.planning && view.repo.operation === "" && !view.repo.writing
+                     && commitMenu.sha !== view.repo.headSha
+            icon.source: Icons.source("git-branch")
+            icon.color: palette.windowText
+            onTriggered: view.moveOntoRequested(commitMenu.sha, commitMenu.sha.substring(0, 10))
         }
         MenuItem {
             objectName: "revertMenuItem"
@@ -739,7 +782,15 @@ Pane {
                     if (!current && !view.repo.planning)
                         view.checkoutRequested(name)
                 }
+                picked: view.picked.includes(sha)
                 onClicked: {
+                    if (Input.modifiers() & Qt.ControlModifier) {
+                        const all = view.picked.length === 0 && list.currentIndex >= 0 && list.currentIndex !== index
+                                    ? [view.repo.commits.shaAt(list.currentIndex)] : view.picked
+                        view.picked = all.includes(sha) ? all.filter(s => s !== sha) : all.concat([sha])
+                    } else {
+                        view.picked = []
+                    }
                     list.currentIndex = index
                     list.forceActiveFocus()
                     list.showCurrent()

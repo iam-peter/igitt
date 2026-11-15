@@ -493,6 +493,56 @@ ApplicationWindow {
         }
     }
 
+    // The current branch's commits after a point moved onto another base,
+    // as git rebase --onto does: the commits up to the point stay behind
+    ModalDialog {
+        id: moveOntoDialog
+
+        objectName: "moveOntoDialog"
+        property string target
+        property string label
+        readonly property var points: {
+            const all = [repo.upstream].concat(repo.branches, repo.remoteBranches, repo.tags)
+            return all.filter((name, i) => name !== "" && name !== repo.branch && all.indexOf(name) === i)
+        }
+
+        function ask(onto: string, shown: string) {
+            target = onto
+            label = shown
+            moveOntoAfter.currentIndex = 0
+            moveOntoAfter.editText = points.length > 0 ? points[0] : ""
+            open()
+        }
+
+        width: Math.min(520, root.width - 40)
+        title: qsTr("Move %1's commits onto %2").arg(repo.branch || "HEAD").arg(label)
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: repo.rebaseOnto(target, moveOntoAfter.editText.trim())
+        Component.onCompleted: {
+            standardButton(Dialog.Ok).objectName = "moveOntoOkButton"
+            standardButton(Dialog.Ok).text = qsTr("Move")
+        }
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 8
+
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: qsTr("The commits of %1 after this point move onto %2; those up to it stay behind "
+                           + "(git rebase --onto).").arg(repo.branch || "HEAD").arg(moveOntoDialog.label)
+            }
+            ComboBox {
+                id: moveOntoAfter
+                objectName: "moveOntoAfter"
+                Layout.fillWidth: true
+                editable: true
+                model: moveOntoDialog.points
+            }
+        }
+    }
+
     // A branch merged into the current one: as git is set up, always with
     // a merge commit, only fast-forwarding, or squashed into staged
     // changes to commit
@@ -1942,6 +1992,8 @@ ApplicationWindow {
                         onDeleteBranchRequested: name => deleteBranchDialog.ask(name)
                         onMergeRequested: name => mergeDialog.ask(name)
                         onCherryPickRequested: sha => repo.cherryPick(sha)
+                        onCherryPickManyRequested: shas => repo.cherryPickCommits(shas)
+                        onMoveOntoRequested: (target, label) => moveOntoDialog.ask(target, label)
                         onRevertRequested: sha => repo.revertCommit(sha)
                         onResetRequested: (sha, subject) => resetDialog.ask(sha, subject)
                         onCompareRequested: (base, commit, baseName, threeDot) => repo.compareCommits(base, commit, baseName, threeDot)

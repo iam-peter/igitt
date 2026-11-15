@@ -375,7 +375,13 @@ with a new commit, or resets the current branch to it; a merge commit is
 picked or reverted by its first parent's side. Resetting asks whether to
 keep what the later commits changed staged, unstaged, or to throw it
 away with every uncommitted change, which turns the button red. A
-commit the branch has already is not picked again.
+commit the branch has already is not picked again. Ctrl+click marks
+several commits, which the menu then picks together, oldest first,
+leaving out those whose changes the branch has.
+
+"Move onto This", on a commit or a label, moves the current branch's
+commits after a point picked in the dialog onto it, as `git rebase
+--onto` does: the commits up to the point stay behind.
 
 The same menu compares the commit with the one on display, and saves it
 as a patch, as `git format-patch` writes it. It also checks the commit

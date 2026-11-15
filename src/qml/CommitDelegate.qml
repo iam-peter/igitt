@@ -38,6 +38,8 @@ Control {
     property string dropHint: qsTr("Fold into \"%1\"").arg(subject)
     // The selected lines most likely belong in this commit.
     property bool suggested: false
+    // Marked with Ctrl+click, to act on with others
+    property bool picked: false
     // Dragged to move it in the history
     property bool movable: true
 
@@ -74,6 +76,7 @@ Control {
 
     background: Rectangle {
         color: delegate.current ? Qt.alpha(delegate.laneColor, 0.3)
+             : delegate.picked ? Qt.alpha(delegate.palette.highlight, 0.22)
              : delegate.hovered ? Qt.alpha(delegate.laneColor, 0.12)
              : delegate.index % 2 ? Styles.TokenInterface.semantics.background_stripe
              : delegate.palette.base
