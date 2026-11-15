@@ -19,9 +19,10 @@ MessageEditor {
     readonly property bool canCommit: titleAccepted && !untouchedTemplate && !repo.writing
                                       && (repo.staged.count > 0 || amend.checked)
 
-    function commit() {
+    // `skipHooks`: once, without the pre-commit and commit-msg hooks
+    function commit(skipHooks: bool) {
         if (canCommit)
-            repo.commit(message(), amend.checked, skipHooks.checked, amend.checked && resetAuthor.checked)
+            repo.commit(message(), amend.checked, skipHooks === true, amend.checked && resetAuthor.checked)
     }
     // commit.template, to fill in, while nothing else is written
     function loadTemplate() {
@@ -36,7 +37,6 @@ MessageEditor {
         function onCommitted() {
             box.clear()
             amend.checked = false
-            skipHooks.checked = false
             resetAuthor.checked = false
             box.loadTemplate()
         }
@@ -45,7 +45,6 @@ MessageEditor {
         function onPathChanged() {
             box.clear()
             amend.checked = false
-            skipHooks.checked = false
             resetAuthor.checked = false
         }
         function onCommitTemplateChanged() {
@@ -56,7 +55,7 @@ MessageEditor {
     Shortcut {
         sequences: ["Ctrl+Return", "Ctrl+Enter"]
         enabled: box.editing
-        onActivated: box.commit()
+        onActivated: box.commit(false)
     }
 
     leadingItems: [
@@ -84,15 +83,6 @@ MessageEditor {
             ToolTip.visible: hovered
             ToolTip.delay: 500
             ToolTip.text: qsTr("Make the amended commit yours, dated now (--reset-author)")
-        },
-        CheckBox {
-            id: skipHooks
-            styles: [Styles.ToggleStyle.small]
-            objectName: "skipHooksBox"
-            text: qsTr("Skip Hooks")
-            ToolTip.visible: hovered
-            ToolTip.delay: 500
-            ToolTip.text: qsTr("Commit without running the pre-commit and commit-msg hooks (--no-verify), once")
         }
     ]
     trailingItems: [
@@ -102,7 +92,31 @@ MessageEditor {
             text: amend.checked ? qsTr("Amend") : qsTr("Commit")
             highlighted: true
             enabled: box.canCommit
-            onClicked: box.commit()
+            onClicked: box.commit(false)
+        },
+        IconButton {
+            id: commitOptions
+            objectName: "commitOptionsButton"
+            styles: [Styles.ButtonStyle.medium]
+            iconName: "chevron-down"
+            enabled: box.canCommit
+            // Upwards: the form is at the bottom of the window
+            onClicked: commitMenu.popup(commitOptions, commitOptions.width - commitMenu.implicitWidth,
+                                        -commitMenu.implicitHeight)
+            ToolTip.visible: hovered && !commitMenu.opened
+            ToolTip.delay: 500
+            ToolTip.text: qsTr("Commit without the hooks")
+
+            Menu {
+                id: commitMenu
+
+                MenuItem {
+                    objectName: "commitWithoutHooksItem"
+                    text: amend.checked ? qsTr("Amend Without the Hooks (--no-verify)")
+                                        : qsTr("Commit Without the Hooks (--no-verify)")
+                    onTriggered: box.commit(true)
+                }
+            }
         }
     ]
 }

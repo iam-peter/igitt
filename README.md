@@ -260,8 +260,8 @@ width (72), whether the body is wrapped on commit (bullets keep a hanging
 indent; indented code and long URLs are left alone), and the trailer keys
 the form offers. Amend splits the existing message back into the form,
 trailers like Change-Id included, and As Me makes the amended commit the
-user's, dated now (`--reset-author`). Skip Hooks commits once without the
-pre-commit and commit-msg hooks (`--no-verify`). With `commit.template`
+user's, dated now (`--reset-author`). The arrow next to Commit commits
+once without the pre-commit and commit-msg hooks (`--no-verify`). With `commit.template`
 set, an empty form starts from the template, its comments left out, and
 does not commit it unchanged.
 

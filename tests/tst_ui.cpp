@@ -1288,6 +1288,22 @@ private slots:
         QVERIFY(window->findChild<QQuickItem *>(u"resetAuthorBox"_s)->isVisible());
         clickItem(window, window->findChild<QQuickItem *>(u"amendBox"_s));
         QTRY_COMPARE(title->property("text").toString(), u"Area:"_s);
+
+        // Past a hook that refuses, once, from the arrow beside Commit
+#ifndef Q_OS_WIN
+        QDir(dir.path()).mkpath(u".git/hooks"_s);
+        QFile hook(dir.filePath(u".git/hooks/pre-commit"_s));
+        QVERIFY(hook.open(QIODevice::WriteOnly));
+        hook.write("#!/bin/sh\nexit 1\n");
+        hook.close();
+        hook.setPermissions(hook.permissions() | QFile::ExeOwner);
+        title->setProperty("text", u"Area: keep the template"_s);
+        QTRY_VERIFY(window->findChild<QQuickItem *>(u"commitOptionsButton"_s)->isEnabled());
+        click(window, u"commitOptionsButton"_s);
+        click(window, u"commitWithoutHooksItem"_s);
+        QVERIFY(settle(*repo));
+        QCOMPARE(git.run({u"log"_s, u"-1"_s, u"--format=%s"_s}).out, "Area: keep the template\n"_ba);
+#endif
     }
 
     // Commits marked with Ctrl+click picked together, oldest first; a
