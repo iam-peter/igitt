@@ -113,7 +113,9 @@ and optional case-sensitive or regular-expression matching; Enter and
 Shift+Enter jump between matches. `code:` searches the changes instead:
 the commits that added or removed the text, as `git log -S` finds them,
 or with regular expressions those that changed a line matching it
-(`git log -G`). The scope selector limits the graph to
+(`git log -G`).
+
+![The History mode searching code:AskPass: the one commit that added it picked, its diff below](docs/screenshots/code-search.png) The scope selector limits the graph to
 the current branch. Beside the diff, the project's files can be filtered
 by name.
 
@@ -188,6 +190,8 @@ and ssh's askpass program (`GIT_ASKPASS`, `SSH_ASKPASS`). git remembers
 the answers only with a credential helper set up (`credential.helper`),
 ssh with an agent. The buttons are off while planning, and Pull and Push
 during a merge or rebase.
+
+<img src="docs/screenshots/credentials.png" width="560" alt="A dialog asking for the password of an HTTPS remote, the password hidden">
 
 ## Branches and tags
 
@@ -457,10 +461,14 @@ branch again, or the place the current branch is reset to; a dropped
 stash goes back among the stashes. git keeps them until `gc.reflogExpire`
 and `gc.pruneExpire` are over.
 
+![Recover Lost Work over the History mode: two commits of a deleted branch and a dropped stash](docs/screenshots/recover.png)
+
 igitt remembers the last twelve repositories it opened, under Open
 Recent. Started outside a repository, or with none to open, it shows a
 start page with them, besides Open, Clone and New Repository; a
 repository whose folder is gone stays listed until it is forgotten.
+
+<img src="docs/screenshots/start.png" width="640" alt="The start page: Open, Clone and New Repository, and four recent repositories">
 
 ## Bisecting
 

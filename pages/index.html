@@ -124,13 +124,15 @@
   <h2>What it does</h2>
   <ul class="features">
     <li>Explore, commit and rework in three modes: History, Changes and Compose.</li>
-    <li>Browse the history of every branch as a graph and search it.</li>
+    <li>Browse the history of every branch as a graph and search it, its messages or its code.</li>
     <li>Step through every revision of a file below the history, each line blamed and its commit picked in the graph, and see its whole history flow from revision to revision.</li>
-    <li>Stage and commit single lines, hunks or files; discard them, or stash them away.</li>
-    <li>Fetch, pull, merge and rebase; continue or abort what stops at conflicts.</li>
+    <li>Stage and commit single lines, hunks or files; discard them, stash them away, all or only what is staged, or ignore them.</li>
+    <li>Fetch, pull, merge and rebase, each the way you choose; continue or abort what stops at conflicts.</li>
+    <li>Answer what git and ssh ask, a password, a passphrase or a new host, in a dialog.</li>
+    <li>Get back what a deleted branch, a dropped stash or a reset too far left behind.</li>
     <li>Make, switch, rename and delete branches; make, push and delete tags.</li>
     <li>Cherry-pick, revert and reset to a commit, compare any two, and bisect for the one that broke something.</li>
-    <li>Clone or start a repository, and keep its remotes, worktrees and submodules; save and apply patches.</li>
+    <li>Clone or start a repository, or reopen a recent one, and keep its remotes, worktrees and submodules; save and apply patches; lock files in Git LFS.</li>
     <li>Drag changes onto a commit not pushed yet to fold them in, with a suggestion where they belong.</li>
     <li>Reword, move, squash and drop commits like <code>git rebase -i</code>, without touching the working tree.</li>
     <li>Compose several commits at once: drag changes, or single lines of them, into groups, fold them into commits not merged yet, or take them out again.</li>
@@ -182,6 +184,40 @@
       dragging along it scrolls the code too.</p>
     <img src="change-bar.png" width="840" height="876" loading="lazy"
          alt="Close-up of the code beside its change strip: green, orange and red marks down the whole file, and a frame around the lines in sight">
+  </div>
+
+  <h2>Searching and getting work back</h2>
+  <p>The search takes <code>code:</code> to find the commits that added or removed a
+    text, as <code>git log -S</code> does, or with regular expressions those that
+    changed a line matching it. It combines with <code>author:</code>,
+    <code>message:</code> and the other terms, and runs beside the rest, so the
+    window never waits for it.
+    <a href="https://github.com/iam-peter/igitt#history">More in the README</a>.</p>
+  <img class="shot" src="code-search.png" width="1400" height="900" loading="lazy"
+       alt="The History mode searching code:AskPass: the one commit that added it picked, its diff below">
+
+  <p>Recover Lost Work, in the repository menu, lists where HEAD was and the commits
+    nothing refers to any more: the tip of a branch deleted, a stash dropped, what a
+    reset left behind. Each shows in History, becomes a branch again, or the place the
+    branch is reset to; a dropped stash goes back among the stashes.
+    <a href="https://github.com/iam-peter/igitt#the-repository">More in the README</a>.</p>
+  <img class="shot" src="recover.png" width="1400" height="900" loading="lazy"
+       alt="Recover Lost Work over the History mode: two commits of a deleted branch and a dropped stash">
+
+  <div class="detail">
+    <p>When a remote wants a user name, a password or a key's passphrase, or ssh asks
+      whether to trust a new host, igitt asks in a dialog: it is git's and ssh's
+      askpass program. A credential helper or an agent remembers the answers.</p>
+    <img src="credentials.png" width="560" height="292" loading="lazy"
+         alt="A dialog asking for the password of an HTTPS remote, the password hidden">
+  </div>
+
+  <div class="detail">
+    <p>igitt remembers the repositories it opened. Started outside one, it shows them on
+      a start page, beside Open, Clone and New Repository; Open Recent in the
+      repository menu has them too.</p>
+    <img src="start.png" width="640" height="320" loading="lazy"
+         alt="The start page: Open, Clone and New Repository, and four recent repositories">
   </div>
 
   <h2>Themes</h2>
