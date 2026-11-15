@@ -15,6 +15,7 @@ Item {
     id: tools
 
     required property Repository repo
+    property font monoFont
 
     // From the lost work: for the window to act on
     signal showCommitRequested(string sha)
@@ -171,6 +172,31 @@ Item {
             icon.source: Icons.source("refresh-cw")
             icon.color: palette.windowText
             onTriggered: tools.repo.updateSubmodules()
+        }
+        Menu {
+            id: historyDepthMenu
+            objectName: "historyDepthMenu"
+            title: qsTr("Fetch More History")
+            enabled: tools.repo.valid && tools.repo.shallow && !tools.repo.planning
+
+            MenuItem {
+                objectName: "deepenItem"
+                text: qsTr("1000 More Commits")
+                onTriggered: tools.repo.fetchMoreHistory(1000)
+            }
+            MenuItem {
+                objectName: "unshallowItem"
+                text: qsTr("All of It")
+                onTriggered: tools.repo.fetchMoreHistory(0)
+            }
+        }
+        MenuItem {
+            objectName: "sparseItem"
+            text: tools.repo.planning ? qsTr("Sparse Checkout (off while planning)") : qsTr("Sparse Checkout…")
+            enabled: tools.repo.valid && !tools.repo.planning
+            icon.source: Icons.source("folder-tree")
+            icon.color: palette.windowText
+            onTriggered: sparseDialog.open()
         }
         MenuItem {
             objectName: "recoverItem"
@@ -428,7 +454,8 @@ Item {
             allowOk()
             cloneUrl.forceActiveFocus()
         }
-        onAccepted: tools.repo.cloneRepository(cloneUrl.text.trim(), cloneParent.text)
+        onAccepted: tools.repo.cloneRepository(cloneUrl.text.trim(), cloneParent.text,
+                                               cloneShallow.checked ? cloneDepth.value : 0, cloneBlobless.checked)
         Component.onCompleted: {
             standardButton(Dialog.Ok).objectName = "cloneOkButton"
             standardButton(Dialog.Ok).text = qsTr("Clone")
@@ -463,6 +490,90 @@ Item {
                 text: qsTr("Into %1").arg(cloneDialog.target)
                 elide: Text.ElideMiddle
                 color: Styles.TokenInterface.semantics.text_muted
+            }
+            // For a big repository: less history, or file contents later
+            RowLayout {
+                CheckBox {
+                    id: cloneShallow
+                    objectName: "cloneShallow"
+                    text: qsTr("Only the last")
+                }
+                SpinBox {
+                    id: cloneDepth
+                    objectName: "cloneDepth"
+                    enabled: cloneShallow.checked
+                    from: 1
+                    to: 100000
+                    value: 100
+                    editable: true
+                }
+                Label {
+                    text: qsTr("commits (--depth)")
+                }
+            }
+            CheckBox {
+                id: cloneBlobless
+                objectName: "cloneBlobless"
+                text: qsTr("File contents only when needed (--filter=blob:none)")
+            }
+        }
+    }
+
+    // Sparse checkout: only some folders in the working tree, one a line,
+    // the files at the top always
+    ModalDialog {
+        id: sparseDialog
+
+        objectName: "sparseDialog"
+        parent: Overlay.overlay
+        width: Math.min(520, (parent ? parent.width : 560) - 40)
+        title: qsTr("Sparse Checkout")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onOpened: {
+            sparseFolders.text = ""
+            tools.repo.loadSparseFolders()
+        }
+        onAccepted: tools.repo.setSparseFolders(sparseFolders.text.split("\n"))
+        Component.onCompleted: {
+            standardButton(Dialog.Ok).objectName = "sparseOkButton"
+            standardButton(Dialog.Ok).text = qsTr("Check Out These")
+        }
+
+        Connections {
+            target: tools.repo
+            function onSparseFoldersLoaded(folders: var) {
+                sparseFolders.text = folders.join("\n")
+            }
+        }
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 8
+
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: qsTr("Only these folders are checked out, besides the files at the top; the rest of "
+                           + "the repository stays in git, out of the working tree.")
+            }
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 160
+                TextArea {
+                    id: sparseFolders
+                    objectName: "sparseFolders"
+                    placeholderText: qsTr("src/app\ndocs")
+                    font: tools.monoFont
+                }
+            }
+            Button {
+                objectName: "sparseDisableButton"
+                visible: tools.repo.sparse
+                text: qsTr("Check Out Everything Again")
+                onClicked: {
+                    tools.repo.disableSparseCheckout()
+                    sparseDialog.close()
+                }
             }
         }
     }

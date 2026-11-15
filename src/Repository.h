@@ -58,6 +58,10 @@ class Repository : public QObject
     // there to fetch them and to lock
     Q_PROPERTY(bool usesLfs READ usesLfs NOTIFY lfsChanged)
     Q_PROPERTY(bool lfsInstalled READ lfsInstalled NOTIFY lfsChanged)
+    // A shallow clone, with only part of the history; a sparse checkout,
+    // with only some folders in the working tree
+    Q_PROPERTY(bool shallow READ shallow NOTIFY lfsChanged)
+    Q_PROPERTY(bool sparse READ sparse NOTIFY lfsChanged)
     // While git bisect looks for the commit that broke something
     Q_PROPERTY(bool bisecting READ bisecting NOTIFY headChanged)
     Q_PROPERTY(QString headSha READ headSha NOTIFY headChanged)
@@ -178,6 +182,8 @@ public:
     bool hasSubmodules() const;
     bool usesLfs() const { return m_usesLfs; }
     bool lfsInstalled() const { return m_lfsInstalled; }
+    bool shallow() const { return m_shallow; }
+    bool sparse() const { return m_sparse; }
     bool bisecting() const;
     QString headSha() const { return m_status.headSha; }
     QString headMessage() const { return m_headMessage; }
@@ -401,7 +407,19 @@ public:
 
     // A repository to work in: cloned from `url` into a folder of its name
     // in `parent`, or a new one made in `folder`; opened once it is there.
-    Q_INVOKABLE void cloneRepository(const QString &url, const QString &parent);
+    // For a big one: `depth` > 0 only the last that many commits (a
+    // shallow clone), `blobless` file contents fetched when needed
+    // (--filter=blob:none).
+    Q_INVOKABLE void cloneRepository(const QString &url, const QString &parent, int depth = 0, bool blobless = false);
+    // A shallow clone: more of the history, `commits` more, or all of it
+    // with 0
+    Q_INVOKABLE void fetchMoreHistory(int commits);
+    // Sparse checkout (cone mode): only these folders in the working tree,
+    // besides the files at the top; or all of it again
+    Q_INVOKABLE void setSparseFolders(const QStringList &folders);
+    Q_INVOKABLE void disableSparseCheckout();
+    // sparseFoldersLoaded() with the folders a sparse checkout has now
+    Q_INVOKABLE void loadSparseFolders();
     Q_INVOKABLE void initRepository(const QString &folder);
     // The folder a clone of `url` goes into: its last part, without .git
     Q_INVOKABLE QString cloneFolderName(const QString &url) const;
@@ -525,6 +543,7 @@ signals:
     void lfsChanged();
     void commitTemplateChanged();
     void autoFetchMinutesChanged();
+    void sparseFoldersLoaded(const QStringList &folders);
     void errorOccurred(const QString &message);
     // `links` are URLs the remote printed, such as Gerrit's changes.
     void notice(const QString &message, const QStringList &links);
@@ -568,6 +587,8 @@ private:
         std::optional<std::pair<QStringList, bool>> cleanPreview;
         std::optional<std::pair<bool, bool>> lfs; // used, installed
         std::optional<QString> commitTemplate;
+        std::optional<std::pair<bool, bool>> layout; // shallow, sparse
+        std::optional<QStringList> sparseFolders;
         std::shared_ptr<FileTreeNode> fileTree;
         QString notice;
         QStringList links;
@@ -629,6 +650,8 @@ private:
     bool m_usesLfs = false;
     bool m_lfsInstalled = false;
     QString m_commitTemplate;
+    bool m_shallow = false;
+    bool m_sparse = false;
     // What the repository is set up with: Git LFS, commit.template
     void checkSetup();
     void searchCode(const QStringList &texts, bool caseSensitive, bool regex);

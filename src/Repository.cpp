@@ -169,6 +169,12 @@ void Repository::finish(JobKind kind, Outcome outcome)
             emit messageLoaded(outcome.message->first, outcome.message->second);
         if (outcome.lostWork)
             emit lostWorkFound(*outcome.lostWork);
+        if (outcome.sparseFolders)
+            emit sparseFoldersLoaded(*outcome.sparseFolders);
+        if (outcome.layout) {
+            m_shallow = outcome.layout->first;
+            m_sparse = outcome.layout->second;
+        }
         if (outcome.cleanPreview)
             emit cleanPreviewed(outcome.cleanPreview->first, outcome.cleanPreview->second);
         if (outcome.lfs) {
@@ -1727,14 +1733,20 @@ QString Repository::cloneFolderName(const QString &url) const
     return name;
 }
 
-void Repository::cloneRepository(const QString &url, const QString &parent)
+void Repository::cloneRepository(const QString &url, const QString &parent, int depth, bool blobless)
 {
     const QString folder = QDir(parent).filePath(cloneFolderName(url));
     if (m_plan)
         endPlan();
-    enqueue(JobKind::Write, [url, folder, parent, history = freshHistoryRequest()](const GitRunner &) {
+    QStringList args{QStringLiteral("clone")};
+    if (depth > 0)
+        args << QStringLiteral("--depth=%1").arg(depth);
+    if (blobless)
+        args << QStringLiteral("--filter=blob:none");
+    args << QStringLiteral("--") << url << folder;
+    enqueue(JobKind::Write, [url, folder, parent, args, history = freshHistoryRequest()](const GitRunner &) {
         Outcome outcome;
-        const GitResult result = GitRunner(parent).run({QStringLiteral("clone"), url, folder});
+        const GitResult result = GitRunner(parent).run(args);
         if (!result.ok()) {
             outcome.error = tr("Cloning %1 failed: %2").arg(url, explainNetworkFailure(result.errorText().trimmed()));
             return outcome;
@@ -1749,6 +1761,55 @@ void Repository::cloneRepository(const QString &url, const QString &parent)
             {QStringLiteral("rev-parse"), QStringLiteral("--absolute-git-dir")}).out).trimmed();
         outcome.notice = tr("Cloned %1 into %2.").arg(url, outcome.openedPath);
         outcome.state = loadState(sourceFor(GitRunner(outcome.openedPath), nullptr), {}, history);
+        return outcome;
+    });
+}
+
+void Repository::fetchMoreHistory(int commits)
+{
+    if (!m_shallow)
+        return;
+    const QStringList args{QStringLiteral("fetch"),
+                           commits > 0 ? QStringLiteral("--deepen=%1").arg(commits) : QStringLiteral("--unshallow")};
+    enqueueNetwork(args, commits > 0 ? tr("Fetched %n more commit(s) of the history.", "", commits)
+                                     : tr("Fetched all of the history."),
+                   tr("Fetching more history failed"));
+    checkSetup();
+}
+
+void Repository::setSparseFolders(const QStringList &folders)
+{
+    QStringList clean;
+    for (const QString &folder : folders) {
+        const QString trimmed = folder.trimmed();
+        if (!trimmed.isEmpty())
+            clean << trimmed;
+    }
+    enqueueGitWrite(QStringList{QStringLiteral("sparse-checkout"), QStringLiteral("set"), QStringLiteral("--cone"),
+                                QStringLiteral("--")} + clean,
+                    clean.isEmpty() ? tr("Only the files at the top are checked out now.")
+                                    : tr("Only %n folder(s) are checked out now, besides the files at the top.", "",
+                                         int(clean.size())),
+                    tr("Setting the sparse checkout failed"));
+    checkSetup();
+}
+
+void Repository::disableSparseCheckout()
+{
+    enqueueGitWrite({QStringLiteral("sparse-checkout"), QStringLiteral("disable")},
+                    tr("Every file is checked out again."), tr("Ending the sparse checkout failed"));
+    checkSetup();
+}
+
+void Repository::loadSparseFolders()
+{
+    if (!valid())
+        return;
+    enqueue(JobKind::Read, [](const GitRunner &git) {
+        Outcome outcome;
+        const GitResult result = git.run({QStringLiteral("sparse-checkout"), QStringLiteral("list")});
+        outcome.sparseFolders = result.ok() ? QString::fromUtf8(result.out).split(QLatin1Char('\n'), Qt::SkipEmptyParts)
+                                            : QStringList();
         return outcome;
     });
 }
@@ -2490,6 +2551,11 @@ void Repository::checkSetup()
                                                  in.readAll()).out);
         }
         outcome.commitTemplate = text;
+        const bool shallow = git.run({QStringLiteral("rev-parse"), QStringLiteral("--is-shallow-repository")})
+                                 .out.trimmed() == "true";
+        const bool sparse = git.run({QStringLiteral("config"), QStringLiteral("--type=bool"),
+                                     QStringLiteral("core.sparseCheckout")}).out.trimmed() == "true";
+        outcome.layout = std::pair{shallow, sparse};
         return outcome;
     });
 }

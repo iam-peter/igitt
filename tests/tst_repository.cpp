@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QLocale>
 #include <QSignalSpy>
+#include <QUrl>
 
 #include <QTemporaryDir>
 #include <QTest>
@@ -634,6 +635,50 @@ private slots:
         repo().clean({u"build/"_s}, true);
         QVERIFY(settle(repo()));
         QVERIFY(!QFile::exists(m_dir->filePath(u"build"_s)));
+    }
+
+    // A shallow clone, deepened to all of the history; a sparse checkout
+    // of one folder, and back
+    void handlesBigRepositories()
+    {
+        QDir(m_dir->path()).mkpath(u"sub"_s);
+        QDir(m_dir->path()).mkpath(u"other"_s);
+        writeFile(m_dir->filePath(u"sub/a.txt"_s), "a\n");
+        writeFile(m_dir->filePath(u"other/b.txt"_s), "b\n");
+        git({"add", "."});
+        git({"commit", "-q", "-m", "Folders"});
+
+        QTemporaryDir parent;
+        // Local paths ignore --depth; a file:// URL does not
+        repo().cloneRepository(QUrl::fromLocalFile(m_dir->path()).toString(), parent.path(), 1, true);
+        QVERIFY(settle(repo()));
+        QVERIFY2(m_errors->isEmpty(), qPrintable(m_errors->value(0).value(0).toString()));
+        QTRY_VERIFY(repo().shallow());
+        GitRunner clone(repo().path());
+        QCOMPARE(clone.run({u"rev-list"_s, u"--count"_s, u"HEAD"_s}).out.trimmed(), "1"_ba);
+        QCOMPARE(clone.run({u"config"_s, u"remote.origin.promisor"_s}).out.trimmed(), "true"_ba);
+
+        repo().fetchMoreHistory(0);
+        QVERIFY(settle(repo()));
+        QVERIFY(m_errors->isEmpty());
+        QTRY_VERIFY(!repo().shallow());
+        QCOMPARE(clone.run({u"rev-list"_s, u"--count"_s, u"HEAD"_s}).out.trimmed(), "3"_ba);
+
+        repo().setSparseFolders({u"sub"_s, u""_s});
+        QVERIFY(settle(repo()));
+        QVERIFY(m_errors->isEmpty());
+        QTRY_VERIFY(repo().sparse());
+        QVERIFY(QFile::exists(repo().path() + u"/sub/a.txt"_s));
+        QVERIFY(!QFile::exists(repo().path() + u"/other/b.txt"_s));
+        QVERIFY(QFile::exists(repo().path() + u"/f.txt"_s)); // the top's files stay
+        QSignalSpy folders(m_repo.get(), &Repository::sparseFoldersLoaded);
+        repo().loadSparseFolders();
+        QVERIFY(settle(repo()));
+        QCOMPARE(folders.takeFirst().first().toStringList(), QStringList{u"sub"_s});
+        repo().disableSparseCheckout();
+        QVERIFY(settle(repo()));
+        QTRY_VERIFY(!repo().sparse());
+        QVERIFY(QFile::exists(repo().path() + u"/other/b.txt"_s));
     }
 
     // In the background, once the last fetch is old enough, and quietly

@@ -480,6 +480,13 @@ any; and applying a patch, as a commit when `git format-patch` wrote it
 (undone whole if it does not apply), else to the working tree. Removing
 a remote or a worktree asks first.
 
+For a big repository, a clone can take only the last commits
+(`--depth`) and leave the file contents to when they are needed
+(`--filter=blob:none`); Fetch More History in the same menu deepens a
+shallow clone by 1000 commits or to all of it. Sparse Checkout keeps
+only the folders listed in the working tree, with the files at the top
+(`git sparse-checkout set --cone`), or all of it again.
+
 **Recover Lost Work** lists where HEAD was, from its reflog, and the
 commits nothing refers to any more: the tip of a branch deleted, a
 stash dropped, what a reset or an amend left behind. By default only

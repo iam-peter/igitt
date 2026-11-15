@@ -1410,6 +1410,7 @@ ApplicationWindow {
     RepositoryTools {
         id: tools
         repo: repo
+        monoFont: root.monoFont
         onShowCommitRequested: sha => {
             root.closeFileHistory()
             root.showCommitInHistory(sha)
