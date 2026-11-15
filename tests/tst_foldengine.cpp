@@ -222,6 +222,26 @@ private slots:
         QCOMPARE(rev("HEAD"), head);
     }
 
+    // commit-tree does not sign by itself; a fold must, for those who sign
+    void signsWhatItRewrites()
+    {
+#ifdef Q_OS_WIN
+        QSKIP("A shell script as gpg.program");
+#endif
+        const QString gpg = m_dir->filePath(u"fake-gpg.sh"_s);
+        write(u"fake-gpg.sh"_s, "#!/bin/sh\ncat >/dev/null\necho '[GNUPG:] SIG_CREATED ' >&2\n"
+                                "printf -- '-----BEGIN PGP SIGNATURE-----\\nfake\\n-----END PGP SIGNATURE-----\\n'\n");
+        QFile::setPermissions(gpg, QFile::permissions(gpg) | QFile::ExeOwner);
+        git({"config", "gpg.program", gpg});
+        git({"config", "commit.gpgSign", "true"});
+        write("app.txt", lines({{2, "two, fixed"}, {9, "nine, revised"}}));
+        FoldEngine engine(m_git);
+        const FoldResult result = engine.fold(rev("HEAD~2"), unstagedPatch({"2", "two, fixed"}), FoldBase::Index);
+        QVERIFY2(result.ok, qPrintable(result.error));
+        for (const char *commit : {"HEAD", "HEAD~1", "HEAD~2"})
+            QVERIFY2(git({"cat-file", "commit", commit}).contains("gpgsig "), commit);
+    }
+
 private:
     static QByteArray lines(const QHash<int, QByteArray> &changes)
     {

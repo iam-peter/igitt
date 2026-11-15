@@ -456,6 +456,7 @@ bool PlanSession::simulateCommit(PlanEntry &entry, QString &error, const QString
     QStringList args{QStringLiteral("commit-tree"), tree};
     for (const QString &parent : std::as_const(parents))
         args << QStringLiteral("-p") << parent;
+    args << signingArgs(m_git);
     const GitResult created = run(entry, args, message, author);
     if (!created.ok()) {
         error = created.errorText();

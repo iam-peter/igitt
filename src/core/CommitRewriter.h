@@ -7,6 +7,12 @@
 #include <QString>
 #include <QStringList>
 
+#include <optional>
+
+// `-S` when the user signs their commits (commit.gpgSign): commit-tree,
+// unlike commit, rebase and cherry-pick, does not look at that setting.
+QStringList signingArgs(const GitRunner &git);
+
 // The object-level steps FoldEngine and HistoryEditor rewrite history
 // with: read a commit, merge trees with merge-tree, write a commit with
 // commit-tree. None of them touch the index, the working tree or a ref.
@@ -50,4 +56,5 @@ public:
 
 private:
     const GitRunner &m_git;
+    mutable std::optional<QStringList> m_signing; // signingArgs(), once asked
 };

@@ -17,6 +17,13 @@ bool isObjectId(const QString &s)
 
 } // namespace
 
+QStringList signingArgs(const GitRunner &git)
+{
+    const GitResult r = git.run({QStringLiteral("config"), QStringLiteral("--type=bool"),
+                                 QStringLiteral("commit.gpgSign")});
+    return r.ok() && r.out.trimmed() == "true" ? QStringList{QStringLiteral("-S")} : QStringList();
+}
+
 QString CommitRewriter::Commit::subject() const
 {
     return QString::fromUtf8(message.left(message.indexOf('\n'))).trimmed();
@@ -79,6 +86,9 @@ QString CommitRewriter::commitTree(const QString &tree, const QStringList &paren
     args << QStringLiteral("commit-tree") << tree;
     for (const QString &parent : parents)
         args << QStringLiteral("-p") << parent;
+    if (!m_signing)
+        m_signing = signingArgs(m_git);
+    args << *m_signing;
 
     QProcessEnvironment env;
     env.insert(QStringLiteral("GIT_AUTHOR_NAME"), QString::fromUtf8(meta.authorName));
