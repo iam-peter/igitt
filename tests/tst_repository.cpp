@@ -416,6 +416,46 @@ private slots:
         QVERIFY(settle(repo()));
     }
 
+    // code: finds the commits that added or removed a text
+    void searchesCode()
+    {
+        writeFile(file(), "one\ntwo\nTHREE\nfour\nfive\n");
+        git({"commit", "-q", "-am", "Shout"});
+        open(m_dir->path());
+        CommitModel *commits = repo().commits();
+        const auto subjects = [commits] {
+            QStringList found;
+            for (int row = 0; row < commits->count(); ++row) {
+                if (commits->matches(row))
+                    found << commits->subjectAt(row);
+            }
+            return found;
+        };
+        const auto search = [commits](const QString &query, bool caseSensitive, bool regex) {
+            commits->setSearch(query, caseSensitive, regex);
+            return QTest::qWaitFor([commits] { return !commits->searchingCode(); }, 10000);
+        };
+        QVERIFY(search(u"code:three"_s, true, false));
+        QCOMPARE(subjects(), (QStringList{u"Shout"_s, u"First"_s}));
+        QVERIFY(search(u"code:THREE"_s, true, false));
+        QCOMPARE(subjects(), QStringList{u"Shout"_s});
+        // Ignoring case, "three" is in the file as often after Shout as before
+        QVERIFY(search(u"code:three"_s, false, false));
+        QCOMPARE(subjects(), QStringList{u"First"_s});
+        // -G: a changed line matches
+        QVERIFY(search(u"code:thr+ee"_s, false, true));
+        QCOMPARE(subjects(), (QStringList{u"Shout"_s, u"First"_s}));
+        // Together with the other terms
+        QVERIFY(search(u"code:three message:Shout"_s, true, false));
+        QCOMPARE(subjects(), QStringList{u"Shout"_s});
+        // Known after a refresh too
+        repo().refresh();
+        QVERIFY(settle(repo()));
+        QTRY_VERIFY(!commits->searchingCode());
+        QCOMPARE(subjects(), QStringList{u"Shout"_s});
+        commits->setSearch({});
+    }
+
     void searchesAndFiltersHistory()
     {
         git({"tag", "v1", "HEAD~1"});

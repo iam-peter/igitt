@@ -38,6 +38,8 @@ Repository::Repository(QObject *parent)
 {
     m_pool.setMaxThreadCount(1);
     m_reviewPool.setMaxThreadCount(1);
+    m_searchPool.setMaxThreadCount(1);
+    connect(&m_commits, &CommitModel::codeSearchRequested, this, &Repository::searchCode);
     m_reviewTimer.setSingleShot(true);
     m_reviewTimer.setInterval(400);
     connect(&m_reviewTimer, &QTimer::timeout, this, &Repository::queryReviewsNow);
@@ -57,6 +59,34 @@ Repository::~Repository()
     m_pool.waitForDone();
     m_reviewPool.clear();
     m_reviewPool.waitForDone();
+    m_searchPool.clear();
+    m_searchPool.waitForDone();
+}
+
+void Repository::searchCode(const QStringList &texts, bool caseSensitive, bool regex)
+{
+    if (!valid())
+        return;
+    // A search queued for an older one is of no use any more
+    m_searchPool.clear();
+    for (const QString &text : texts) {
+        m_searchPool.start([this, git = m_git, text, caseSensitive, regex] {
+            QStringList args{QStringLiteral("log"), QStringLiteral("--format=%H"), QStringLiteral("--all")};
+            if (!caseSensitive)
+                args << QStringLiteral("-i");
+            args << (regex ? QStringLiteral("-G") : QStringLiteral("-S")) + text;
+            const GitResult result = git.run(args);
+            QStringList shas;
+            for (const QByteArray &sha : result.out.split('\n')) {
+                if (!sha.isEmpty())
+                    shas.append(QString::fromLatin1(sha));
+            }
+            QMetaObject::invokeMethod(this, [this, workDir = git.workDir(), text, caseSensitive, regex, shas] {
+                if (workDir == m_git.workDir())
+                    m_commits.setCodeMatches(text, caseSensitive, regex, shas);
+            }, Qt::QueuedConnection);
+        });
+    }
 }
 
 void Repository::enqueue(JobKind kind, Job job)

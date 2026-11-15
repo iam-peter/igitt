@@ -406,7 +406,7 @@ Pane {
                     styles: [Styles.FieldStyle.medium]
                     objectName: "historySearch"
                     Layout.preferredWidth: 380
-                    placeholderText: qsTr("Search commits, e.g. \"fix crash\" author:ada sha:1a2b")
+                    placeholderText: qsTr("Search commits, e.g. \"fix crash\" author:ada code:parseLog")
                     selectByMouse: true
                     onTextChanged: view.updateSearch()
                     onAccepted: view.findMatch(true)
@@ -414,7 +414,8 @@ Pane {
                     ToolTip.visible: hovered && text === ""
                     ToolTip.delay: 800
                     ToolTip.text: qsTr("Terms must all match. author:, message: and sha: limit a term to "
-                                       + "that field; quotes keep a phrase together.")
+                                       + "that field; quotes keep a phrase together. code: finds the commits "
+                                       + "that added or removed a text, or changed a line matching it.")
                 }
                 IconButton {
                     styles: [Styles.ButtonStyle.medium]
@@ -437,6 +438,7 @@ Pane {
                 Label {
                     visible: view.repo.commits.searching
                     text: view.repo.commits.searchError !== "" ? view.repo.commits.searchError
+                        : view.repo.commits.searchingCode ? qsTr("Searching the code…")
                         : view.repo.commits.matchCount === 0 ? qsTr("No results")
                         : qsTr("%n match(es)", "", view.repo.commits.matchCount)
                     color: view.repo.commits.searchError !== "" ? Styles.TokenInterface.semantics.danger_default : view.palette.text

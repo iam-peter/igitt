@@ -72,6 +72,10 @@ void CommitModel::setCommits(const QList<CommitInfo> &commits, const QList<Graph
             labels.prepend(label(QStringLiteral("HEAD"), QStringLiteral("head"), true));
         m_refs.insert(it.key(), labels);
     }
+    // What git found was for the history before
+    m_codeMatches.clear();
+    m_codePending.clear();
+    requestCode();
     updateMatches();
     endResetModel();
     if (count() != oldCount)
@@ -251,6 +255,8 @@ void CommitModel::setSearch(const QString &query, bool caseSensitive, bool regex
             term.field = SearchTerm::Message;
         else if (field == QLatin1StringView("sha") || field == QLatin1StringView("commit"))
             term.field = SearchTerm::Sha;
+        else if (field == QLatin1StringView("code"))
+            term.field = SearchTerm::Code;
         else if (!field.isEmpty())
             term.text = m.captured(0); // not an operator, e.g. "fix:" in a message
         if (term.text.isEmpty())
@@ -265,6 +271,7 @@ void CommitModel::setSearch(const QString &query, bool caseSensitive, bool regex
         m_terms.append(term);
     }
 
+    requestCode();
     updateMatches();
     if (count() > 0)
         emit dataChanged(index(0), index(count() - 1), {MatchedRole});
@@ -282,9 +289,51 @@ bool CommitModel::termMatches(const SearchTerm &term, const CommitInfo &commit) 
     case SearchTerm::Author: return contains(commit.authorName) || contains(commit.authorEmail);
     case SearchTerm::Message: return contains(commit.subject);
     case SearchTerm::Sha: return shaMatches;
+    case SearchTerm::Code: return m_codeMatches.value(codeKey(term.text)).contains(commit.sha);
     case SearchTerm::Any: break;
     }
     return contains(commit.subject) || contains(commit.authorName) || contains(commit.authorEmail) || shaMatches;
+}
+
+namespace {
+
+QString codeKeyFor(const QString &text, bool caseSensitive, bool regex)
+{
+    return QString(QLatin1Char(caseSensitive ? 'c' : 'i')) + QLatin1Char(regex ? 'r' : 'f') + text;
+}
+
+} // namespace
+
+QString CommitModel::codeKey(const QString &text) const
+{
+    return codeKeyFor(text, m_caseSensitive, m_regex);
+}
+
+void CommitModel::requestCode()
+{
+    QStringList texts;
+    for (const SearchTerm &term : std::as_const(m_terms)) {
+        const QString key = codeKey(term.text);
+        if (term.field == SearchTerm::Code && !m_codeMatches.contains(key) && !m_codePending.contains(key)
+            && !texts.contains(term.text)) {
+            texts.append(term.text);
+            m_codePending.insert(key);
+        }
+    }
+    if (!texts.isEmpty() && m_searchError.isEmpty())
+        emit codeSearchRequested(texts, m_caseSensitive, m_regex);
+}
+
+void CommitModel::setCodeMatches(const QString &text, bool caseSensitive, bool regex, const QStringList &shas)
+{
+    const QString key = codeKeyFor(text, caseSensitive, regex);
+    if (!m_codePending.remove(key))
+        return; // asked for a history since replaced
+    m_codeMatches.insert(key, QSet<QString>(shas.cbegin(), shas.cend()));
+    updateMatches();
+    if (count() > 0)
+        emit dataChanged(index(0), index(count() - 1), {MatchedRole});
+    emit searchChanged();
 }
 
 void CommitModel::setFocus(const QStringList &shas)

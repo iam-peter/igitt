@@ -20,6 +20,8 @@ class CommitModel : public QAbstractListModel
     Q_PROPERTY(QString searchError READ searchError NOTIFY searchChanged)
     // Whether the history is narrowed to some commits (setFocus())
     Q_PROPERTY(bool focused READ focused NOTIFY searchChanged)
+    // While git looks for the commits a `code:` term asks for
+    Q_PROPERTY(bool searchingCode READ searchingCode NOTIFY searchChanged)
 
 public:
     enum Roles {
@@ -71,6 +73,9 @@ public:
     // Search terms separated by spaces must all match; quote a phrase to
     // keep it together. `author:`, `message:` and `sha:` restrict a term
     // to that field; a plain term matches any of them (SHAs by prefix).
+    // `code:` matches the commits that added or removed the text, as
+    // git log -S (-G with regular expressions) finds them: asked with
+    // codeSearchRequested(), answered with setCodeMatches().
     Q_INVOKABLE void setSearch(const QString &query, bool caseSensitive = false, bool regex = false);
     bool searching() const { return !m_terms.isEmpty() || !m_focus.isEmpty(); }
     // Only these commits match, together with the search: the history of
@@ -78,6 +83,9 @@ public:
     Q_INVOKABLE void setFocus(const QStringList &shas);
     bool focused() const { return !m_focus.isEmpty(); }
     int matchCount() const { return m_matchCount; }
+    bool searchingCode() const { return !m_codePending.isEmpty(); }
+    // The commits git found for a `code:` term searched as given
+    void setCodeMatches(const QString &text, bool caseSensitive, bool regex, const QStringList &shas);
     QString searchError() const { return m_searchError; }
     Q_INVOKABLE bool matches(int row) const;
     // The next match after `from` (before it if not `forward`), wrapping
@@ -93,11 +101,13 @@ public:
 signals:
     void countChanged();
     void searchChanged();
+    // `code:` terms whose commits are not known yet
+    void codeSearchRequested(const QStringList &texts, bool caseSensitive, bool regex);
 
 private:
     struct SearchTerm
     {
-        enum Field { Any, Author, Message, Sha };
+        enum Field { Any, Author, Message, Sha, Code };
         Field field = Any;
         QString text;
         QRegularExpression pattern; // when searching with regular expressions
@@ -106,6 +116,9 @@ private:
     QVariantList refLabels(const QList<RefInfo> &refs) const;
     bool termMatches(const SearchTerm &term, const CommitInfo &commit) const;
     void updateMatches();
+    QString codeKey(const QString &text) const;
+    // Asks for the `code:` terms' commits that are not known yet
+    void requestCode();
 
     QList<CommitInfo> m_commits;
     QList<GraphRow> m_graph;
@@ -124,4 +137,7 @@ private:
     QList<bool> m_matched;
     int m_matchCount = 0;
     QSet<QString> m_focus;
+    // Commits found for `code:` terms, by codeKey(); for the history shown
+    QHash<QString, QSet<QString>> m_codeMatches;
+    QSet<QString> m_codePending;
 };

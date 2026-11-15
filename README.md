@@ -110,7 +110,10 @@ menu or by right-clicking the header. Above it, an activity minimap shows
 commits over time, the rows on screen and the selection; click it to
 jump. The search takes `author:`, `message:` and `sha:`, quoted phrases,
 and optional case-sensitive or regular-expression matching; Enter and
-Shift+Enter jump between matches. The scope selector limits the graph to
+Shift+Enter jump between matches. `code:` searches the changes instead:
+the commits that added or removed the text, as `git log -S` finds them,
+or with regular expressions those that changed a line matching it
+(`git log -G`). The scope selector limits the graph to
 the current branch. Beside the diff, the project's files can be filtered
 by name.
 

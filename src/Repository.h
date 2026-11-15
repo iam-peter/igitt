@@ -546,6 +546,10 @@ private:
     // Asking the review host takes a network round trip or more; it gets a
     // thread of its own so it never holds up the git queue.
     QThreadPool m_reviewPool;
+    // `git log -S` reads every commit's changes, which can take a while;
+    // it gets a thread of its own too
+    QThreadPool m_searchPool;
+    void searchCode(const QStringList &texts, bool caseSensitive, bool regex);
     QTimer m_reviewTimer;
     int m_reviewGeneration = 0;
     ReviewQuery m_reviews;
