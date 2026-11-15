@@ -126,13 +126,15 @@
     <li>Explore, commit and rework in three modes: History, Changes and Compose.</li>
     <li>Browse the history of every branch as a graph and search it, its messages or its code.</li>
     <li>Step through every revision of a file below the history, each line blamed and its commit picked in the graph, and see its whole history flow from revision to revision.</li>
-    <li>Stage and commit single lines, hunks or files; discard them, stash them away, all or only what is staged, or ignore them.</li>
+    <li>Stage and commit single lines, hunks, files or several files at once; discard them, stash them away, all or only what is staged, or ignore them.</li>
     <li>Fetch, pull, merge and rebase, each the way you choose; continue or abort what stops at conflicts.</li>
     <li>Answer what git and ssh ask, a password, a passphrase or a new host, in a dialog.</li>
     <li>Get back what a deleted branch, a dropped stash or a reset too far left behind.</li>
-    <li>Make, switch, rename and delete branches; make, push and delete tags.</li>
-    <li>Cherry-pick, revert and reset to a commit, compare any two, and bisect for the one that broke something.</li>
-    <li>Clone or start a repository, or reopen a recent one, and keep its remotes, worktrees and submodules; save and apply patches; lock files in Git LFS.</li>
+    <li>Make, switch, rename and delete branches, push them anywhere and delete them on a remote; make, push and delete tags.</li>
+    <li>Cherry-pick one commit or several, revert and reset, move commits onto another base, check out any commit, compare any two, and bisect for the one that broke something.</li>
+    <li>See who signed a commit and whether the signature checks.</li>
+    <li>Open a change in your own diff or merge tool.</li>
+    <li>Clone or start a repository, shallow or without the file contents for a big one, or reopen a recent one; keep its remotes, worktrees, submodules and a sparse checkout; save and apply patches; lock files in Git LFS.</li>
     <li>Drag changes onto a commit not pushed yet to fold them in, with a suggestion where they belong.</li>
     <li>Reword, move, squash and drop commits like <code>git rebase -i</code>, without touching the working tree.</li>
     <li>Compose several commits at once: drag changes, or single lines of them, into groups, fold them into commits not merged yet, or take them out again.</li>
@@ -218,6 +220,39 @@
       repository menu has them too.</p>
     <img src="start.png" width="640" height="320" loading="lazy"
          alt="The start page: Open, Clone and New Repository, and four recent repositories">
+  </div>
+
+  <h2>Signatures, more at once, bigger repositories</h2>
+  <p>A signed commit has a shield before its subject: green when the signature checks,
+    red when it is bad or the key is revoked, gray when this computer cannot tell; the
+    tooltip names the signer. Only the rows on screen are checked, so gpg never runs
+    through the whole history.
+    <a href="https://github.com/iam-peter/igitt#history">More in the README</a>.</p>
+  <img class="shot" src="signed.png" width="1400" height="322" loading="lazy"
+       alt="The history with the four newest commits signed, each with a green shield, and the tooltip of one naming its signer as verified">
+
+  <div class="detail">
+    <p>Ctrl+click and Shift+click pick several files in a change list, and their menu
+      stages, discards or stashes them together. In History, Ctrl+click marks several
+      commits to cherry-pick at once, oldest first; and Move onto This moves a branch's
+      later commits onto another base, as <code>git rebase --onto</code> does.</p>
+    <img src="several-files.png" width="760" height="320" loading="lazy"
+         alt="Three files picked in the unstaged changes, their menu open: Stage 3 Files, Discard the Changes to 3 Files, Stash 3 Files">
+  </div>
+
+  <div class="detail">
+    <p>The commit form starts from <code>commit.template</code>; an amend can be made
+      yours, dated now; and the arrow next to Commit commits once without the hooks.</p>
+    <img src="commit-options.png" width="600" height="220" loading="lazy"
+         alt="The commit form amending, As Me ticked, and the menu of the arrow beside it: Amend Without the Hooks">
+  </div>
+
+  <div class="detail">
+    <p>A big repository clones with only its last commits, or without the file contents
+      until they are needed, deepens later, and keeps only the folders you list checked
+      out. igitt fetches in the background too, asking for nothing.</p>
+    <img src="clone-options.png" width="620" height="346" loading="lazy"
+         alt="The clone dialog: only the last 100 commits, and file contents only when needed">
   </div>
 
   <h2>Themes</h2>

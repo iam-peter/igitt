@@ -107,7 +107,9 @@ connected to HEAD; and a Changes column with the number of files and a
 bar of added and removed lines, loaded for the rows on screen. A signed
 commit has a shield before its subject, checked as `git log --show-signature`
 checks it: green when verified, red when bad or revoked, gray when this
-computer cannot tell; the tooltip names the signer. Columns
+computer cannot tell; the tooltip names the signer.
+
+![The history with the four newest commits signed, each with a green shield, and the tooltip of one naming its signer as verified](docs/screenshots/signed.png) Columns
 can be resized by dragging their header edge and picked from the View
 menu or by right-clicking the header. Above it, an activity minimap shows
 commits over time, the rows on screen and the selection; click it to
@@ -261,9 +263,11 @@ indent; indented code and long URLs are left alone), and the trailer keys
 the form offers. Amend splits the existing message back into the form,
 trailers like Change-Id included, and As Me makes the amended commit the
 user's, dated now (`--reset-author`). The arrow next to Commit commits
-once without the pre-commit and commit-msg hooks (`--no-verify`). With `commit.template`
-set, an empty form starts from the template, its comments left out, and
-does not commit it unchanged.
+once without the pre-commit and commit-msg hooks (`--no-verify`). With
+`commit.template` set, an empty form starts from the template, its
+comments left out, and does not commit it unchanged.
+
+<img src="docs/screenshots/commit-options.png" width="600" alt="The commit form amending, As Me ticked, and the menu of the arrow beside it: Amend Without the Hooks">
 
 ## Reading diffs
 
@@ -298,6 +302,8 @@ right-click a line for Stage Hunk and Stage Line. Double-click a file, or
 click its status badge, to stage or unstage all of it. Ctrl+click and
 Shift+click pick several files in a change list; their menu stages,
 unstages, discards or stashes them together.
+
+<img src="docs/screenshots/several-files.png" width="760" alt="Three files picked in the unstaged changes, their menu open: Stage 3 Files, Discard the Changes to 3 Files, Stash 3 Files">
 
 An untracked file's menu ignores it: the file alone, every file with its
 extension, its folder, or its name anywhere, or a pattern written by
@@ -493,6 +499,8 @@ For a big repository, a clone can take only the last commits
 shallow clone by 1000 commits or to all of it. Sparse Checkout keeps
 only the folders listed in the working tree, with the files at the top
 (`git sparse-checkout set --cone`), or all of it again.
+
+<img src="docs/screenshots/clone-options.png" width="620" alt="The clone dialog: only the last 100 commits, and file contents only when needed">
 
 **Recover Lost Work** lists where HEAD was, from its reflog, and the
 commits nothing refers to any more: the tip of a branch deleted, a

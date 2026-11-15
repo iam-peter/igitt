@@ -60,7 +60,7 @@ jobs:
       - name: Start page
         run: |
           mkdir site
-          cp pages/index.html src/logo/igitt.svg docs/screenshots/history.png docs/screenshots/compose.png docs/screenshots/fold-drag.png docs/screenshots/flow.png docs/screenshots/change-bar.png docs/screenshots/code-search.png docs/screenshots/recover.png docs/screenshots/credentials.png docs/screenshots/start.png docs/screenshots/theme-*.png site/
+          cp pages/index.html src/logo/igitt.svg docs/screenshots/history.png docs/screenshots/compose.png docs/screenshots/fold-drag.png docs/screenshots/flow.png docs/screenshots/change-bar.png docs/screenshots/code-search.png docs/screenshots/recover.png docs/screenshots/credentials.png docs/screenshots/start.png docs/screenshots/signed.png docs/screenshots/several-files.png docs/screenshots/commit-options.png docs/screenshots/clone-options.png docs/screenshots/theme-*.png site/
 
       - name: Repository
         env:
