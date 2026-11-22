@@ -377,8 +377,8 @@ private slots:
             // Scrolled off the top: contentY counts from originY, which a
             // ListView moves as it learns its rows' heights
             const auto scrolled = [&] {
-                return QString(u"contentY %1, originY %2, contentHeight %3, height %4, rows %5, "
-                               "click %6,%7 on %8x%9, current %10, hovered %11"_s)
+                return QString(u"contentY %1, originY %2, contentHeight %3, height %4, rows %5, click %6,%7 on %8x%9, "
+                               u"current %10, hovered %11")
                     .arg(lines->property("contentY").toReal()).arg(lines->property("originY").toReal())
                     .arg(lines->property("contentHeight").toReal()).arg(lines->height())
                     .arg(lapse->rowCount()).arg(x).arg(flow->height() - 24)
