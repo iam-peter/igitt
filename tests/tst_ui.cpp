@@ -371,8 +371,22 @@ private slots:
             QTRY_VERIFY(flow->property("viewEnd").toReal() > flow->property("viewStart").toReal());
             QCOMPARE(flow->property("viewStart").toReal(), 0.0);
             QVERIFY(QQuickTest::qWaitForPolish(lapseWindow));
+            // Showing the newest revision may have scrolled its node
+            QVERIFY(QMetaObject::invokeMethod(flow, "xOf", Q_RETURN_ARG(qreal, x), Q_ARG(int, lapse->revisionCount() - 1)));
             QTest::mouseClick(lapseWindow, Qt::LeftButton, {}, flow->mapToScene({x, flow->height() - 24}).toPoint());
-            QTRY_VERIFY(lines->property("contentY").toReal() > 0);
+            // Scrolled off the top: contentY counts from originY, which a
+            // ListView moves as it learns its rows' heights
+            const auto scrolled = [&] {
+                return QString(u"contentY %1, originY %2, contentHeight %3, height %4, rows %5, "
+                               "click %6,%7 on %8x%9, current %10, hovered %11"_s)
+                    .arg(lines->property("contentY").toReal()).arg(lines->property("originY").toReal())
+                    .arg(lines->property("contentHeight").toReal()).arg(lines->height())
+                    .arg(lapse->rowCount()).arg(x).arg(flow->height() - 24)
+                    .arg(flow->width()).arg(flow->height())
+                    .arg(flow->property("current").toInt()).arg(flow->property("hoveredRevision").toInt())
+                    .toUtf8();
+            };
+            QTRY_VERIFY2(lines->property("firstRow").toReal() > 0, scrolled().constData());
             QTRY_VERIFY(flow->property("viewStart").toReal() > 0);
             auto *minimap = findItem(lapseWindow->contentItem(), u"changeMinimap"_s);
             QVERIFY(minimap);
