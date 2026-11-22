@@ -139,6 +139,7 @@ void Repository::finish(JobKind kind, Outcome outcome)
         m_suggester = FoldSuggester();
         m_diff.clear();
         m_usesLfs = false;
+        m_openedReviews.clear();
         emit lfsChanged();
         emit pathChanged();
         emit diffChanged();
@@ -173,6 +174,10 @@ void Repository::finish(JobKind kind, Outcome outcome)
             emit lostWorkFound(*outcome.lostWork);
         if (outcome.sparseFolders)
             emit sparseFoldersLoaded(*outcome.sparseFolders);
+        if (outcome.openedChange) {
+            m_openedReviews.insert(outcome.openedChange->first, outcome.openedChange->second);
+            emit changeOpened(outcome.openedChange->first);
+        }
         if (outcome.layout) {
             m_shallow = outcome.layout->first;
             m_sparse = outcome.layout->second;
@@ -437,6 +442,35 @@ void Repository::showPatchSets(int base, int target)
             }
         }
         outcome.state.diff = loadDiff(sourceFor(git, plan), request, {});
+        return outcome;
+    });
+}
+
+void Repository::openChange(const QString &reference)
+{
+    if (!valid())
+        return;
+    if (m_pushTarget.host != ReviewHost::Gerrit || m_pushTarget.remote.isEmpty()) {
+        emit errorOccurred(tr("Changes open from Gerrit, and this repository pushes to none."));
+        return;
+    }
+    enqueue(JobKind::Read, [reference, remote = m_pushTarget.remote](const GitRunner &git) {
+        Outcome outcome;
+        const OpenedChange opened = queryGerritChange(git, remote, reference);
+        if (!opened.error.isEmpty()) {
+            outcome.error = opened.error;
+            return outcome;
+        }
+        if (!git.run({QStringLiteral("cat-file"), QStringLiteral("-e"), opened.revision + QStringLiteral("^{commit}")})
+                 .ok()) {
+            const NetworkResult fetched = fetchObjects(git, remote, opened.ref);
+            if (!fetched.ok) {
+                outcome.error = tr("Fetching %1 from %2 failed: %3").arg(opened.ref, remote, fetched.message);
+                return outcome;
+            }
+        }
+        outcome.notice = tr("Change %1, patch set %2.").arg(opened.review.number).arg(opened.review.patchSet);
+        outcome.openedChange = std::pair{opened.revision, opened.review};
         return outcome;
     });
 }
@@ -1411,7 +1445,10 @@ const ReviewInfo *Repository::shownReview() const
     if (m_diffSource != CommitDiff && m_diffSource != PatchSetDiff)
         return nullptr;
     const auto it = m_reviews.bySha.constFind(m_diffCommit);
-    return it != m_reviews.bySha.cend() && it->number > 0 ? &*it : nullptr;
+    if (it != m_reviews.bySha.cend() && it->number > 0)
+        return &*it;
+    const auto opened = m_openedReviews.constFind(m_diffCommit);
+    return opened != m_openedReviews.cend() ? &*opened : nullptr;
 }
 
 QVariantMap Repository::commitReview() const

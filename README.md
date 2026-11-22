@@ -187,6 +187,12 @@ patch sets on different parents differ by what the rebase brought in
 too; **Hide the rebase** leaves that out, comparing the older one as if
 it had been made on the newer one's parent.
 
+**Open a Gerrit Change**, in the repository menu, opens any change of
+the Gerrit pushed to by its number, its Change-Id or its URL, whether
+or not it is in the history here: its current patch set is fetched,
+without keeping a ref, and shown in History with its review and the
+same pickers.
+
 **Pull**, beside it, shows how far the upstream is ahead and runs `git
 pull`: it merges the upstream, or rebases onto it, as `pull.rebase`,
 `branch.<name>.rebase` and `pull.ff` say. The arrow next to it pulls

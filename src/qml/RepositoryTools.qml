@@ -199,6 +199,16 @@ Item {
             onTriggered: sparseDialog.open()
         }
         MenuItem {
+            objectName: "openChangeItem"
+            visible: tools.repo.reviewHost === "gerrit"
+            height: visible ? implicitHeight : 0
+            text: qsTr("Open a Gerrit Change…")
+            enabled: tools.repo.valid
+            icon.source: Icons.source("git-pull-request")
+            icon.color: palette.windowText
+            onTriggered: openChangeDialog.ask()
+        }
+        MenuItem {
             objectName: "recoverItem"
             text: qsTr("Recover Lost Work…")
             enabled: tools.repo.valid
@@ -515,6 +525,55 @@ Item {
                 id: cloneBlobless
                 objectName: "cloneBlobless"
                 text: qsTr("File contents only when needed (--filter=blob:none)")
+            }
+        }
+    }
+
+    // A Gerrit change by its number, Change-Id or URL, to review: shown in
+    // History with its patch sets, whether it is in the history or not
+    ModalDialog {
+        id: openChangeDialog
+
+        objectName: "openChangeDialog"
+
+        function ask() {
+            changeReference.text = ""
+            standardButton(Dialog.Ok).enabled = false
+            open()
+        }
+
+        parent: Overlay.overlay
+        width: Math.min(520, (parent ? parent.width : 560) - 40)
+        title: qsTr("Open a Gerrit Change")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onOpened: changeReference.forceActiveFocus()
+        onAccepted: tools.repo.openChange(changeReference.text)
+        Component.onCompleted: {
+            standardButton(Dialog.Ok).objectName = "openChangeOkButton"
+            standardButton(Dialog.Ok).text = qsTr("Open")
+        }
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 8
+
+            TextField {
+                id: changeReference
+                objectName: "changeReference"
+                Layout.fillWidth: true
+                placeholderText: qsTr("12345, its URL, or its Change-Id")
+                onTextChanged: openChangeDialog.standardButton(Dialog.Ok).enabled = text.trim() !== ""
+                onAccepted: {
+                    if (text.trim() !== "")
+                        openChangeDialog.accept()
+                }
+            }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                opacity: 0.7
+                text: qsTr("Its current patch set is fetched without keeping a ref, and shown in History with its "
+                           + "comments and patch sets to compare.")
             }
         }
     }

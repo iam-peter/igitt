@@ -805,6 +805,22 @@ private slots:
         QVERIFY(settle(*repo));
         QCOMPARE(repo->diffSource(), Repository::CommitDiff);
 
+        // A change opened by its URL, from the repository menu's dialog
+        repo->showCommit(repo->commits()->shaAt(1));
+        QVERIFY(settle(*repo));
+        QVERIFY(QMetaObject::invokeMethod(window, "setMode", Q_ARG(int, 1)));
+        auto *openChange = window->findChild<QObject *>(u"openChangeDialog"_s);
+        QMetaObject::invokeMethod(openChange, "ask");
+        QQuickItem *reference = nullptr;
+        QTRY_VERIFY((reference = window->findChild<QQuickItem *>(u"changeReference"_s)) && reference->isVisible());
+        QVERIFY(!window->findChild<QQuickItem *>(u"openChangeOkButton"_s)->isEnabled());
+        reference->setProperty("text", u"https://review.example/c/proj/+/1042"_s);
+        click(window, u"openChangeOkButton"_s);
+        QVERIFY(settle(*repo));
+        QTRY_COMPARE(window->property("mode").toInt(), 0);
+        QTRY_COMPARE(repo->diffCommit(), QString::fromLatin1(head));
+        QCOMPARE(repo->commitReview().value(u"number"_s).toInt(), 1042);
+
         qputenv("PATH", path);
         for (const QQmlError &w : std::as_const(warnings))
             qWarning().noquote() << w.toString();

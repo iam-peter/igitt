@@ -355,6 +355,21 @@ private slots:
         QVERIFY(m_repo->reviewTopic().isEmpty());
     }
 
+    // A change by its number, Change-Id or any of Gerrit's URLs for it
+    void readsChangeReferences()
+    {
+        QCOMPARE(gerritChangeTerm(u" 12345 "_s), u"12345"_s);
+        QCOMPARE(gerritChangeTerm(u"I0123456789abcdef0123456789abcdef01234567"_s),
+                 u"I0123456789abcdef0123456789abcdef01234567"_s);
+        QCOMPARE(gerritChangeTerm(u"https://review.example/c/qt/qtbase/+/12345"_s), u"12345"_s);
+        QCOMPARE(gerritChangeTerm(u"https://review.example/c/qt/qtbase/+/12345/3"_s), u"12345"_s);
+        QCOMPARE(gerritChangeTerm(u"https://review.example/c/qt/qtbase/+/12345/3/src/file.cpp"_s), u"12345"_s);
+        QCOMPARE(gerritChangeTerm(u"https://review.example/#/c/12345/"_s), u"12345"_s);
+        QCOMPARE(gerritChangeTerm(u"https://review.example/12345"_s), u"12345"_s);
+        QCOMPARE(gerritChangeTerm(u"fix the parser"_s), QString());
+        QCOMPARE(gerritChangeTerm(u"https://review.example/q/status:open"_s), QString());
+    }
+
     void asksGerritWhetherThereIsAnythingToPush()
     {
 #ifdef Q_OS_WIN
@@ -580,6 +595,42 @@ private slots:
         QVERIFY(settle());
         QVERIFY2(diffRows().value(0).contains("Fetching refs/changes/02/102/2 from origin failed"_L1),
                  qPrintable(diffRows().value(0)));
+
+        // Someone else's change, never here: opened by its URL, its patch
+        // set fetched, its review shown on it
+        m_other.run({"checkout", "-q", "--detach", "origin/main"});
+        commitIn(m_other, "theirs");
+        m_other.run({"push", "-q", "origin", "HEAD:refs/changes/03/103/1"});
+        const QString theirs = rev(m_other, u"HEAD"_s);
+        QVERIFY(!m_work.run({"cat-file", "-e", theirs}).ok());
+        {
+            QFile file(json);
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            file.write(QStringLiteral(
+                R"({"id":"I3333333333333333333333333333333333333333","number":103,)"
+                R"("url":"https://review.example/c/proj/+/103","status":"NEW",)"
+                R"("currentPatchSet":{"number":1,"revision":"%1","approvals":[],"comments":[]},)"
+                R"("patchSets":[{"number":1,"revision":"%1","ref":"refs/changes/03/103/1",)"
+                R"("uploader":{"name":"Someone"},"createdOn":1760100000,"kind":"REWORK","comments":[]}]})" "\n"
+                R"({"type":"stats","rowCount":1})" "\n").arg(theirs).toUtf8());
+        }
+        QSignalSpy opened(m_repo.get(), &Repository::changeOpened);
+        m_repo->openChange(u"https://review.example/c/proj/+/103/1"_s);
+        QVERIFY(settle());
+        QCOMPARE(opened.size(), 1);
+        QCOMPARE(opened.first().first().toString(), theirs);
+        QVERIFY(m_work.run({"cat-file", "-e", theirs}).ok());
+        QVERIFY(work({"for-each-ref", "refs/changes"}).isEmpty());
+        QFile askedChange(args);
+        QVERIFY(askedChange.open(QIODevice::ReadOnly));
+        QVERIFY(askedChange.readAll().contains("change:103"));
+        m_repo->showCommit(theirs);
+        QVERIFY(settle());
+        QCOMPARE(m_repo->commitReview().value(u"number"_s).toInt(), 103);
+        QCOMPARE(m_repo->commitReview().value(u"localPatchSet"_s).toInt(), 1);
+        m_repo->openChange(u"not a change"_s);
+        QVERIFY(settle());
+        QCOMPARE(opened.size(), 1);
 
         // Gerrit out of reach: leave pushing to the user.
         qputenv("FAKE_SSH_FAIL", "1");

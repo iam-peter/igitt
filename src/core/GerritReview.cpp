@@ -289,6 +289,98 @@ QHash<QString, GerritChange> parseGerritQuery(const QByteArray &output)
     return changes;
 }
 
+namespace {
+
+// What Gerrit has on `change`, for the commit `sha` that may be one of its
+// patch sets
+ReviewInfo reviewOf(const GerritChange &change, const QString &sha)
+{
+    ReviewInfo info;
+    info.number = change.number;
+    info.patchSet = change.patchSet;
+    info.url = change.url;
+    info.wip = change.wip;
+    info.topic = change.topic;
+    info.hashtags = change.hashtags;
+    info.votes = change.votes;
+    info.comments = change.comments;
+    info.messages = change.messages;
+    info.patchSets = change.patchSets;
+    for (const GerritPatchSet &set : std::as_const(info.patchSets)) {
+        if (set.revision == sha)
+            info.localPatchSet = set.number;
+    }
+    if (change.status == QLatin1StringView("MERGED") || change.status == QLatin1StringView("ABANDONED"))
+        info.state = ReviewInfo::Closed;
+    else
+        info.state = change.revision == sha ? ReviewInfo::UpToDate : ReviewInfo::Outdated;
+    return info;
+}
+
+} // namespace
+
+QString gerritChangeTerm(const QString &reference)
+{
+    const QString text = reference.trimmed();
+    static const QRegularExpression number(QStringLiteral("^\\d+$"));
+    static const QRegularExpression changeId(QStringLiteral("^I[0-9a-f]{40}$"));
+    if (number.match(text).hasMatch() || changeId.match(text).hasMatch())
+        return text;
+    // https://host/c/project/+/12345, https://host/#/c/12345/, https://host/12345
+    static const QRegularExpression path(QStringLiteral("(?:/\\+/|/c/|#/c/)(\\d+)(?:[/?#]|$)"));
+    static const QRegularExpression shortUrl(QStringLiteral("^https?://[^/]+/(\\d+)/?$"));
+    for (const QRegularExpression *pattern : {&path, &shortUrl}) {
+        const QRegularExpressionMatch m = pattern->match(text);
+        if (m.hasMatch())
+            return m.captured(1);
+    }
+    return {};
+}
+
+OpenedChange queryGerritChange(const GitRunner &git, const QString &remote, const QString &reference)
+{
+    OpenedChange opened;
+    const QString term = gerritChangeTerm(reference);
+    if (term.isEmpty()) {
+        opened.error = tr("%1 names no change: give its number, its Change-Id or its URL.").arg(reference.trimmed());
+        return opened;
+    }
+    const GerritRemote gerrit = parseGerritRemote(config(git, QStringLiteral("remote.%1.url").arg(remote)));
+    if (!gerrit.isValid()) {
+        opened.error = tr("Only Gerrit remotes reached over SSH can be asked about changes.");
+        return opened;
+    }
+    QStringList words{QStringLiteral("query"), QStringLiteral("--format=JSON"), QStringLiteral("--current-patch-set"),
+                      QStringLiteral("--patch-sets"), QStringLiteral("--comments"), QStringLiteral("change:") + term};
+    // A Change-Id lives on in cherry-picks to other projects
+    if (term.startsWith(QLatin1Char('I')))
+        words << QStringLiteral("project:") + gerrit.project;
+    QByteArray out;
+    if (!runGerrit(git, gerrit, words, &out, &opened.error))
+        return opened;
+    const QHash<QString, GerritChange> changes = parseGerritQuery(out);
+    if (changes.isEmpty()) {
+        opened.error = tr("Gerrit has no change %1.").arg(term);
+        return opened;
+    }
+    // The one asked for, should Gerrit say more
+    auto found = changes.cbegin();
+    for (auto it = changes.cbegin(); it != changes.cend(); ++it) {
+        if (QString::number(it->number) == term || it->changeId == term)
+            found = it;
+    }
+    const GerritChange &change = *found;
+    opened.revision = change.revision;
+    opened.review = reviewOf(change, change.revision);
+    if (const GerritPatchSet *current = opened.review.findPatchSet(change.patchSet); current && !current->ref.isEmpty())
+        opened.ref = current->ref;
+    else
+        opened.ref = patchSetRef(change.number, change.patchSet);
+    if (opened.revision.isEmpty())
+        opened.error = tr("Gerrit did not say which commit change %1 is.").arg(term);
+    return opened;
+}
+
 ReviewQuery queryGerritReviews(const GitRunner &git, const QString &remote, const QString &upstream,
                                const QString &branch)
 {
@@ -343,26 +435,7 @@ ReviewQuery queryGerritReviews(const GitRunner &git, const QString &remote, cons
         const auto change = changes.constFind(it.key());
         if (change == changes.cend())
             continue;
-        ReviewInfo info;
-        info.number = change->number;
-        info.patchSet = change->patchSet;
-        info.url = change->url;
-        info.wip = change->wip;
-        info.topic = change->topic;
-        info.hashtags = change->hashtags;
-        info.votes = change->votes;
-        info.comments = change->comments;
-        info.messages = change->messages;
-        info.patchSets = change->patchSets;
-        for (const GerritPatchSet &set : std::as_const(info.patchSets)) {
-            if (set.revision == it.value())
-                info.localPatchSet = set.number;
-        }
-        if (change->status == QLatin1StringView("MERGED") || change->status == QLatin1StringView("ABANDONED"))
-            info.state = ReviewInfo::Closed;
-        else
-            info.state = change->revision == it.value() ? ReviewInfo::UpToDate : ReviewInfo::Outdated;
-        query.bySha.insert(it.value(), info);
+        query.bySha.insert(it.value(), reviewOf(*change, it.value()));
     }
 
     // The JSON has no word on comment threads, but the search operator

@@ -56,6 +56,24 @@ QString reviewRefspecOptions(const ReviewOptions &options, QString *error);
 ReviewQuery queryGerritReviews(const GitRunner &git, const QString &remote, const QString &upstream,
                                const QString &branch);
 
+// What a Gerrit change is called by, as a query term: its number, from
+// "12345" or a URL such as https://review.example/c/project/+/12345/3, or
+// its Change-Id; empty for anything else
+QString gerritChangeTerm(const QString &reference);
+
+// One change the Gerrit behind `remote` has, named as gerritChangeTerm()
+// reads it, whether or not any commit here is one of its patch sets: its
+// review, as if its current patch set were the commit, with that
+// revision and its ref
+struct OpenedChange
+{
+    ReviewInfo review;
+    QString revision;
+    QString ref;
+    QString error;
+};
+OpenedChange queryGerritChange(const GitRunner &git, const QString &remote, const QString &reference);
+
 const ReviewProvider &gerritProvider();
 
 // "Trivial rebase" for TRIVIAL_REBASE and so on; unknown kinds as they are.

@@ -281,6 +281,11 @@ public:
     // parent; `target` a patch set, or 0 for the commit itself. Patch sets
     // uploaded from elsewhere are fetched first.
     Q_INVOKABLE void showPatchSets(int base, int target);
+    // Any change of the Gerrit pushed to, by its number, Change-Id or URL,
+    // whether or not it is in the history here: its current patch set is
+    // fetched, without a ref, and changeOpened() says which commit it is,
+    // whose review it then has
+    Q_INVOKABLE void openChange(const QString &reference);
     Q_INVOKABLE void showFile(const QString &path, bool staged);
     // Shows a file's content as it is in the working tree.
     Q_INVOKABLE void showFileContent(const QString &path);
@@ -568,6 +573,7 @@ signals:
     void cleanPreviewed(const QStringList &paths, bool ignored);
     void lfsChanged();
     void hideRebaseChanged();
+    void changeOpened(const QString &sha);
     void commitTemplateChanged();
     void autoFetchMinutesChanged();
     void sparseFoldersLoaded(const QStringList &folders);
@@ -616,6 +622,7 @@ private:
         std::optional<QString> commitTemplate;
         std::optional<std::pair<bool, bool>> layout; // shallow, sparse
         std::optional<QStringList> sparseFolders;
+        std::optional<std::pair<QString, ReviewInfo>> openedChange; // its commit, and the review
         std::shared_ptr<FileTreeNode> fileTree;
         QString notice;
         QStringList links;
@@ -739,6 +746,8 @@ private:
     bool m_diffRebased = false;
     bool m_rebaseHidden = false;
     bool m_hideRebase = false;
+    // Changes opened by openChange(), by their commit
+    QHash<QString, ReviewInfo> m_openedReviews;
     QString m_diffBase; // PatchSetDiff: the patch set's revision; CompareDiff: the other commit
     QString m_diffBaseName; // CompareDiff
     bool m_diffThreeDot = false; // CompareDiff

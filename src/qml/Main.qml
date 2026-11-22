@@ -264,6 +264,11 @@ ApplicationWindow {
                 root.mode = repo.hasWip ? Main.Mode.Changes : Main.Mode.History
             }
         }
+        // A Gerrit change opened by its number, shown with its review
+        function onChangeOpened(sha: string) {
+            root.closeFileHistory()
+            root.showCommitInHistory(sha)
+        }
         function onPathChanged() {
             if (repo.valid)
                 tools.remember(repo.path)
