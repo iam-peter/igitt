@@ -81,8 +81,15 @@ class Repository : public QObject
     // CompareDiff: what the commit is compared with
     Q_PROPERTY(QString diffBaseName READ diffBaseName NOTIFY diffChanged)
     Q_PROPERTY(QString commitDetails READ commitDetails NOTIFY diffChanged)
-    // PatchSetDiff: the patch set the commit on display is compared with.
+    // PatchSetDiff: the older side, a patch set, or 0 for the newer side's
+    // parent; and the newer side, a patch set, or 0 for the commit itself.
     Q_PROPERTY(int diffPatchSet READ diffPatchSet NOTIFY diffChanged)
+    Q_PROPERTY(int diffPatchTarget READ diffPatchTarget NOTIFY diffChanged)
+    // PatchSetDiff: the two patch sets are on different parents; and what
+    // the rebase brought in is left out (hideRebase), as asked
+    Q_PROPERTY(bool diffRebased READ diffRebased NOTIFY diffChanged)
+    Q_PROPERTY(bool rebaseHidden READ rebaseHidden NOTIFY diffChanged)
+    Q_PROPERTY(bool hideRebase READ hideRebase WRITE setHideRebase NOTIFY hideRebaseChanged)
     // What Gerrit has on the commit on display, if it is one of those a
     // push for review sends and Gerrit has a change for it; empty if not.
     // {number, url, patchSet, localPatchSet, unresolved,
@@ -200,6 +207,11 @@ public:
     QString diffCommit() const { return m_diffCommit; }
     QString commitDetails() const { return m_commitDetails; }
     int diffPatchSet() const { return m_diffSource == PatchSetDiff ? m_diffPatchSet : 0; }
+    int diffPatchTarget() const { return m_diffSource == PatchSetDiff ? m_patchTarget : 0; }
+    bool diffRebased() const { return m_diffSource == PatchSetDiff && m_diffRebased; }
+    bool rebaseHidden() const { return m_diffSource == PatchSetDiff && m_rebaseHidden; }
+    bool hideRebase() const { return m_hideRebase; }
+    void setHideRebase(bool hide);
     QString diffBaseName() const { return m_diffSource == CompareDiff ? m_diffBaseName : QString(); }
     QVariantMap commitReview() const;
     QVariantMap diffComments() const;
@@ -264,6 +276,11 @@ public:
     // Compares the commit on display with its change's patch set `number`,
     // fetching the patch set first if it is not here yet.
     Q_INVOKABLE void comparePatchSet(int number);
+    // Two sides of the commit on display's Gerrit change, as Gerrit's
+    // patch set pickers: `base` a patch set, or 0 for the other side's
+    // parent; `target` a patch set, or 0 for the commit itself. Patch sets
+    // uploaded from elsewhere are fetched first.
+    Q_INVOKABLE void showPatchSets(int base, int target);
     Q_INVOKABLE void showFile(const QString &path, bool staged);
     // Shows a file's content as it is in the working tree.
     Q_INVOKABLE void showFileContent(const QString &path);
@@ -550,6 +567,7 @@ signals:
     void lostWorkFound(const QVariantList &commits);
     void cleanPreviewed(const QStringList &paths, bool ignored);
     void lfsChanged();
+    void hideRebaseChanged();
     void commitTemplateChanged();
     void autoFetchMinutesChanged();
     void sparseFoldersLoaded(const QStringList &folders);
@@ -716,6 +734,11 @@ private:
     QString m_diffPath;
     QString m_diffCommit;
     int m_diffPatchSet = 0;
+    int m_patchTarget = 0;
+    QString m_diffTarget; // PatchSetDiff: the target patch set's revision, if not the commit
+    bool m_diffRebased = false;
+    bool m_rebaseHidden = false;
+    bool m_hideRebase = false;
     QString m_diffBase; // PatchSetDiff: the patch set's revision; CompareDiff: the other commit
     QString m_diffBaseName; // CompareDiff
     bool m_diffThreeDot = false; // CompareDiff

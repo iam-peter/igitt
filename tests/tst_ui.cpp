@@ -784,6 +784,23 @@ private slots:
         QVERIFY(repo->diff()->rowCount() > 0);
         QTest::qWait(50);
         screenshot(window, u"review-compare"_s);
+        // The pickers follow, and pick: patch set 1 against its parent
+        auto *basePicker = findItem(window->contentItem(), u"patchSetBase"_s);
+        auto *target = findItem(window->contentItem(), u"patchSetTarget"_s);
+        QTRY_COMPARE(basePicker->property("currentValue").toInt(), 1);
+        QCOMPARE(target->property("currentValue").toInt(), 0);
+        QCOMPARE(target->property("currentText").toString(), u"Patch set 2, this commit"_s);
+        QCOMPARE(basePicker->property("count").toInt(), 3); // Parent, 1, 2
+        basePicker->setProperty("currentIndex", 0);
+        target->setProperty("currentIndex", 0);
+        QMetaObject::invokeMethod(target, "activated", Q_ARG(int, 0));
+        QVERIFY(settle(*repo));
+        QCOMPARE(repo->diffSource(), Repository::PatchSetDiff);
+        QCOMPARE(repo->diffPatchSet(), 0);
+        QCOMPARE(repo->diffPatchTarget(), 1);
+        QVERIFY(!window->findChild<QQuickItem *>(u"hideRebaseBox"_s)->isVisible()); // one parent
+        QTest::qWait(50);
+        screenshot(window, u"review-pickers"_s);
         click(window, u"showCommitButton"_s);
         QVERIFY(settle(*repo));
         QCOMPARE(repo->diffSource(), Repository::CommitDiff);

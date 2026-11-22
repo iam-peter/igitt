@@ -177,6 +177,16 @@ the review branch can be set too. Gerrit's change links are shown after
 pushing. A rejected push offers a force-push that uses
 `--force-with-lease`, so it only replaces what was last fetched.
 
+A commit that has a Gerrit change shows it under its diff: the change's
+comments, messages and patch sets, each comment marked on its line too.
+Pickers above them compare any two sides as Gerrit's do: a patch set or
+the other side's parent, against a patch set or the commit itself, so
+patch set 3 can be read on its own or against patch set 2. Patch sets
+uploaded from elsewhere are fetched for it, without keeping a ref. Two
+patch sets on different parents differ by what the rebase brought in
+too; **Hide the rebase** leaves that out, comparing the older one as if
+it had been made on the newer one's parent.
+
 **Pull**, beside it, shows how far the upstream is ahead and runs `git
 pull`: it merges the upstream, or rebases onto it, as `pull.rebase`,
 `branch.<name>.rebase` and `pull.ff` say. The arrow next to it pulls

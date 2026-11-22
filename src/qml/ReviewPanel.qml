@@ -91,6 +91,90 @@ ColumnLayout {
         }
     }
 
+    // Which two of the change to compare, as Gerrit's pickers: the base,
+    // a patch set or the other side's parent; and a patch set or the
+    // commit itself
+    RowLayout {
+        id: pickers
+
+        readonly property var numbers: panel.hasReview
+                                       ? panel.review.patchSets.map(p => p.number).sort((a, b) => a - b) : []
+        readonly property int local: panel.hasReview ? panel.review.localPatchSet : 0
+        readonly property var bases: [{text: qsTr("Parent"), value: 0}].concat(
+                                         numbers.map(n => ({text: qsTr("Patch set %1").arg(n), value: n})))
+        readonly property var targets: numbers.map(n => ({
+                                           text: n === local ? qsTr("Patch set %1, this commit").arg(n)
+                                                             : qsTr("Patch set %1").arg(n),
+                                           value: n === local ? 0 : n}))
+                                       .concat(local === 0 ? [{text: qsTr("This commit"), value: 0}] : [])
+
+        // The pickers follow the diff on display, whatever showed it
+        function follow() {
+            const patchSets = panel.repo.diffSource === Repository.PatchSetDiff
+            basePicker.currentIndex = Math.max(0, basePicker.indexOfValue(patchSets ? panel.repo.diffPatchSet : 0))
+            targetPicker.currentIndex = Math.max(0, targetPicker.indexOfValue(patchSets ? panel.repo.diffPatchTarget : 0))
+        }
+
+        Layout.fillWidth: true
+        Layout.leftMargin: 8
+        Layout.rightMargin: 8
+        visible: panel.expanded && panel.hasReview && numbers.length > 0
+        spacing: 6
+
+        Connections {
+            target: panel.repo
+            function onDiffChanged() {
+                pickers.follow()
+            }
+            function onCommitReviewChanged() {
+                Qt.callLater(pickers.follow)
+            }
+        }
+
+        Caption {
+            text: qsTr("Base")
+        }
+        ComboBox {
+            id: basePicker
+            objectName: "patchSetBase"
+            styles: [Styles.FieldStyle.small]
+            textRole: "text"
+            valueRole: "value"
+            model: pickers.bases
+            onModelChanged: Qt.callLater(pickers.follow)
+            onActivated: panel.repo.showPatchSets(currentValue, targetPicker.currentValue)
+        }
+        Caption {
+            text: "→"
+        }
+        ComboBox {
+            id: targetPicker
+            objectName: "patchSetTarget"
+            styles: [Styles.FieldStyle.small]
+            Layout.preferredWidth: 200
+            textRole: "text"
+            valueRole: "value"
+            model: pickers.targets
+            onModelChanged: Qt.callLater(pickers.follow)
+            onActivated: panel.repo.showPatchSets(basePicker.currentValue, currentValue)
+        }
+        CheckBox {
+            objectName: "hideRebaseBox"
+            styles: [Styles.ToggleStyle.small]
+            visible: panel.repo.diffRebased || panel.repo.rebaseHidden
+            text: qsTr("Hide the rebase")
+            checked: panel.repo.hideRebase
+            onToggled: panel.repo.hideRebase = checked
+            ToolTip.visible: hovered
+            ToolTip.delay: 500
+            ToolTip.text: qsTr("The two are on different parents: show only what changed between them, as if the "
+                               + "older one had been on the newer one's parent")
+        }
+        Item {
+            Layout.fillWidth: true
+        }
+    }
+
     TabBar {
         id: tabs
 

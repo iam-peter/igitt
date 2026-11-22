@@ -269,6 +269,8 @@ void Repository::applyState(const RepositoryState &state)
         m_suggester = diff.suggester;
         m_commitDetails = diff.details;
         m_diffConflicted = diff.conflicted;
+        m_diffRebased = diff.rebased;
+        m_rebaseHidden = diff.rebaseHidden;
         if (!diff.message.isEmpty())
             m_diff.setMessage(diff.message);
         else if (diff.request.kind == DiffKind::Content)
@@ -380,28 +382,56 @@ void Repository::showCommit(const QString &sha)
 
 void Repository::comparePatchSet(int number)
 {
+    showPatchSets(number, 0);
+}
+
+void Repository::showPatchSets(int base, int target)
+{
     const ReviewInfo *review = shownReview();
-    const GerritPatchSet *patchSet = review ? review->findPatchSet(number) : nullptr;
-    if (!patchSet || patchSet->revision.isEmpty())
+    if (!review)
         return;
-    const QString revision = patchSet->revision;
-    const QString ref = patchSet->ref;
-    setDiffView(PatchSetDiff, {}, m_diffCommit, number);
-    m_diffBase = revision;
+    // The commit is that patch set
+    if (target == review->localPatchSet)
+        target = 0;
+    if (base == 0 && target == 0) {
+        showCommit(m_diffCommit);
+        return;
+    }
+    if (base > 0 && base == target)
+        return;
+    const GerritPatchSet *baseSet = base > 0 ? review->findPatchSet(base) : nullptr;
+    const GerritPatchSet *targetSet = target > 0 ? review->findPatchSet(target) : nullptr;
+    if ((base > 0 && (!baseSet || baseSet->revision.isEmpty()))
+        || (target > 0 && (!targetSet || targetSet->revision.isEmpty())))
+        return;
+    QStringList refs;
+    QStringList revisions;
+    for (const GerritPatchSet *set : {baseSet, targetSet}) {
+        if (set) {
+            refs << set->ref;
+            revisions << set->revision;
+        }
+    }
+    setDiffView(PatchSetDiff, {}, m_diffCommit, base);
+    m_patchTarget = target;
+    m_diffTarget = targetSet ? targetSet->revision : QString();
+    m_diffBase = baseSet ? baseSet->revision : (targetSet ? targetSet->revision : m_diffCommit) + QStringLiteral("^");
     enqueue(JobKind::Read, [request = diffRequest(), current = m_diffGeneration, plan = m_plan,
-                            remote = m_pushTarget.remote, ref](const GitRunner &git) {
+                            remote = m_pushTarget.remote, refs, revisions](const GitRunner &git) {
         Outcome outcome;
         if (request.generation != *current)
             return outcome;
         // Patch sets uploaded from elsewhere are not here yet. Fetched
         // without a ref to keep them, as only this comparison needs them.
-        if (!git.run({QStringLiteral("cat-file"), QStringLiteral("-e"), request.base + QStringLiteral("^{commit}")})
-                 .ok()) {
-            const NetworkResult fetched = fetchObjects(git, remote, ref);
+        for (qsizetype i = 0; i < refs.size(); ++i) {
+            if (git.run({QStringLiteral("cat-file"), QStringLiteral("-e"), revisions[i] + QStringLiteral("^{commit}")})
+                    .ok())
+                continue;
+            const NetworkResult fetched = fetchObjects(git, remote, refs[i]);
             if (!fetched.ok) {
                 DiffState diff;
                 diff.request = request;
-                diff.message = tr("Fetching %1 from %2 failed: %3").arg(ref, remote, fetched.message);
+                diff.message = tr("Fetching %1 from %2 failed: %3").arg(refs[i], remote, fetched.message);
                 outcome.state.diff = diff;
                 return outcome;
             }
@@ -409,6 +439,16 @@ void Repository::comparePatchSet(int number)
         outcome.state.diff = loadDiff(sourceFor(git, plan), request, {});
         return outcome;
     });
+}
+
+void Repository::setHideRebase(bool hide)
+{
+    if (hide == m_hideRebase)
+        return;
+    m_hideRebase = hide;
+    emit hideRebaseChanged();
+    if (m_diffSource == PatchSetDiff)
+        showPatchSets(m_diffPatchSet, m_patchTarget);
 }
 
 void Repository::showFile(const QString &path, bool staged)
@@ -1184,6 +1224,10 @@ void Repository::setDiffView(DiffSource source, const QString &path, const QStri
     m_diffPath = path;
     m_diffCommit = commit;
     m_diffPatchSet = patchSet;
+    m_patchTarget = 0;
+    m_diffTarget.clear();
+    m_diffRebased = false;
+    m_rebaseHidden = false;
     m_diffBase.clear();
     if (source != CommitDiff && source != PatchSetDiff && source != CompareDiff)
         m_commitDetails.clear();
@@ -1203,8 +1247,12 @@ DiffRequest Repository::diffRequest() const
     request.ignoreWhitespace = m_ignoreWhitespace;
     if (m_diffSource == PatchSetDiff) {
         request.base = m_diffBase;
-        request.baseName = tr("patch set %1").arg(m_diffPatchSet);
-        request.patchSet = true;
+        request.baseName = m_diffPatchSet > 0 ? tr("patch set %1").arg(m_diffPatchSet) : tr("its parent");
+        request.target = m_diffTarget;
+        request.targetName = m_patchTarget > 0 ? tr("patch set %1").arg(m_patchTarget) : QString();
+        // A parent is on no other parent: nothing to hide
+        request.patchSet = m_diffPatchSet > 0;
+        request.hideRebase = m_hideRebase;
     } else if (m_diffSource == CompareDiff) {
         request.base = m_diffBase;
         request.baseName = m_diffBaseName;
@@ -1226,7 +1274,7 @@ void Repository::reloadDiff()
         showCommit(commit);
         break;
     case PatchSetDiff:
-        comparePatchSet(m_diffPatchSet);
+        showPatchSets(m_diffPatchSet, m_patchTarget);
         break;
     case CompareDiff:
         compareCommits(m_diffBase, commit, m_diffBaseName, m_diffThreeDot);
@@ -1373,7 +1421,7 @@ QVariantMap Repository::commitReview() const
         return {};
     // The patch sets the diff on display shows, whose comments it marks.
     const int oldSide = diffPatchSet();
-    const int newSide = review->localPatchSet;
+    const int newSide = diffPatchTarget() > 0 ? diffPatchTarget() : review->localPatchSet;
 
     QVariantList messages;
     for (const GerritMessage &message : review->messages) {
@@ -1439,7 +1487,7 @@ QVariantMap Repository::diffComments() const
         return byLine;
     };
     return {{QStringLiteral("oldSide"), sideOf(diffPatchSet())},
-            {QStringLiteral("newSide"), sideOf(review->localPatchSet)}};
+            {QStringLiteral("newSide"), sideOf(diffPatchTarget() > 0 ? diffPatchTarget() : review->localPatchSet)}};
 }
 
 QString Repository::reviewHost() const
@@ -1854,7 +1902,7 @@ void Repository::openDiffTool(const QString &path)
              << (m_diffThreeDot ? QString() : m_diffCommit);
         break;
     case PatchSetDiff:
-        revs << m_diffBase << m_diffCommit;
+        revs << m_diffBase << (m_diffTarget.isEmpty() ? m_diffCommit : m_diffTarget);
         break;
     default:
         emit errorOccurred(tr("There is no diff on display to open."));

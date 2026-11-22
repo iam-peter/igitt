@@ -536,6 +536,29 @@ private slots:
         QVERIFY(comment(0).value(u"marked"_s).toBool());
         QVERIFY(comment(1).value(u"marked"_s).toBool());
         QVERIFY(!comment(2).value(u"marked"_s).toBool()); // on the file, not a line
+        // Patch set 1 on its own, against its parent, with its comments
+        m_repo->showPatchSets(0, 1);
+        QVERIFY(settle());
+        QCOMPARE(m_repo->diffSource(), Repository::PatchSetDiff);
+        QCOMPARE(m_repo->diffPatchSet(), 0);
+        QCOMPARE(m_repo->diffPatchTarget(), 1);
+        QVERIFY2(diffRows().contains(u"5 +second, first try"_s), qPrintable(diffRows().join(u'\n')));
+        QVERIFY(m_repo->commitDetails().contains("its parent"_L1));
+        marks = m_repo->diffComments();
+        QVERIFY(marks.value(u"oldSide"_s).toMap().isEmpty());
+        QCOMPARE(marks.value(u"newSide"_s).toMap().value(u"file.txt:5"_s).toList().value(0).toMap()
+                     .value(u"text"_s).toString(), u"Typo?"_s);
+        // Patch set 2 is this commit: the same as comparing with it
+        m_repo->showPatchSets(1, 2);
+        QVERIFY(settle());
+        QCOMPARE(m_repo->diffPatchSet(), 1);
+        QCOMPARE(m_repo->diffPatchTarget(), 0);
+        QVERIFY(diffRows().contains(u"5 +second"_s));
+        // Its parent and this commit: the commit itself
+        m_repo->showPatchSets(0, 0);
+        QVERIFY(settle());
+        QCOMPARE(m_repo->diffSource(), Repository::CommitDiff);
+
         // Back to the commit on its own.
         m_repo->showCommit(head);
         QVERIFY(settle());

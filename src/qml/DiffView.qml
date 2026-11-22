@@ -134,8 +134,11 @@ Pane {
                         case Repository.CommitDiff: return qsTr("Commit %1").arg(view.repo.diffCommit.substring(0, 10))
                         case Repository.FileContent: return qsTr("File: %1").arg(view.repo.diffPath)
                         case Repository.PatchSetDiff:
-                            return qsTr("Patch set %1 → commit %2").arg(view.repo.diffPatchSet)
-                                .arg(view.repo.diffCommit.substring(0, 10))
+                            return qsTr("%1 → %2")
+                                .arg(view.repo.diffPatchSet > 0 ? qsTr("Patch set %1").arg(view.repo.diffPatchSet)
+                                                                : qsTr("Parent"))
+                                .arg(view.repo.diffPatchTarget > 0 ? qsTr("patch set %1").arg(view.repo.diffPatchTarget)
+                                                                   : qsTr("commit %1").arg(view.repo.diffCommit.substring(0, 10)))
                         case Repository.CompareDiff:
                             return qsTr("Compared: %1 → %2").arg(view.repo.diffBaseName)
                                 .arg(view.repo.diffCommit.substring(0, 10))

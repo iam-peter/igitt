@@ -44,6 +44,13 @@ struct DiffRequest
     bool threeDot = false;
     // Range: a patch set, whose parent may differ after a rebase
     bool patchSet = false;
+    // Range: the newer side, if not `commit`, and what it is ("patch set 4")
+    QString target;
+    QString targetName;
+    // Range, patchSet: with the two on different parents, `base` put on
+    // the target's parent first, so the diff leaves out what the rebase
+    // brought in
+    bool hideRebase = false;
     int generation = 0; // lets the UI drop results for a view it has left
     // `git diff -w`. Such a diff cannot be applied back, so no line of it
     // can be staged.
@@ -58,6 +65,10 @@ struct DiffState
     QString message; // shown instead of a diff, e.g. for a conflicted file
     QString details; // commit header and message; Range: what is compared
     bool conflicted = false; // the file has unresolved merge conflicts
+    // Range, patchSet: the two are on different parents; and that left out
+    // of the diff, as asked for with hideRebase
+    bool rebased = false;
+    bool rebaseHidden = false;
     QStringList content;     // Content: the file's lines
     QList<LineMarkup> contentMarkup;
     bool truncated = false;  // Content: only the first lines

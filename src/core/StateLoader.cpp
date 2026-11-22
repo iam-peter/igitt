@@ -1,5 +1,7 @@
 #include "StateLoader.h"
 
+#include "CommitRewriter.h"
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -343,26 +345,52 @@ DiffState loadDiff(const StateSource &source, const DiffRequest &request, const 
         return diff;
     }
     if (request.kind == DiffKind::Range) {
+        const QString to = request.target.isEmpty() ? request.commit : request.target;
         const QString commit = QString::fromUtf8(git.run({QStringLiteral("show"), QStringLiteral("-s"),
-                                                          QStringLiteral("--format=%h %s"), request.commit,
+                                                          QStringLiteral("--format=%h %s"), to,
                                                           QStringLiteral("--")}).out).trimmed();
+        const QString toName = request.targetName.isEmpty() ? commit
+                                                             : request.targetName + QStringLiteral(" (") + commit + u')';
+        // A base given as sha^, say, by its own name
+        const QString baseSha = QString::fromUtf8(git.run({QStringLiteral("rev-parse"), QStringLiteral("--short=10"),
+                                                           request.base}).out).trimmed();
         diff.details = request.threeDot
             ? tr("What %1 changed\nsince it split off from %2").arg(commit, request.baseName)
-            : tr("From %1 (%2)\nto %3").arg(request.baseName, request.base.left(10), commit);
+            : tr("From %1 (%2)\nto %3").arg(request.baseName, baseSha.isEmpty() ? request.base.left(10) : baseSha,
+                                            toName);
+        QString from = request.base;
         if (request.patchSet) {
-            const GitResult parents = git.run({QStringLiteral("rev-parse"), request.base + QStringLiteral("^@"),
-                                               request.commit + QStringLiteral("^@")});
+            const GitResult parents = git.run({QStringLiteral("rev-parse"), request.base + QStringLiteral("^"),
+                                               to + QStringLiteral("^")});
             const QList<QByteArray> ids = parents.out.trimmed().split('\n');
-            if (parents.ok() && (ids.size() != 2 || ids[0] != ids[1]))
+            diff.rebased = parents.ok() && ids.size() == 2 && ids[0] != ids[1];
+            if (diff.rebased && request.hideRebase) {
+                // The older one as if made on the newer one's parent
+                const CommitRewriter rewriter(git);
+                const CommitRewriter::Merge moved = rewriter.merge(QString::fromLatin1(ids[0]),
+                                                                   QString::fromLatin1(ids[1]), request.base);
+                if (!moved.tree.isEmpty()) {
+                    from = moved.tree;
+                    diff.rebaseHidden = true;
+                    diff.details += QLatin1String("\n\n")
+                        + tr("They are on different parents; %1 is shown as if it had been on the same one, "
+                             "leaving out what the rebase brought in.").arg(request.baseName);
+                } else {
+                    diff.details += QLatin1String("\n\n")
+                        + tr("They are on different parents, and %1 does not move onto the other's without "
+                             "conflicts, so this includes what the rebase brought in.").arg(request.baseName);
+                }
+            } else if (diff.rebased) {
                 diff.details += QLatin1String("\n\n")
                     + tr("They are on different parents, so this includes what the rebase brought in.");
+            }
         }
         QStringList args{QStringLiteral("diff")};
         args += diffFormatArgs();
         if (request.ignoreWhitespace)
             args.append(QStringLiteral("--ignore-all-space"));
         const QStringList range = request.threeDot ? QStringList{request.base + QStringLiteral("...") + request.commit}
-                                                   : QStringList{request.base, request.commit};
+                                                   : QStringList{from, to};
         const GitResult result = git.run(args + range + QStringList{QStringLiteral("--")});
         if (result.ok()) {
             diff.files = parseDiff(result.out);

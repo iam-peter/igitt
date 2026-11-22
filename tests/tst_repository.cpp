@@ -547,6 +547,69 @@ private slots:
         QVERIFY(git({"stash", "list"}).contains("one file"));
     }
 
+    // Two patch sets on different parents: compared as they are, the
+    // rebase shows too; with it hidden, only what changed between them
+    void comparesRebasedPatchSets()
+    {
+        // f.txt: one two three four five. Patch set 1 on Second changes
+        // line 1; the branch moves on, changing line 5; patch set 2, on
+        // that, changes line 1 again and line 3 too.
+        const QString base = QString::fromUtf8(git({"rev-parse", "HEAD"}).trimmed());
+        writeFile(file(), "ONE\ntwo\nthree\nfour\nfive\n");
+        git({"commit", "-q", "-am", "Patch set 1"});
+        const QString first = QString::fromUtf8(git({"rev-parse", "HEAD"}).trimmed());
+        git({"reset", "-q", "--hard", base});
+        writeFile(file(), "one\ntwo\nthree\nfour\nFIVE\n");
+        git({"commit", "-q", "-am", "Upstream"});
+        writeFile(file(), "ONE!\ntwo\nTHREE\nfour\nFIVE\n");
+        git({"commit", "-q", "-am", "Patch set 2"});
+        const QString second = QString::fromUtf8(git({"rev-parse", "HEAD"}).trimmed());
+
+        StateSource source;
+        source.git = m_git;
+        DiffRequest request;
+        request.kind = DiffKind::Range;
+        request.commit = second;
+        request.base = first;
+        request.baseName = u"patch set 1"_s;
+        request.patchSet = true;
+        const auto lines = [](const DiffState &diff) {
+            QStringList changed;
+            for (const FileDiff &f : diff.files) {
+                for (const DiffHunk &hunk : f.hunks) {
+                    for (const DiffLine &line : hunk.lines) {
+                        if (line.kind != DiffLine::Context)
+                            changed << QString(QLatin1Char(char(line.kind))) + QString::fromUtf8(line.content);
+                    }
+                }
+            }
+            return changed;
+        };
+        DiffState plain = loadDiff(source, request, {});
+        QVERIFY(plain.rebased);
+        QVERIFY(!plain.rebaseHidden);
+        QVERIFY(lines(plain).contains(u"+FIVE"_s)); // the rebase
+        QVERIFY(plain.details.contains(u"different parents"_s));
+
+        request.hideRebase = true;
+        DiffState hidden = loadDiff(source, request, {});
+        QVERIFY(hidden.rebaseHidden);
+        QCOMPARE(lines(hidden), (QStringList{u"-ONE"_s, u"+ONE!"_s, u"-three"_s, u"+THREE"_s}));
+
+        // The other side named, not the commit: patch set 1 against its parent
+        request = {};
+        request.kind = DiffKind::Range;
+        request.commit = second;
+        request.target = first;
+        request.targetName = u"patch set 1"_s;
+        request.base = first + u"^"_s;
+        request.baseName = u"its parent"_s;
+        const DiffState own = loadDiff(source, request, {});
+        QCOMPARE(lines(own), (QStringList{u"-one"_s, u"+ONE"_s}));
+        QVERIFY(own.details.contains(u"patch set 1"_s));
+        QVERIFY(!own.rebased);
+    }
+
     // Several commits picked oldest first, one the branch has skipped;
     // a branch's commits after a point moved onto another base
     void picksSeveralAndMovesOnto()
